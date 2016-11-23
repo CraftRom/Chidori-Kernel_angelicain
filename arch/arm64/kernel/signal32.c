@@ -439,6 +439,7 @@ static void compat_setup_return(struct pt_regs *regs, struct k_sigaction *ka,
 		retcode = ptr_to_compat(ka->sa.sa_restorer);
 	} else {
 		/* Set up sigreturn pointer */
+<<<<<<< HEAD
 #ifdef CONFIG_VDSO32
 		void *vdso_base = current->mm->context.vdso;
 		void *trampoline =
@@ -452,6 +453,8 @@ static void compat_setup_return(struct pt_regs *regs, struct k_sigaction *ka,
 
 		retcode = ptr_to_compat(trampoline) + thumb;
 #else
+=======
+>>>>>>> 49a120110b98... FROMLIST: [PATCH v3 1/3] arm64: compat: Split the sigreturn trampolines and kuser helpers (C sources)
 		void *sigreturn_base = current->mm->context.vdso;
 		unsigned int idx = thumb << 1;
 
@@ -459,7 +462,10 @@ static void compat_setup_return(struct pt_regs *regs, struct k_sigaction *ka,
 			idx += 3;
 
 		retcode = ptr_to_compat(sigreturn_base) + (idx << 2) + thumb;
+<<<<<<< HEAD
 #endif
+=======
+>>>>>>> 49a120110b98... FROMLIST: [PATCH v3 1/3] arm64: compat: Split the sigreturn trampolines and kuser helpers (C sources)
 	}
 
 	regs->regs[0]	= usig;
