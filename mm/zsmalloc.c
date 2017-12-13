@@ -2510,7 +2510,6 @@ struct zs_pool *zs_create_pool(const char *name)
 		goto err;
 
 	init_waitqueue_head(&pool->migration_wait);
-#endif
 
 	if (create_cache(pool))
 		goto err;
