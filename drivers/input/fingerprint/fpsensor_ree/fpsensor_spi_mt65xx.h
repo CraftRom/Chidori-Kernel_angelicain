@@ -1,14 +1,21 @@
-/* mtk6739 used only */
+#include <linux/platform_data/spi-mt65xx.h>
+#if 0
+static struct mtk_spi {
+    void __iomem *base;
+    void __iomem *peri_regs;
+    u32 state;
+    int pad_num;
+    u32 *pad_sel;
+    struct clk *parent_clk, *sel_clk, *spi_clk;
+    struct spi_transfer *cur_transfer;
+    u32 xfer_len;
+    struct scatterlist *tx_sgl, *rx_sgl;
+    u32 tx_sgl_len, rx_sgl_len;
+    const struct mtk_spi_compatible *dev_comp;
+    u32 dram_8gb_offset;
+};
+#endif
 
-#ifndef __SF_SPI_H__
-#define __SF_SPI_H__
-
-
-#include <linux/types.h>
-#include <linux/io.h>
-/*******************************************************************************
-* define struct for spi driver
-********************************************************************************/
 enum spi_sample_sel {
     POSEDGE,
     NEGEDGE
@@ -93,5 +100,3 @@ struct mt_chip_conf {
     enum spi_ulthigh ulthigh;
     enum spi_tckdly tckdly;
 };
-
-#endif

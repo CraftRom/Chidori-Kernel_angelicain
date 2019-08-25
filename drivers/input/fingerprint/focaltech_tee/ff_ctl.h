@@ -26,6 +26,8 @@
 /* Max driver version buffer length. */
 #define FF_DRV_VERSION_LEN 32
 
+/* Max hal version buffer length. */
+#define FF_HAL_VERSION_LEN 64
 typedef struct {
     unsigned int code;
     int value;
@@ -96,4 +98,9 @@ typedef struct {
 /* Query the driver version string. */
 #define FF_IOC_GET_VERSION      _IOR(FF_IOC_MAGIC, 0x0b, const char)
 
+/* For ftm test */
+#define FF_IOC_WRITE_HAL_VERSION      _IOW(FF_IOC_MAGIC, 0x0c, const char)
+#define FF_IOC_WRITE_FINGER_STATE     _IOW(FF_IOC_MAGIC, 0x0d, int)
+/* Query the driver version string. */
+#define FF_IOC_GET_HAL_VERSION      _IOR(FF_IOC_MAGIC, 0x0e, const char)
 #endif /* __FF_CTRL_API_H__ */

@@ -2,7 +2,6 @@
  * ${ANDROID_BUILD_TOP}/vendor/focaltech/src/chips/ft9348.c
  *
  * Copyright (C) 2014-2017 FocalTech Systems Co., Ltd. All Rights Reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
 **/
 
@@ -12,22 +11,9 @@
 #include "ff_err.h"
 #include "ff_spi.h"
 #include "ff_chip.h"
-#include <teei_fp.h>
-#include <tee_client_api.h>
-//#include "../fp_drv/fp_drv.h"
+
 # undef LOG_TAG
 #define LOG_TAG "focaltech:ft9348"
-
-
-
-//liukangping@huaqin.con add fingerprint hardinfo begin 
-#ifdef CONFIG_HQ_HARDWARE_INFO
-#include <linux/hardware_info.h>
-#define FOCAL_FINGER		"FOCALTECH"
-#endif
-
-//liukangping@huaqin.con add fingerprint hardinfo end
-
 
 /*
  * Protocol commands.
@@ -40,23 +26,6 @@
 #define FT9348_CMD_INFO_WRITE 0x10
 #define FT9348_CMD_INFO_READ  0x11
 #define FT9348_CMD_BOOT_WRITE 0x11
-
-
-#define  WorkMode_Idle_Cmd     {0xC0, 0x3F, 0x00}
-#define  WorkMode_Sleep_Cmd    {0xC1, 0x3E, 0x00}
-#define  WorkMode_Fdt_Cmd      {0xC2, 0x3D, 0x00}
-#define  WorkMode_Img_Cmd      {0xC4, 0x3B, 0x00}
-#define  WorkMode_Nav_Cmd      {0xC8, 0x37, 0x00}
-#define  WorkMode_SysRst_Cmd   {0xD8, 0x27, 0x00}
-#define  WorkMode_AfeRst_Cmd   {0xD1, 0x2E, 0x00}
-#define  WorkMode_FdtRst_Cmd   {0xD2, 0x2D, 0x00}
-#define  WorkMode_FifoRst_Cmd  {0xD4, 0x2B, 0x00}
-#define  WorkMode_OscOn_Cmd    {0x5A, 0xA5, 0x00}
-#define  WorkMode_OscOff_Cmd   {0xA5, 0x5A, 0x00}
-#define  WorkMode_SpiWakeUp    {0x70, 0x00, 0x00}
-
-/*read id retry 5 times*/
-#define RETRY_TIMES 5
 
 /*
  * App info offset in XRAM.
@@ -189,10 +158,6 @@ static ft9348_context_t ft9348_context = {
         .work_mode = FF_DEVICE_MODE_IDLE,
 }, *g_context = &ft9348_context;
 
-static struct TEEC_UUID vendor_uuid = {
-    0x04190000, 0x0000, 0x0000, { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }
-};
-
 int ft9348_write_sfr(uint8_t addr, uint8_t data)
 {
     ff_sfr_buf_t tx_buf;
@@ -223,131 +188,7 @@ int ft9348_read_sfr(uint8_t addr, uint8_t *data)
     FF_LOGV("'%s' leave.", __func__);
     return err;
 }
-uint8_t const FW8064_WorkMode_Cmd[12][3] = {WorkMode_Idle_Cmd,\
-                                   WorkMode_Sleep_Cmd,\
-                                   WorkMode_Fdt_Cmd,\
-                                   WorkMode_Img_Cmd,\
-                                   WorkMode_Nav_Cmd,\
-                                   WorkMode_SysRst_Cmd,\
-                                   WorkMode_AfeRst_Cmd,\
-                                   WorkMode_FdtRst_Cmd,\
-                                   WorkMode_FifoRst_Cmd,\
-                                   WorkMode_OscOn_Cmd,\
-                                   WorkMode_OscOff_Cmd,\
-                                   WorkMode_SpiWakeUp};
-int fw8064_wm_switch(E_WORKMODE_FW workmode)
-{
-    int err = FF_SUCCESS;
-    uint8_t ucBuffCmd[64];
-    
-    FF_LOGV("'%s' enter.", __func__);
 
-    ucBuffCmd[0] = FW8064_WorkMode_Cmd[workmode][0];
-    ucBuffCmd[1] = FW8064_WorkMode_Cmd[workmode][1];
-    ucBuffCmd[2] = FW8064_WorkMode_Cmd[workmode][2];
-
-    if (e_WorkMode_Max > workmode)
-    {
-        if (e_WorkMode_SpiWakeUp == workmode)
-        {
-            err = ff_spi_write_buf(ucBuffCmd, 1);
-        }
-        else
-        {
-            err = ff_spi_write_buf(ucBuffCmd, 3);
-        }
-    }
-    else
-    {
-        FF_LOGI("'%s' Cmd Error.", __func__);
-        return FF_ERR_INTERNAL;
-    }
-
-    FF_LOGV("'%s' leave.", __func__);
-    return err;
-}
-
-void fw8064_sram_write(uint16_t addr, uint16_t data)
-{
-    int tx_len,dlen;
-    static uint8_t tx_buffer[MAX_XFER_BUF_SIZE] = {0, };
-    ff_sram_buf_t *tx_buf = TYPE_OF(ff_sram_buf_t, tx_buffer);
-    
-    //FF_LOGV("'%s' enter.", __func__);
-
-    /* Sign the package.  */
-    tx_buf->cmd[0] = (uint8_t)( FT9348_CMD_SRAM_WRITE);
-    tx_buf->cmd[1] = (uint8_t)(~FT9348_CMD_SRAM_WRITE);
-
-    /* Write it repeatedly. */
-    dlen = 2;
-
-    /* Packing. */
-    tx_buf->addr = u16_swap_endian(addr | 0x8000); //×îžßbitÎª1
-    tx_buf->dlen = u16_swap_endian((dlen/2)?(dlen/2-1):(dlen/2));
-    tx_len = sizeof(ff_sram_buf_t)/2*2 + dlen;
-    tx_buf->data[0] = data >> 8; 
-    tx_buf->data[1] = data & 0xff;
-
-    /* Low-level transfer. */
-    ff_spi_write_buf(tx_buf, tx_len);
-
-    //FF_LOGV("'%s' leave.", __func__);
-}
-uint16_t fw8064_read_sram(uint16_t addr)
-{
-    int tx_len;
-    int dlen; 
-    uint8_t ucbuff[8];
-    uint16_t ustemp;
-    ff_sram_buf_t tx_buffer, *tx_buf = &tx_buffer;
-    uint8_t *p_data = TYPE_OF(uint8_t, ucbuff);
-    // FF_LOGV("'%s' enter.", __func__);
-
-    /* Sign the package.  */
-    tx_buf->cmd[0] = (uint8_t)( FT9348_CMD_SRAM_READ);
-    tx_buf->cmd[1] = (uint8_t)(~FT9348_CMD_SRAM_READ);
-
-    /* Read it repeatedly. */
-    dlen = 2;
-
-        /* Packing. */
-    tx_buf->addr = u16_swap_endian(addr | 0x8000);
-    tx_buf->dlen = u16_swap_endian((dlen/2)?(dlen/2-1):(dlen/2));
-    tx_len = sizeof(ff_sram_buf_t)/2*2;
-
-        /* Low-level transfer. */
-    ff_spi_write_then_read_buf(tx_buf, tx_len, p_data, dlen);
-
-    ustemp = p_data[0];
-    ustemp = (ustemp << 8) + p_data[1];
-
-    return ustemp;
-}
-uint16_t fw8064_chipid_get(void)
-{
-    uint16_t usAddr,usData;
-
-    usAddr = 0x3500/2 + 0x0B;
-    usData = fw8064_read_sram(usAddr);
-
-    return usData;
-}
-void fw8064_int_mask_set(uint16_t usdata)
-{
-    uint16_t usAddr;
-
-    usAddr = 0x3500/2 + 0x03;
-    fw8064_sram_write(usAddr, usdata);
-}
-
-void fw8064_intflag_clear(uint16_t usdata)
-{
-    uint16_t usAddr;
-
-    usAddr = 0x3500/2 + 0x04;
-    fw8064_sram_write(usAddr, usdata);
-}
 int ft9348_write_sram(uint16_t addr, const void *data, uint16_t length)
 {
     int err = FF_SUCCESS, remain = length, tx_len;
@@ -775,8 +616,7 @@ int ft9348_config_device_mode(ff_device_mode_t mode)
  * The firmware filename in 'firmwares'.
  */
 static uint8_t g_firmware_data[] = {
-    //#include "firmwares/FW9361_Coating_V30_D21_20180605_app.i"
-    //#include "firmwares/FW9361_Coating_V30_D1D_20180626_app.i"
+    #include "firmwares/FW95A8_Coating_V1E_D22_20171229_app.i"
 };
 
 /* See plat-xxxx.c for platform dependent implementation. */
@@ -870,47 +710,22 @@ static int ft9348_download_firmware(void)
 int ff_chip_init(void)
 {
     uint16_t device_id = 0x0000;
-    int err = FF_SUCCESS,i=0;
+    int err = FF_SUCCESS;
     FF_LOGV("'%s' enter.", __func__);
-    for (i=0;i<RETRY_TIMES;i++) {
-        err = ff_ctl_reset_device();
-        FF_LOGI("ff_ctl_reset_device= : %d ", err);
-        err = fw8064_wm_switch(e_WorkMode_OscOn);
-        FF_LOGI("e_WorkMode_OscOn= : %d ", err);
-        err = fw8064_wm_switch(e_WorkMode_Idle);
-        FF_LOGI("e_WorkMode_Idle= : %d ", err);
-        mdelay(5);
-        device_id = fw8064_chipid_get();
-        FF_LOGI("chip id is = : 0x%04x ", device_id);
-        if(device_id==0x9362){
-            memcpy(&uuid_fp, &vendor_uuid, sizeof(struct TEEC_UUID));
-            //REGISTER_FP_DEV_INFO("focaltech_fp", "HV0001-TV0001  FT9362", NULL, NULL, NULL);
-            FF_LOGI("copy device_id to uuid-fp.....");
-            break;
-        }
-    }
-    return device_id;
 
     /* Try another way: Reset to PROM space and read boot info. */
     FF_LOGD("try to read the chip id in bootloader...");
     FF_CHECK_ERR(ft9348_hw_reset());
     ft9348_read_boot_info(g_context->boot_info.e_ChipId);
     device_id = u16_swap_endian(g_context->boot_info.e_ChipId);
-    FF_LOGI("got chip id: 0x%04x", device_id);
-    if(device_id != 0x95a8){
-        fw8064_int_mask_set(0xffff);
-        fw8064_intflag_clear(0xffff);
-        err = fw8064_wm_switch(e_WorkMode_Sleep);
-        FF_LOGI("fw8064_wm_switch return : %d ", err);
-        return err;
-    }
+    FF_LOGD("got chip id: 0x%04x", device_id);
+
     /*
      * Download/Update the latest firmware if needs.
      *
      * TODO: Read out the firmware version and compare to the embedded one's
      * to decide whether to upgrade the firmware or not.
      */
-     
     FF_LOGI("checking for firmware...");
     FF_FAILURE_RETRY(ft9348_download_firmware(), 0);
 
@@ -926,7 +741,7 @@ int ff_chip_init(void)
 
     /* Enter SensorMode. */
     FF_CHECK_ERR(ft9348_config_power_mode(FF_POWER_MODE_INIT_SLEEP));
-    FF_CHECK_ERR(ft9348_config_power_mode(FF_POWER_MODE_DEEP_SLEEP));
+    FF_CHECK_ERR(ft9348_config_power_mode(FF_POWER_MODE_AUTO_SLEEP));
 
     FF_LOGV("'%s' leave.", __func__);
     return err;

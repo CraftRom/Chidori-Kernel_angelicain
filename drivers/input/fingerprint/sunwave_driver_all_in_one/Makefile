@@ -1,18 +1,22 @@
+#
+# Makefile for the fingerprint device.
+#
 
-ccflags-y += -I$(srctree)/drivers/spi/mediatek/$(MTK_PLATFORM)
+# Each configuration option enables a list of files.
+#include $(srctree)/drivers/misc/mediatek/Makefile.custom
 
-MTK_PLATFORM := $(subst ",,$(CONFIG_MTK_PLATFORM))
 ccflags-y += -I$(srctree)/drivers/spi/mediatek/$(MTK_PLATFORM)
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/include
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/$(MTK_PLATFORM)/include
 
-# beanpod v2 compatible
+#just for beanpod v2 compatible
+#豆荚 V2 TEE平台，兼容头文件
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/teei/V1.0/tz_vfs
 
-# TEE support
+#甁砵 TEE 平台，兼容头文件
 subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/tkcore/core
 
-# sunwave driver file
+#sunwave driver file
 obj-y          := sf_ctl.o sf_hw.o
 

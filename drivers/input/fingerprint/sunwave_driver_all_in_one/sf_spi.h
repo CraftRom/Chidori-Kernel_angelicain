@@ -1,13 +1,20 @@
-/**
- * ${ANDROID_BUILD_TOP}/vendor/focaltech/src/base/focaltech/ff_spi.h
- *
- * Copyright (C) 2014-2017 FocalTech Systems Co., Ltd. All Rights Reserved.
- *
-**/
+#ifndef __SF_SPI_H__
+#define __SF_SPI_H__
 
-#ifndef __FF_SPI_H__
-#define __FF_SPI_H__
+#include "sf_user.h"
 
+#if (SF_MTK_CPU && defined(CONFIG_SPI_MT65XX))
+
+#include <linux/spi/spi.h>
+
+#if SF_TRUSTKERNEL_COMPAT_SPI_MT65XX
+
+#include <linux/types.h>
+#include <linux/io.h>
+
+/*******************************************************************************
+* define struct for spi driver
+********************************************************************************/
 enum spi_sample_sel {
     POSEDGE,
     NEGEDGE
@@ -93,62 +100,11 @@ struct mt_chip_conf {
     enum spi_tckdly tckdly;
 };
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#endif // end of #if SF_TRUSTKERNEL_COMPAT_SPI_MT65XX
 
-/*
- * Init ff_spi component.
- *
- * @return
- *  ff_err_t code.
- */
-int ff_spi_init(void);
+extern void mt_spi_enable_master_clk(struct spi_device *ms);
+extern void mt_spi_disable_master_clk(struct spi_device *ms);
 
-/*
- * De-init ff_spi component.
- */
-int ff_spi_free(void);
+#endif // end of #if (SF_MTK_CPU && defined(CONFIG_SPI_MT65XX))
 
-/*
- * Configurate the SPI speed.
- *
- * @params
- *  bps: bits per second.
- *
- * @return
- *  ff_err_t code.
- */
-int ff_spi_config_speed(int bps);
-
-/*
- * Writes data to SPI bus.
- *
- * @params
- *  tx_buf: TX data buffer to be written.
- *  tx_len: TX data length.
- *
- * @return
- *  ff_err_t code.
- */
-int ff_spi_write_buf(const void *tx_buf, int tx_len);
-
-/*
- * Writes command data to SPI bus and then reads data from SPI bus.
- *
- * @params
- *  tx_buf: TX data buffer to be written.
- *  tx_len: TX data length.
- *  rx_buf: RX data buffer to be read.
- *  rx_len: RX data length.
- *
- * @return
- *  ff_err_t code.
- */
-int ff_spi_write_then_read_buf(const void *tx_buf, int tx_len, void *rx_buf, int rx_len);
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* __FF_SPI_H__ */
+#endif // end of #ifndef __SF_SPI_H__

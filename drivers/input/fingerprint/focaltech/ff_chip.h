@@ -2,7 +2,6 @@
  * ${ANDROID_BUILD_TOP}/vendor/focaltech/src/chips/protocol.h
  *
  * Copyright (C) 2014-2017 FocalTech Systems Co., Ltd. All Rights Reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
 **/
 
@@ -35,23 +34,7 @@ typedef enum {
     FF_DEVICE_STAT_IDLE = 0,
     FF_DEVICE_STAT_BUSY = 1,
 } ff_device_status_t;
-typedef enum
-{
-    e_WorkMode_Idle = 0x00,
-    e_WorkMode_Sleep,
-    e_WorkMode_Fdt,
-    e_WorkMode_Img,
-    e_WorkMode_Nav,
-    e_WorkMode_SysRst,
-    e_WorkMode_AfeRst,
-    e_WorkMode_FdtRst,
-    e_WorkMode_FifoRst,
-    e_WorkMode_OscOn,
-    e_WorkMode_OscOff,
-    e_WorkMode_SpiWakeUp,
-    e_WorkMode_Max,
-    e_Dummy
-}E_WORKMODE_FW;
+
 typedef struct {
     int cols;
     int rows;
@@ -62,6 +45,7 @@ typedef struct {
     uint16_t chip_id;
     ff_sensor_t sensor;
 } ff_device_info_t;
+
 
 typedef struct {
     /*

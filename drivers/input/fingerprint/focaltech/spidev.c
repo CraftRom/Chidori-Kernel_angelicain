@@ -2,7 +2,6 @@
  * Simple synchronous userspace interface to SPI devices
  *
  * Copyright (C) 2006 SWAPP
- * Copyright (C) 2021 XiaoMi, Inc.
  *	Andrea Paterniani <a.paterniani@swapp-eng.it>
  * Copyright (C) 2007 David Brownell (simplification, cleanup)
  *
@@ -15,6 +14,10 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #include <linux/init.h>
@@ -30,17 +33,12 @@
 #include <linux/compat.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
-#include <linux/acpi.h>
 
 #include <linux/spi/spi.h>
 #include <linux/spi/spidev.h>
 
 #include <linux/uaccess.h>
-#include <linux/platform_data/spi-mt65xx.h>
-#include "ff_log.h"
-#include "ff_err.h"
-#include "ff_ctl.h"
-    
+#include "ff_spi.h" //prize wyq 20190717 config spi timing to fix read chip id fail-end
 
 /*
  * This supports access to SPI devices using normal userspace I/O calls.
@@ -55,12 +53,11 @@
  * nodes, since there is no fixed association of minor numbers with any
  * particular SPI bus or device.
  */
-//liukangping modified major dev from 153(wifi) to 155 begin
 #define SPIDEV_MAJOR			153	/* assigned */
-//liukangping modified major dev from 153(wifi) to 155 end
 #define N_SPI_MINORS			32	/* ... up to 256 */
-static int g_spidev_major = 0;  
+static int g_spidev_major = 0;      /* !!!Using dynamic major to replace SPIDEV_MAJOR!!! */
 struct spi_device *g_spidev = NULL;
+
 static DECLARE_BITMAP(minors, N_SPI_MINORS);
 
 
@@ -94,6 +91,8 @@ struct spidev_data {
 	u8			*rx_buffer;
 	u32			speed_hz;
 };
+
+extern struct mt_chip_conf mt_spi_chip_conf;//prize wyq 20190717 config spi timing to fix read chip id fail
 
 static LIST_HEAD(device_list);
 static DEFINE_MUTEX(device_list_lock);
@@ -223,7 +222,9 @@ static int spidev_message(struct spidev_data *spidev,
 	unsigned		n, total, tx_total, rx_total;
 	u8			*tx_buf, *rx_buf;
 	int			status = -EFAULT;
+	//int i=0;
 
+	printk("focal 1 '%s' enter. \n", __func__);
 	spi_message_init(&msg);
 	k_xfers = kcalloc(n_xfers, sizeof(*k_tmp), GFP_KERNEL);
 	if (k_xfers == NULL)
@@ -251,6 +252,7 @@ static int spidev_message(struct spidev_data *spidev,
 		 */
 		if (total > INT_MAX || k_tmp->len > INT_MAX) {
 			status = -EMSGSIZE;
+			printk("focal 2 '%s' enter. \n", __func__);
 			goto done;
 		}
 
@@ -265,7 +267,10 @@ static int spidev_message(struct spidev_data *spidev,
 			if (!access_ok(VERIFY_WRITE, (u8 __user *)
 						(uintptr_t) u_tmp->rx_buf,
 						u_tmp->len))
-				goto done;
+						{
+							printk("focal 3 '%s' enter. \n", __func__);
+							goto done;
+						}
 			rx_buf += k_tmp->len;
 		}
 		if (u_tmp->tx_buf) {
@@ -273,13 +278,21 @@ static int spidev_message(struct spidev_data *spidev,
 			tx_total += k_tmp->len;
 			if (tx_total > bufsiz) {
 				status = -EMSGSIZE;
+				printk("focal 4 '%s' enter. tx_total = %d: %d \n", __func__, tx_total, bufsiz);
 				goto done;
 			}
 			k_tmp->tx_buf = tx_buf;
 			if (copy_from_user(tx_buf, (const u8 __user *)
 						(uintptr_t) u_tmp->tx_buf,
 					u_tmp->len))
-				goto done;
+					{
+						printk("focal 5 '%s' enter. \n", __func__);
+						
+						goto done;
+					}
+			//for(i=0;i<u_tmp->len;i++){
+							//printk("spidev_message tx buf%i: %x\n", i,tx_buf[i]);
+						//}
 			tx_buf += k_tmp->len;
 		}
 
@@ -291,9 +304,9 @@ static int spidev_message(struct spidev_data *spidev,
 		k_tmp->speed_hz = u_tmp->speed_hz;
 		if (!k_tmp->speed_hz)
 			k_tmp->speed_hz = spidev->speed_hz;
-#ifdef VERBOSE
-		dev_dbg(&spidev->spi->dev,
-			"  xfer len %u %s%s%s%dbits %u usec %uHz\n",
+//#ifdef 1//VERBOSE
+		dev_info(&spidev->spi->dev,
+			"  xfer len %zd %s%s%s%dbits %u usec %uHz\n",
 			u_tmp->len,
 			u_tmp->rx_buf ? "rx " : "",
 			u_tmp->tx_buf ? "tx " : "",
@@ -301,11 +314,13 @@ static int spidev_message(struct spidev_data *spidev,
 			u_tmp->bits_per_word ? : spidev->spi->bits_per_word,
 			u_tmp->delay_usecs,
 			u_tmp->speed_hz ? : spidev->spi->max_speed_hz);
-#endif
+//#endif
 		spi_message_add_tail(k_tmp, &msg);
 	}
-
+	
+	printk("focal 6 '%s' enter. \n", __func__);
 	status = spidev_sync(spidev, &msg);
+	printk("focal 7 '%s' enter. status = %d \n", __func__, status);
 	if (status < 0)
 		goto done;
 
@@ -317,12 +332,17 @@ static int spidev_message(struct spidev_data *spidev,
 					(uintptr_t) u_tmp->rx_buf, rx_buf,
 					u_tmp->len)) {
 				status = -EFAULT;
+				
 				goto done;
 			}
+			//for(i=0;i<u_tmp->len;i++){
+					//printk("spidev_message rx buf%i: %x\n", i,rx_buf[i]);
+				//}
 			rx_buf += u_tmp->len;
 		}
 	}
 	status = total;
+	printk("focal 8 '%s' enter. status = %d \n", __func__, status);
 
 done:
 	kfree(k_xfers);
@@ -336,6 +356,7 @@ spidev_get_ioc_message(unsigned int cmd, struct spi_ioc_transfer __user *u_ioc,
 	struct spi_ioc_transfer	*ioc;
 	u32	tmp;
 
+	printk("focal 1 '%s' enter. \n", __func__);
 	/* Check type, command number and direction */
 	if (_IOC_TYPE(cmd) != SPI_IOC_MAGIC
 			|| _IOC_NR(cmd) != _IOC_NR(SPI_IOC_MESSAGE(0))
@@ -343,6 +364,7 @@ spidev_get_ioc_message(unsigned int cmd, struct spi_ioc_transfer __user *u_ioc,
 		return ERR_PTR(-ENOTTY);
 
 	tmp = _IOC_SIZE(cmd);
+	printk("focal 2 '%s' enter. cmd = %d : %d \n", __func__, cmd, tmp);
 	if ((tmp % sizeof(struct spi_ioc_transfer)) != 0)
 		return ERR_PTR(-EINVAL);
 	*n_ioc = tmp / sizeof(struct spi_ioc_transfer);
@@ -350,13 +372,20 @@ spidev_get_ioc_message(unsigned int cmd, struct spi_ioc_transfer __user *u_ioc,
 		return NULL;
 
 	/* copy into scratch area */
+	printk("focal 3 '%s' enter.", __func__);
 	ioc = kmalloc(tmp, GFP_KERNEL);
 	if (!ioc)
 		return ERR_PTR(-ENOMEM);
+	
+	printk("focal 4 '%s' enter. \n", __func__);
+	
 	if (__copy_from_user(ioc, u_ioc, tmp)) {
 		kfree(ioc);
 		return ERR_PTR(-EFAULT);
 	}
+	
+	printk("focal 5 '%s' enter. \n", __func__);
+	
 	return ioc;
 }
 
@@ -371,6 +400,7 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	unsigned		n_ioc;
 	struct spi_ioc_transfer	*ioc;
 
+	printk("focal 1 '%s' enter. \n", __func__);
 	/* Check type and command number */
 	if (_IOC_TYPE(cmd) != SPI_IOC_MAGIC)
 		return -ENOTTY;
@@ -379,6 +409,8 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	 * IOC_DIR is from the user perspective, while access_ok is
 	 * from the kernel perspective; so they look reversed.
 	 */
+	 
+	printk("focal 2 '%s' enter. cmd = %d \n ", __func__, cmd);
 	if (_IOC_DIR(cmd) & _IOC_READ)
 		err = !access_ok(VERIFY_WRITE,
 				(void __user *)arg, _IOC_SIZE(cmd));
@@ -391,6 +423,7 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	/* guard against device removal before, or while,
 	 * we issue this ioctl.
 	 */
+	printk("focal 3 '%s' enter. \n", __func__);
 	spidev = filp->private_data;
 	spin_lock_irq(&spidev->spi_lock);
 	spi = spi_dev_get(spidev->spi);
@@ -407,6 +440,7 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	 */
 	mutex_lock(&spidev->buf_lock);
 
+	printk("focal 4 '%s' enter. cmd = %d \n ", __func__, cmd);
 	switch (cmd) {
 	/* read requests */
 	case SPI_IOC_RD_MODE:
@@ -449,7 +483,7 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			if (retval < 0)
 				spi->mode = save;
 			else
-				dev_dbg(&spi->dev, "spi mode %x\n", tmp);
+				dev_info(&spi->dev, "spi mode %x\n", tmp);
 		}
 		break;
 	case SPI_IOC_WR_LSB_FIRST:
@@ -465,7 +499,7 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			if (retval < 0)
 				spi->mode = save;
 			else
-				dev_dbg(&spi->dev, "%csb first\n",
+				dev_info(&spi->dev, "%csb first\n",
 						tmp ? 'l' : 'm');
 		}
 		break;
@@ -479,7 +513,7 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			if (retval < 0)
 				spi->bits_per_word = save;
 			else
-				dev_dbg(&spi->dev, "%d bits per word\n", tmp);
+				dev_info(&spi->dev, "%d bits per word\n", tmp);
 		}
 		break;
 	case SPI_IOC_WR_MAX_SPEED_HZ:
@@ -492,7 +526,7 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			if (retval >= 0)
 				spidev->speed_hz = tmp;
 			else
-				dev_dbg(&spi->dev, "%d Hz (max)\n", tmp);
+				dev_info(&spi->dev, "%d Hz (max)\n", tmp);
 			spi->max_speed_hz = save;
 		}
 		break;
@@ -500,6 +534,7 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	default:
 		/* segmented and/or full-duplex I/O request */
 		/* Check message and copy into scratch area */
+		printk("focal 5 '%s' enter. \n", __func__);
 		ioc = spidev_get_ioc_message(cmd,
 				(struct spi_ioc_transfer __user *)arg, &n_ioc);
 		if (IS_ERR(ioc)) {
@@ -510,12 +545,15 @@ spidev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			break;	/* n_ioc is also 0 */
 
 		/* translate to spi_message, execute */
+		printk("focal 6 '%s' enter. \n", __func__);
 		retval = spidev_message(spidev, ioc, n_ioc);
 		kfree(ioc);
 		break;
 	}
 
 	mutex_unlock(&spidev->buf_lock);
+	
+	printk("focal 5 '%s' enter. retval = %d \n ", __func__, retval);
 	spi_dev_put(spi);
 	return retval;
 }
@@ -611,16 +649,16 @@ static int spidev_open(struct inode *inode, struct file *filp)
 	if (!spidev->tx_buffer) {
 		spidev->tx_buffer = kmalloc(bufsiz, GFP_KERNEL);
 		if (!spidev->tx_buffer) {
-			dev_dbg(&spidev->spi->dev, "open/ENOMEM\n");
-			status = -ENOMEM;
+				dev_info(&spidev->spi->dev, "open/ENOMEM\n");
+				status = -ENOMEM;
 			goto err_find_dev;
+			}
 		}
-	}
 
 	if (!spidev->rx_buffer) {
 		spidev->rx_buffer = kmalloc(bufsiz, GFP_KERNEL);
 		if (!spidev->rx_buffer) {
-			dev_dbg(&spidev->spi->dev, "open/ENOMEM\n");
+			dev_info(&spidev->spi->dev, "open/ENOMEM\n");
 			status = -ENOMEM;
 			goto err_alloc_rx_buf;
 		}
@@ -644,6 +682,7 @@ err_find_dev:
 static int spidev_release(struct inode *inode, struct file *filp)
 {
 	struct spidev_data	*spidev;
+	int			status = 0;
 
 	mutex_lock(&device_list_lock);
 	spidev = filp->private_data;
@@ -660,6 +699,7 @@ static int spidev_release(struct inode *inode, struct file *filp)
 		kfree(spidev->rx_buffer);
 		spidev->rx_buffer = NULL;
 
+		/* ... after we unbound from the underlying device? */
 		spin_lock_irq(&spidev->spi_lock);
 		if (spidev->spi)
 			spidev->speed_hz = spidev->spi->max_speed_hz;
@@ -673,7 +713,7 @@ static int spidev_release(struct inode *inode, struct file *filp)
 	}
 	mutex_unlock(&device_list_lock);
 
-	return 0;
+	return status;
 }
 
 static const struct file_operations spidev_fops = {
@@ -700,180 +740,7 @@ static const struct file_operations spidev_fops = {
 
 static struct class *spidev_class;
 
-#ifdef CONFIG_OF
-static const struct of_device_id spidev_dt_ids[] = {
-	{ .compatible = "fpc,fpc_spi" },
-	//{ .compatible = "mediatek,fingerprint" },
-	//{ .compatible = "lineartechnology,ltc2488" },
-	{},
-};
-MODULE_DEVICE_TABLE(of, spidev_dt_ids);
-#endif
-
-#ifdef CONFIG_ACPI
-
-/* Dummy SPI devices not to be used in production systems */
-#define SPIDEV_ACPI_DUMMY	1
-
-static const struct acpi_device_id spidev_acpi_ids[] = {
-	/*
-	 * The ACPI SPT000* devices are only meant for development and
-	 * testing. Systems used in production should have a proper ACPI
-	 * description of the connected peripheral and they should also use
-	 * a proper driver instead of poking directly to the SPI bus.
-	 */
-	{ "SPT0001", SPIDEV_ACPI_DUMMY },
-	{ "SPT0002", SPIDEV_ACPI_DUMMY },
-	{ "SPT0003", SPIDEV_ACPI_DUMMY },
-	{},
-};
-MODULE_DEVICE_TABLE(acpi, spidev_acpi_ids);
-
-static void spidev_probe_acpi(struct spi_device *spi)
-{
-	const struct acpi_device_id *id;
-
-	if (!has_acpi_companion(&spi->dev))
-		return;
-
-	id = acpi_match_device(spidev_acpi_ids, &spi->dev);
-	if (WARN_ON(!id))
-		return;
-
-	if (id->driver_data == SPIDEV_ACPI_DUMMY)
-		dev_warn(&spi->dev, "do not use this driver in production systems!\n");
-}
-#else
-static inline void spidev_probe_acpi(struct spi_device *spi) {}
-#endif
-
 /*-------------------------------------------------------------------------*/
-#define SPIS_DEBUG(fmt, args...) pr_info(fmt, ##args)
-
-void spi_transfer_malloc(struct spi_transfer *trans)
-{
-	int i;
-
-	trans->tx_buf = kzalloc(trans->len, GFP_KERNEL);
-	trans->rx_buf = kzalloc(trans->len, GFP_KERNEL);
-
-	for (i = 0; i < trans->len; i++)
-		*((char *)trans->tx_buf + i) = i + 0x1;
-}
-
-void spi_transfer_free(struct spi_transfer *trans)
-{
-	kfree(trans->tx_buf);
-	kfree(trans->rx_buf);
-}
-
-static void debug_packet(char *name, u8 *ptr, int len)
-{
-	int i;
-
-	SPIS_DEBUG("%s: ", name);
-	for (i = 0; i < len; i++)
-		SPIS_DEBUG(" %02x", ptr[i]);
-	 SPIS_DEBUG("\n");
-}
-
-int spi_loopback_check(struct spi_device *spi, struct spi_transfer *trans)
-{
-	int i, j, value, err = 0;
-	struct mtk_chip_config *chip_config = spi->controller_data;
-
-	for (i = 0; i < trans->len; i++) {
-		value = 0;
-		if (chip_config->tx_mlsb ^ chip_config->rx_mlsb) {
-			for (j = 7; j >= 0; j--)
-				value |= ((*((u8 *)trans->tx_buf + i)
-					  & (1 << j)) >> j) << (7-j);
-		} else {
-			value = *((u8 *) trans->tx_buf + i);
-		}
-
-		if (value != *((char *) trans->rx_buf + i))
-			err++;
-	}
-
-	if (err) {
-		SPIS_DEBUG("spi_len:%d, err %d\n", trans->len, err);
-		debug_packet("spi_tx_buf", (void *)trans->tx_buf, trans->len);
-		debug_packet("spi_rx_buf", trans->rx_buf, trans->len);
-		SPIS_DEBUG("spi test fail.");
-	} else {
-		SPIS_DEBUG("spi_len:%d, err %d\n", trans->len, err);
-		SPIS_DEBUG("spi test pass.");
-	}
-
-	if (err)
-		return -1;
-	else
-		return 0;
-}
-
-int spi_loopback_transfer(struct spi_device *spi, int len)
-{
-	struct spi_transfer trans;
-	struct spi_message msg;
-	int ret = 0;
-
-	memset(&trans, 0, sizeof(struct spi_transfer));
-	spi_message_init(&msg);
-
-	trans.len = len;
-	trans.cs_change = 0;
-	spi_transfer_malloc(&trans);
-	spi_message_add_tail(&trans, &msg);
-	ret = spi_sync(spi, &msg);
-	if (ret < 0)
-		SPIS_DEBUG("Message transfer err,line(%d):%d\n", __LINE__, ret);
-	spi_loopback_check(spi, &trans);
-	spi_transfer_free(&trans);
-
-	return ret;
-}
-
-static ssize_t spi_store(struct device *dev,
-			 struct device_attribute *attr,
-			 const char *buf, size_t count)
-{
-	int len;
-	struct spi_device *spi;
-
-	spi = container_of(dev, struct spi_device, dev);
-
-	if (!strncmp(buf, "-w", 2)) {
-		struct mtk_chip_config *chip_config =
-			kzalloc(sizeof(struct mtk_chip_config), GFP_KERNEL);
-
-		buf += 3;
-		chip_config->rx_mlsb = 0;
-		chip_config->tx_mlsb = 0;
-		spi->controller_data = (void *)chip_config;
-
-		if (!strncmp(buf, "len=", 4) &&
-		    (sscanf(buf + 4, "%d", &len) == 1)) {
-			spi_loopback_transfer(spi, len);
-		}
-	}
-
-	return count;
-}
-
-static DEVICE_ATTR(spi, 0200, NULL, spi_store);
-
-static struct device_attribute *spi_attribute[] = {
-	&dev_attr_spi,
-};
-static void spi_create_attribute(struct device *dev)
-{
-	int size, idx;
-
-	size = ARRAY_SIZE(spi_attribute);
-	for (idx = 0; idx < size; idx++)
-		device_create_file(dev, spi_attribute[idx]);
-}
 
 static int spidev_probe(struct spi_device *spi)
 {
@@ -881,18 +748,6 @@ static int spidev_probe(struct spi_device *spi)
 	int			status;
 	unsigned long		minor;
 
-	/*
-	 * spidev should never be referenced in DT without a specific
-	 * compatible string, it is a Linux implementation thing
-	 * rather than a description of the hardware.
-	 */
-FF_LOGE("spidev_probe start!\n");
-	
-	if (spi->dev.of_node && !of_match_device(spidev_dt_ids, &spi->dev))
-		dev_err(&spi->dev, "buggy DT: spidev listed directly in DT\n");
-
-	spidev_probe_acpi(spi);
-FF_LOGE("spidev_probe 1!\n");
 	/* Allocate driver data */
 	spidev = kzalloc(sizeof(*spidev), GFP_KERNEL);
 	if (!spidev)
@@ -900,12 +755,22 @@ FF_LOGE("spidev_probe 1!\n");
 
 	/* Initialize the driver data */
 	spidev->spi = spi;
+
+	//prize wyq 20190717 config spi timing to fix read chip id fail-start
+	/* CPOL=CPHA=0, speed 4MHz */
+	spidev->spi->mode = SPI_MODE_0;
+	spidev->spi->bits_per_word = 8;
+	spidev->spi->max_speed_hz = 4*1000*1000;
+	spidev->spi->controller_data = (void *)&mt_spi_chip_conf;
+	//prize wyq 20190717 config spi timing to fix read chip id fail-end
+
 	spin_lock_init(&spidev->spi_lock);
 	mutex_init(&spidev->buf_lock);
 
 	INIT_LIST_HEAD(&spidev->device_entry);
+	
+	printk("focal 1 '%s' enter. \n", __func__);
 
-FF_LOGE("spidev_probe 2!\n");
 	/* If we can allocate a minor number, hook up this device.
 	 * Reusing minors is fine so long as udev or mdev is working.
 	 */
@@ -919,8 +784,10 @@ FF_LOGE("spidev_probe 2!\n");
 				    spidev, "spidev%d.%d",
 				    spi->master->bus_num, spi->chip_select);
 		status = PTR_ERR_OR_ZERO(dev);
+		
+		printk("focal 2 '%s' enter. bus_num = %d: %d: %d \n", __func__, spi->master->bus_num, spi->chip_select, status);
 	} else {
-		dev_dbg(&spi->dev, "no minor number available!\n");
+		dev_info(&spi->dev, "no minor number available!\n");
 		status = -ENODEV;
 	}
 	if (status == 0) {
@@ -928,22 +795,17 @@ FF_LOGE("spidev_probe 2!\n");
 		list_add(&spidev->device_entry, &device_list);
 	}
 	mutex_unlock(&device_list_lock);
-FF_LOGE("spidev_probe 3!\n");
-	spidev->speed_hz = spi->max_speed_hz;
 
 	if (status == 0)
 		spi_set_drvdata(spi, spidev);
 	else
 		kfree(spidev);
 
-	spi_create_attribute(&spi->dev);	
+	/* Assign the spidev instance. */
+	g_spidev = spi;
 	
-	if(spi)
-    g_spidev = spi;
-	else
-	FF_LOGE("fail to register spidev!\n");
 	
-
+	printk("focal 3 '%s' leave. \n", __func__);
 	
 	return status;
 }
@@ -965,15 +827,26 @@ static int spidev_remove(struct spi_device *spi)
 	if (spidev->users == 0)
 		kfree(spidev);
 	mutex_unlock(&device_list_lock);
+
+    /* Release the spidev instance. */
     g_spidev = NULL;
+
 	return 0;
 }
+
+static const struct of_device_id spidev_dt_ids[] = {
+	/* { .compatible = "rohm,dh2228fv" }, */
+	{ .compatible = "focaltech,fingerprint-spidev" },
+	{},
+};
+
+MODULE_DEVICE_TABLE(of, spidev_dt_ids);
 
 static struct spi_driver spidev_spi_driver = {
 	.driver = {
 		.name =		"spidev",
+		.owner =	THIS_MODULE,
 		.of_match_table = of_match_ptr(spidev_dt_ids),
-		.acpi_match_table = ACPI_PTR(spidev_acpi_ids),
 	},
 	.probe =	spidev_probe,
 	.remove =	spidev_remove,
@@ -987,7 +860,7 @@ static struct spi_driver spidev_spi_driver = {
 
 /*-------------------------------------------------------------------------*/
 
-int spidev_init(void)
+/* static */ int /* __init */ spidev_init(void)
 {
 	int status;
 
@@ -996,10 +869,13 @@ int spidev_init(void)
 	 * the driver which manages those device numbers.
 	 */
 	BUILD_BUG_ON(N_SPI_MINORS > 256);
-	status = register_chrdev(0, "spi", &spidev_fops);
+	status = register_chrdev(/* SPIDEV_MAJOR */0, "spi", &spidev_fops);
 	if (status < 0)
 		return status;
-       g_spidev_major = status;
+
+	/* Assign the dynamic major number. */
+	g_spidev_major = status;
+
 	spidev_class = class_create(THIS_MODULE, "spidev");
 	if (IS_ERR(spidev_class)) {
 		unregister_chrdev(g_spidev_major, spidev_spi_driver.driver.name);
@@ -1013,17 +889,20 @@ int spidev_init(void)
 	}
 	return status;
 }
-//module_init(spidev_init);
+/* module_init(spidev_init); */
 
-void  spidev_exit(void)
+/* static */ void /* __exit */ spidev_exit(void)
 {
 	spi_unregister_driver(&spidev_spi_driver);
 	class_destroy(spidev_class);
 	unregister_chrdev(g_spidev_major, spidev_spi_driver.driver.name);
 }
-//module_exit(spidev_exit);
+/* module_exit(spidev_exit); */
 
-//MODULE_AUTHOR("Andrea Paterniani, <a.paterniani@swapp-eng.it>");
-//MODULE_DESCRIPTION("User mode SPI device interface");
-//MODULE_LICENSE("GPL");
-//MODULE_ALIAS("spi:spidev");
+#if 0
+MODULE_AUTHOR("Andrea Paterniani, <a.paterniani@swapp-eng.it>");
+MODULE_DESCRIPTION("User mode SPI device interface");
+MODULE_LICENSE("GPL");
+MODULE_ALIAS("spi:spidev");
+#endif
+

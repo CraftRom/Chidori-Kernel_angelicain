@@ -42,25 +42,26 @@
 #ifdef CONFIG_COMPAT
 #include <linux/compat.h>
 #endif
+#if defined(CONFIG_PRIZE_HARDWARE_INFO)
+#include "../../../../misc/mediatek/hardware_info/hardware_info.h"
+extern struct hardware_info current_fingerprint_info;
+static int read_id = 9362;
+
+#endif
+
+//beanpod
+#include "tee_client_api.h"
+#include "teei_fp.h"
+
 
 #include "ff_log.h"
 #include "ff_err.h"
-#include "ff_spi.h"
 #include "ff_ctl.h"
-
-//prize-add wyq 20181211, hardwareinfo-start
-#if defined(CONFIG_PRIZE_HARDWARE_INFO)
-#include "../../../misc/mediatek/hardware_info/hardware_info.h"
-extern struct hardware_info current_fingerprint_info;
-//static int read_id;
-//char * strtol_size = NULL;
-#endif
-//prize-add wyq 20181211, hardwareinfo-end
 
 /*
  * Define the driver version string.
  */
-#define FF_DRV_VERSION "v2.1.3"
+#define FF_DRV_VERSION "v2.1.2"
 
 /*
  * Define the driver name.
@@ -87,12 +88,15 @@ typedef struct {
 } ff_ctl_context_t;
 static ff_ctl_context_t *g_context = NULL;
 
+//beanpod set uuid
+struct TEEC_UUID vendor_uuid = {0x04190000, 0x0000, 0x0000, {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}};
 /*
  * Driver configuration.
  */
 static ff_driver_config_t driver_config;
-ff_driver_config_t *ff_g_config = NULL;
-
+ff_driver_config_t *ft_g_config = NULL;
+static int init_flag=0;
+static char hal_version[64] = {0};
 ////////////////////////////////////////////////////////////////////////////////
 /// Logging driver to logcat through uevent mechanism.
 
@@ -102,9 +106,7 @@ ff_driver_config_t *ff_g_config = NULL;
 /*
  * Log level can be runtime configurable by 'FF_IOC_SYNC_CONFIG'.
  */
-ff_log_level_t g_log_level = FF_LOG_LEVEL_VBS;	//__FF_EARLY_LOG_LEVEL;
-
-static int init_spi_flag = 0;
+ff_log_level_t g_log_level = __FF_EARLY_LOG_LEVEL;
 
 int ff_log_printf(ff_log_level_t level, const char *tag, const char *fmt, ...)
 {
@@ -124,7 +126,7 @@ int ff_log_printf(ff_log_level_t level, const char *tag, const char *fmt, ...)
     va_end(ap);
 
     /* Send to ff_device. */
-    if (likely(g_context) && likely(ff_g_config) && unlikely(ff_g_config->logcat_driver)) {
+    if (likely(g_context) && likely(ft_g_config) && unlikely(ft_g_config->logcat_driver)) {
         char *uevent_env[2] = {uevent_env_buf, NULL};
         kobject_uevent_env(&g_context->miscdev.this_device->kobj, KOBJ_CHANGE, uevent_env);
     }
@@ -201,7 +203,7 @@ extern int ff_chip_init(void);
 static int ff_ctl_enable_irq(bool on)
 {
     int err = 0;
-    printk("'%s' enter.", __func__);
+    FF_LOGV("'%s' enter.", __func__);
     FF_LOGD("irq: '%s'.", on ? "enable" : "disabled");
 
     if (unlikely(!g_context)) {
@@ -214,7 +216,7 @@ static int ff_ctl_enable_irq(bool on)
         disable_irq(g_context->irq_num);
     }
 
-    printk("'%s' leave.", __func__);
+    FF_LOGV("'%s' leave.", __func__);
     return err;
 }
 
@@ -222,7 +224,7 @@ static void ff_ctl_device_event(struct work_struct *ws)
 {
     ff_ctl_context_t *ctx = container_of(ws, ff_ctl_context_t, work_queue);
     char *uevent_env[2] = {"FF_INTERRUPT", NULL};
-    printk("'%s' enter.", __func__);
+    FF_LOGV("'%s' enter.", __func__);
     
     FF_LOGD("%s(irq = %d, ..) toggled.", __func__, ctx->irq_num);
 #ifdef CONFIG_PM_WAKELOCKS
@@ -232,7 +234,7 @@ static void ff_ctl_device_event(struct work_struct *ws)
 #endif
     kobject_uevent_env(&ctx->miscdev.this_device->kobj, KOBJ_CHANGE, uevent_env);
 
-    printk("'%s' leave.", __func__);
+    FF_LOGV("'%s' leave.", __func__);
 }
 
 static irqreturn_t ff_ctl_device_irq(int irq, void *dev_id)
@@ -241,7 +243,7 @@ static irqreturn_t ff_ctl_device_irq(int irq, void *dev_id)
     disable_irq_nosync(irq);
 
     if (likely(irq == ctx->irq_num)) {
-        if (ff_g_config && ff_g_config->enable_fasync && g_context->async_queue) {
+        if (ft_g_config && ft_g_config->enable_fasync && g_context->async_queue) {
             kill_fasync(&g_context->async_queue, SIGIO, POLL_IN);
         } else {
             schedule_work(&ctx->work_queue);
@@ -255,19 +257,19 @@ static irqreturn_t ff_ctl_device_irq(int irq, void *dev_id)
 static int ff_ctl_report_key_event(struct input_dev *input, ff_key_event_t *kevent)
 {
     int err = 0;
-    printk("'%s' enter.", __func__);
+    FF_LOGV("'%s' enter.", __func__);
 
     input_report_key(input, kevent->code, kevent->value);
     input_sync(input);
 
-    printk("'%s' leave.", __func__);
+    FF_LOGV("'%s' leave.", __func__);
     return err;
 }
 
 static const char *ff_ctl_get_version(void)
 {
     static char version[FF_DRV_VERSION_LEN] = {'\0', };
-    printk("'%s' enter.", __func__);
+    FF_LOGV("'%s' enter.", __func__);
 
     /* Version info. */
     version[0] = '\0';
@@ -283,7 +285,7 @@ static const char *ff_ctl_get_version(void)
     sprintf(version, "%s-%s", version, ff_ctl_arch_str());
     FF_LOGD("version: '%s'.", version);
 
-    printk("'%s' leave.", __func__);
+    FF_LOGV("'%s' leave.", __func__);
     return (const char *)version;
 }
 
@@ -298,7 +300,7 @@ static int ff_ctl_fb_notifier_callback(struct notifier_block *nb, unsigned long 
 		return NOTIFY_DONE;
 	}
 
-	printk("'%s' enter.", __func__);
+	FF_LOGV("'%s' enter.", __func__);
 
 	event = (struct fb_event *)data;
 	blank = *(int *)event->data;
@@ -317,14 +319,14 @@ static int ff_ctl_fb_notifier_callback(struct notifier_block *nb, unsigned long 
 	uevent_env[1] = NULL;
 	kobject_uevent_env(&g_context->miscdev.this_device->kobj, KOBJ_CHANGE, uevent_env);
 
-	printk("'%s' leave.", __func__);
+	FF_LOGV("'%s' leave.", __func__);
 	return NOTIFY_OK;
 }
 
 static int ff_ctl_register_input(void)
 {
     int err = 0;
-    printk("'%s' enter.", __func__);
+    FF_LOGV("'%s' enter.", __func__);
 
     /* Allocate the input device. */
     g_context->input = input_allocate_device();
@@ -334,15 +336,16 @@ static int ff_ctl_register_input(void)
     }
 
     /* Register the key event capabilities. */
-    if (ff_g_config) {
-        input_set_capability(g_context->input, EV_KEY, ff_g_config->keycode_nav_left    );
-        input_set_capability(g_context->input, EV_KEY, ff_g_config->keycode_nav_right   );
-        input_set_capability(g_context->input, EV_KEY, ff_g_config->keycode_nav_up      );
-        input_set_capability(g_context->input, EV_KEY, ff_g_config->keycode_nav_down    );
-        input_set_capability(g_context->input, EV_KEY, ff_g_config->keycode_double_click);
-        input_set_capability(g_context->input, EV_KEY, ff_g_config->keycode_click       );
-        input_set_capability(g_context->input, EV_KEY, ff_g_config->keycode_long_press  );
-        input_set_capability(g_context->input, EV_KEY, ff_g_config->keycode_simulation  );
+    if (ft_g_config) {
+        input_set_capability(g_context->input, EV_KEY, ft_g_config->keycode_nav_left    );
+        input_set_capability(g_context->input, EV_KEY, ft_g_config->keycode_nav_right   );
+        input_set_capability(g_context->input, EV_KEY, ft_g_config->keycode_nav_up      );
+        input_set_capability(g_context->input, EV_KEY, ft_g_config->keycode_nav_down    );
+        input_set_capability(g_context->input, EV_KEY, ft_g_config->keycode_double_click);
+        input_set_capability(g_context->input, EV_KEY, ft_g_config->keycode_click       );
+        input_set_capability(g_context->input, EV_KEY, ft_g_config->keycode_long_press  );
+        input_set_capability(g_context->input, EV_KEY, ft_g_config->keycode_simulation  );
+        input_set_capability(g_context->input, EV_KEY, 558); // Added by xuanfeng.ye for task7065065 on 2018-10-25
     }
 
     /* Register the allocated input device. */
@@ -355,14 +358,14 @@ static int ff_ctl_register_input(void)
         return (-ENODEV);
     }
 
-    printk("'%s' leave.", __func__);
+    FF_LOGV("'%s' leave.", __func__);
     return err;
 }
 
 static int ff_ctl_free_driver(void)
 {
     int err = 0;
-    printk("'%s' enter.", __func__);
+    FF_LOGV("'%s' enter.", __func__);
 
     /* Unregister framebuffer event notifier. */
     err = fb_unregister_client(&g_context->fb_notifier);
@@ -374,7 +377,7 @@ static int ff_ctl_free_driver(void)
     //err = ff_ctl_enable_power(0);
 
     /* Unregister the spidev device. */
-    err = ff_spi_free();
+    //err = ff_spi_free();
 
     /* De-initialize the input subsystem. */
     if (g_context->input) {
@@ -387,7 +390,7 @@ static int ff_ctl_free_driver(void)
     }
 
     /* Release IRQ resource. */
-    if (g_context->irq_num >= 0) {
+    if (g_context->irq_num > 0) {
         err = disable_irq_wake(g_context->irq_num);
         if (err) {
             FF_LOGE("disable_irq_wake(%d) = %d.", g_context->irq_num, err);
@@ -399,14 +402,14 @@ static int ff_ctl_free_driver(void)
     /* Release pins resource. */
     err = ff_ctl_free_pins();
 
-    printk("'%s' leave.", __func__);
+    FF_LOGV("'%s' leave.", __func__);
     return err;
 }
 
 static int ff_ctl_init_driver(void)
 {
     int err = 0;
-    printk("'%s' enter.", __func__);
+    FF_LOGV("'%s' enter.", __func__);
 
     if (unlikely(!g_context)) {
         return (-ENOSYS);
@@ -427,7 +430,7 @@ static int ff_ctl_init_driver(void)
         err = request_irq(g_context->irq_num, ff_ctl_device_irq,
                 IRQF_TRIGGER_RISING | IRQF_ONESHOT, "ff_irq", (void*)g_context);
         if (err) {
-            FF_LOGE("request_irq(..) = %d +=%d\n", err, g_context->irq_num);
+            FF_LOGE("request_irq(..) = %d.", err);
             break;
         }
 
@@ -438,17 +441,14 @@ static int ff_ctl_init_driver(void)
         }
 
         /* Register spidev device. For REE-Emulation solution only. */
-        //if (ff_g_config && ff_g_config->enable_spidev) 
-        {
-	        if(init_spi_flag)
-	    	{
-	            err = ff_spi_init();
-	            if (err) {
-	                FF_LOGE("ff_spi_init(..) = %d.", err);
-	                break;
-	            }
-				init_spi_flag = 0;
-	    	}
+//        if (ft_g_config && ft_g_config->enable_spidev) {
+        if(init_flag){
+//            err = ff_spi_init();
+            if (err) {
+                FF_LOGE("ff_spi_init(..) = %d.", err);
+                break;
+            }
+            init_flag=0;
         }
     } while (0);
 
@@ -468,14 +468,16 @@ static int ff_ctl_init_driver(void)
     err = ff_ctl_enable_power(1);
 
     /* Enable SPI clock. */
+    //Begin Modified by yuduan.xie for Task 7108178 on 2018.11.12
     err = ff_ctl_enable_spiclk(1);
+    //End Modified by yuduan.xie for Task 7108178 on 2018.11.12
 
     /* Register screen on/off callback. */
     g_context->fb_notifier.notifier_call = ff_ctl_fb_notifier_callback;
     err = fb_register_client(&g_context->fb_notifier);
 
     g_context->b_driver_inited = true;
-    printk("'%s' leave.", __func__);
+    FF_LOGV("'%s' leave.", __func__);
     return err;
 }
 
@@ -485,12 +487,12 @@ static int ff_ctl_init_driver(void)
 static int ff_ctl_fasync(int fd, struct file *filp, int mode)
 {
     int err = 0;
-    printk("'%s' enter.", __func__);
+    FF_LOGV("'%s' enter.", __func__);
 
     FF_LOGD("%s: mode = 0x%08x.", __func__, mode);
     err = fasync_helper(fd, filp, mode, &g_context->async_queue);
 
-    printk("'%s' leave.", __func__);
+    FF_LOGV("'%s' leave.", __func__);
     return err;
 }
 
@@ -499,7 +501,7 @@ static long ff_ctl_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     int err = 0;
     struct miscdevice *dev = (struct miscdevice *)filp->private_data;
     ff_ctl_context_t *ctx = container_of(dev, ff_ctl_context_t, miscdev);
-    printk("'%s' enter.", __func__);
+    FF_LOGV("'%s' enter.", __func__);
 
 #if 1
     if (g_log_level <= FF_LOG_LEVEL_DBG) {
@@ -523,21 +525,18 @@ static long ff_ctl_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     switch (cmd) {
     case FF_IOC_INIT_DRIVER: {
         if (g_context->b_driver_inited) {
-            //err = ff_ctl_free_driver();
-			err = 0;
-			printk("focal FF_IOC_INIT_DRIVER ff_ctl_free_driver err = %d \n", err);
+            err = ff_ctl_free_driver();
+			g_context->b_driver_inited = false;
         }
         if (!err) {
-          err = ff_ctl_init_driver();
+            err = ff_ctl_init_driver();
             // TODO: Sync the dirty configuration back to HAL.
         }
         break;
     }
     case FF_IOC_FREE_DRIVER:
         if (g_context->b_driver_inited) {
-            //err = ff_ctl_free_driver();
-			err = 0;
-			printk("focal FF_IOC_FREE_DRIVER ff_ctl_free_driver err = %d \n", err);
+            err = ff_ctl_free_driver();
             g_context->b_driver_inited = false;
         }
         break;
@@ -560,7 +559,7 @@ static long ff_ctl_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
         err = ff_ctl_enable_power(1);
         break;
     case FF_IOC_DISABLE_POWER:
-        //err = ff_ctl_enable_power(0);
+        err = ff_ctl_enable_power(0);
         break;
     case FF_IOC_REPORT_KEY_EVENT: {
         ff_key_event_t kevent;
@@ -578,14 +577,33 @@ static long ff_ctl_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
             err = (-EFAULT);
             break;
         }
-        ff_g_config = &driver_config;
+        ft_g_config = &driver_config;
 
         /* Take logging level effect. */
-        g_log_level = ff_g_config->log_level;
+        g_log_level = ft_g_config->log_level;
         break;
     }
     case FF_IOC_GET_VERSION: {
         if (copy_to_user((void *)arg, ff_ctl_get_version(), FF_DRV_VERSION_LEN)) {
+            FF_LOGE("copy_to_user(..) failed.");
+            err = (-EFAULT);
+            break;
+        }
+        break;
+	}
+	case FF_IOC_WRITE_HAL_VERSION: {
+        if (copy_from_user(hal_version, (void *)arg, FF_HAL_VERSION_LEN)) {
+            FF_LOGE("copy_to_user(..) failed.");
+            err = (-EFAULT);
+            break;
+        }
+		#if defined(CONFIG_PRIZE_HARDWARE_INFO)
+		sprintf(current_fingerprint_info.id, "%s",&hal_version[0]);
+		#endif
+        break;
+	}
+	case FF_IOC_GET_HAL_VERSION: {
+        if (copy_to_user((void *)arg, hal_version, FF_HAL_VERSION_LEN)) {
             FF_LOGE("copy_to_user(..) failed.");
             err = (-EFAULT);
             break;
@@ -597,7 +615,7 @@ static long ff_ctl_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
         break;
     }
 
-    printk("'%s' leave.", __func__);
+    FF_LOGV("'%s' leave.", __func__);
     return err;
 }
 
@@ -610,12 +628,12 @@ static int ff_ctl_open(struct inode *inode, struct file *filp)
 static int ff_ctl_release(struct inode *inode, struct file *filp)
 {
     int err = 0;
-    printk("'%s' enter.", __func__);
+    FF_LOGV("'%s' enter.", __func__);
 
     /* Remove this filp from the asynchronously notified filp's. */
     err = ff_ctl_fasync(-1, filp, 0);
 
-    printk("'%s' leave.", __func__);
+    FF_LOGV("'%s' leave.", __func__);
     return err;
 }
 
@@ -623,11 +641,11 @@ static int ff_ctl_release(struct inode *inode, struct file *filp)
 static long ff_ctl_compat_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
     int err = 0;
-    printk("focal '%s' enter.\n", __func__);
+    FF_LOGV("focal '%s' enter.\n", __func__);
 
     err = ff_ctl_ioctl(filp, cmd, (unsigned long)compat_ptr(arg));
 
-    printk("'%s' leave.", __func__);
+    FF_LOGV("'%s' leave.", __func__);
     return err;
 }
 #endif
@@ -655,7 +673,7 @@ static ff_ctl_context_t ff_ctl_context = {
 static int __init ff_ctl_driver_init(void)
 {
     int err = 0;
-    printk("'%s' enter.", __func__);
+    FF_LOGV("'%s' enter.", __func__);
 
     /* Register as a miscellaneous device. */
     err = misc_register(&ff_ctl_context.miscdev);
@@ -667,7 +685,7 @@ static int __init ff_ctl_driver_init(void)
     /* Init the interrupt workqueue. */
     INIT_WORK(&ff_ctl_context.work_queue, ff_ctl_device_event);
 
-    /* Init the wake lock. */
+        /* Init the wake lock. */
 #ifdef CONFIG_PM_WAKELOCKS
     wakeup_source_init(&ff_ctl_context.wake_lock, "ff_wake_lock");
 #else
@@ -676,37 +694,35 @@ static int __init ff_ctl_driver_init(void)
 
     /* Assign the context instance. */
     g_context = &ff_ctl_context;
-	init_spi_flag = 1;
-
+    init_flag=1;
+	
+	//beanpod uuid 
+	memcpy(&uuid_fp,&vendor_uuid,sizeof(struct TEEC_UUID));
+#if 0
     /* Initialize the chip. */
-    //if (ff_ctl_init_driver() == 0 && ff_chip_init() != 0) {
-	err = ff_ctl_init_driver();
-	printk("focal ff_ctl_init_driver = %d \n", err);
-    //if(ff_ctl_init_driver() != 0) {
-	if(err != 0) {
+    if (ff_ctl_init_driver() == 0 && ff_chip_init() != 0) {
+	// TASK6361889
+	    FF_LOGI("iii FocalTech fingerprint free gpio.");
         err = ff_ctl_free_driver();
         g_context->b_driver_inited = false;
     }
-	
-//prize-add wyq 20181211, hardwareinfo-start
+#endif
 #if defined(CONFIG_PRIZE_HARDWARE_INFO)
-	sprintf(current_fingerprint_info.chip,"ft9362l6");
-	//sprintf(current_fingerprint_info.id,"0x%x",(unsigned int)simple_strtoul(sf_ctl_get_version(), &strtol_size, 0));
-	sprintf(current_fingerprint_info.id,"0x%s",FF_DRV_VERSION);
+	//id=mas_connect();
+	sprintf(current_fingerprint_info.chip,"ft9362");
+	sprintf(current_fingerprint_info.id,"0x%x",read_id);
 	strcpy(current_fingerprint_info.vendor,"focaltech");
 	strcpy(current_fingerprint_info.more,"fingerprint");
-#endif
-//prize-add wyq 20181211, hardwareinfo-end
-
+	#endif
     FF_LOGI("FocalTech fingerprint device control driver registered.");
-    printk("'%s' leave.", __func__);
+    FF_LOGV("'%s' leave.", __func__);
     return err;
 }
 
 static void __exit ff_ctl_driver_exit(void)
 {
     int err = 0;
-    printk("'%s' enter.", __func__);
+    FF_LOGV("'%s' enter.", __func__);
 
     /* Release the HW resources if needs. */
     if (g_context->b_driver_inited) {
@@ -720,6 +736,7 @@ static void __exit ff_ctl_driver_exit(void)
 #else
     wake_lock_destroy(&g_context->wake_lock);
 #endif
+
     /* Unregister the miscellaneous device. */
     misc_deregister(&g_context->miscdev);
 
@@ -727,7 +744,7 @@ static void __exit ff_ctl_driver_exit(void)
     g_context = NULL;
 
     FF_LOGI("FocalTech fingerprint device control driver released.");
-    printk("'%s' leave.", __func__);
+    FF_LOGV("'%s' leave.", __func__);
 }
 
 module_init(ff_ctl_driver_init);

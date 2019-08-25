@@ -2,7 +2,6 @@
  * The platform spi device for FocalTech's fingerprint sensor.
  *
  * Copyright (C) 2016-2017 FocalTech Systems Co., Ltd. All Rights Reserved.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -19,6 +18,10 @@
 #include <linux/init.h>
 #include <linux/errno.h>
 #include <linux/spi/spi.h>
+#include <linux/types.h>
+#include <linux/fs.h>
+//#include <liunx/input.h>
+//#include <liunx/uaccess.h>
 
 #if defined CONFIG_ARCH_MT6735M || \
     defined CONFIG_ARCH_MT6755
@@ -28,25 +31,27 @@
 #else
 //# error "unknown arch platform."
 #endif
-//# include <mt_spi.h>
 
 #include "ff_log.h"
 #include "ff_err.h"
 
+#include "ff_spi.h"
+
 # undef LOG_TAG
 #define LOG_TAG "ff_spi"
-
-#define AS_DRIVER 1
-#define VERBOSE_SPI_DATA 0
 
 /* See spidev.c for implementation. */
 extern int  spidev_init(void);
 extern void spidev_exit(void);
 extern struct spi_device *g_spidev;
-extern struct spi_device* global_spi;
 
-#if defined (CONFIG_MTK_PLATFORM)
-/*static struct mt_chip_conf mt_spi_chip_conf = {
+#define AS_DRIVER 1
+#define VERBOSE_SPI_DATA 0
+
+//prize wyq 20190717 config spi timing to fix read chip id fail-start
+#if 1
+//#if defined (CONFIG_MTK_PLATFORM)
+struct mt_chip_conf mt_spi_chip_conf = {
     .setuptime    = 20,
     .holdtime     = 20,
     .high_time    = 25,
@@ -67,21 +72,23 @@ extern struct spi_device* global_spi;
     .deassert     = DEASSERT_DISABLE,
     .ulthigh      = ULTRA_HIGH_DISABLE,
     .tckdly       = TICK_DLY0,
-}; */
+};
 #endif
+//prize wyq 20190717 config spi timing to fix read chip id fail-end
 
-#ifndef AS_DRIVER
+#if 0
 static struct spi_board_info spi_desc = {
     .modalias    = "spidev",
     .bus_num     = 0,
     .chip_select = 0,
     .mode        = SPI_MODE_0,
 #if defined (CONFIG_MTK_PLATFORM)
-    .controller_data = 0,//&mt_spi_chip_conf,
+    .controller_data = &mt_spi_chip_conf,
 #endif
 };
 static struct spi_master *g_master = NULL;
 #endif
+
 ////////////////////////////////////////////////////////////////////////////////
 
 static inline bool is_printable(char ch)
@@ -150,17 +157,13 @@ void ff_util_hexdump(const void *buf, int len)
 
 int ff_spi_init(void)
 {
-#ifndef AS_DRIVER
-    uint32_t speed;
-    uint8_t mode, lsb, bits;
-#endif
+    //uint8_t mode, lsb, bits;
+    //uint32_t speed;
     int err = FF_SUCCESS;
     FF_LOGV("'%s' enter.", __func__);
 
 #if AS_DRIVER
     /* Register the spidev driver. */
-if(!global_spi)
-{
     err = spidev_init();
     if (err) {
         FF_LOGE("failed to register spidev driver.");
@@ -168,13 +171,11 @@ if(!global_spi)
     } else {
         FF_LOGI("spidev driver has been registered.");
     }
-}else{
-	 FF_LOGI("spidev driver has been registered,use global spi.");
-	 g_spidev=global_spi;
-}
 
 #else
     /* Retrieve the master controller handle. */
+	uint8_t mode,lsb,bits;
+	uint32_t speed;
     g_master = spi_busnum_to_master(spi_desc.bus_num);
     if (!g_master) {
         FF_LOGE("there is no spi master controller on bus #%d.", spi_desc.bus_num);
@@ -216,13 +217,12 @@ int ff_spi_free(void)
     FF_LOGV("'%s' enter.", __func__);
 
 #if AS_DRIVER
-if(!global_spi){
     if (g_spidev) {
         g_spidev = NULL;
         spidev_exit();
         FF_LOGI("spidev driver has been un-registered.");
     }
-}
+
 #else
     /* Unregister the spi device. */
     if (g_spidev) {
@@ -252,7 +252,8 @@ static int ff_spi_sync(struct spi_device *spidev, struct spi_message *message)
 {
     DECLARE_COMPLETION_ONSTACK(done);
     int err = FF_SUCCESS;
-    FF_LOGV("'%s' enter.", __func__);
+    FF_LOGE("'%s' enter.", __func__);
+	printk("focal '%s' enter.", __func__);
 
     message->complete = ff_spi_complete;
     message->context = &done;
@@ -275,7 +276,8 @@ int ff_spi_write_buf(const void *tx_buf, int tx_len)
     struct spi_message message;
     struct spi_transfer xfer;
     int err = FF_SUCCESS;
-    FF_LOGV("'%s' enter.", __func__);
+    FF_LOGE("'%s' enter.", __func__);
+	printk("focal '%s' enter.", __func__);
 
     memset(&xfer, 0, sizeof(xfer));
     xfer.tx_buf = tx_buf;
@@ -309,7 +311,8 @@ int ff_spi_write_then_read_buf(const void *tx_buf, int tx_len, void *rx_buf, int
     struct spi_transfer xfer;
     int err = FF_SUCCESS, tx_rx_buf_len = tx_len + rx_len;
     void *tx_rx_buf = NULL;
-    FF_LOGV("'%s' enter.", __func__);
+    FF_LOGE("'%s' enter.", __func__);
+	printk("focal '%s' enter.", __func__);
 
     FF_CHECK_PTR(g_spidev);
 

@@ -33,15 +33,13 @@ typedef enum {
  * default level is FF_LOG_LEVEL_ALL(all the logs will be output).
  */
 #ifndef __FF_EARLY_LOG_LEVEL
-#define __FF_EARLY_LOG_LEVEL FF_LOG_LEVEL_ALL
+#define __FF_EARLY_LOG_LEVEL FF_LOG_LEVEL_ERR
 #endif
 
 /*
  * Log level can be runtime configurable.
  */
 extern ff_log_level_t g_log_level; /* = __FF_EARLY_LOG_LEVEL */
-
-//g_log_level = FF_LOG_LEVEL_VBS;
 
 /*
  * Using the following five macros for conveniently logging.

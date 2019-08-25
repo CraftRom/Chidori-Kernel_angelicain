@@ -23,18 +23,13 @@
 #define LOG_TAG "mt6762"
 
 int ff_ctl_enable_power(bool on);
-extern struct spi_device *g_spidev;
-
-
-extern void mt_spi_enable_master_clk(struct spi_device *spidev);
-extern void mt_spi_disable_master_clk(struct spi_device *spidev);
 
 /* TODO: */
 #define FF_COMPATIBLE_NODE_1 "mediatek,mt6765-fpc"
 #define FF_COMPATIBLE_NODE_2 "mediatek,mt6765-fpc"
 //#define FF_COMPATIBLE_NODE_1 "mediatek,focal-fp"
 //#define FF_COMPATIBLE_NODE_2 "mediatek,fpc1145"
-//#define FF_COMPATIBLE_NODE_3 "mediatek,mt6762-spi"
+#define FF_COMPATIBLE_NODE_3 "mediatek,mt6763-spi"
 
 /* Define pinctrl state types. */
 #if 0
@@ -114,12 +109,13 @@ int ff_ctl_init_pins(int *irq_num)
 	int irq_num1 = 0;
     struct device_node *dev_node = NULL;
     struct platform_device *pdev = NULL;
+
     printk("'%s' enter.", __func__);
 
     /* Find device tree node. */
     dev_node = of_find_compatible_node(NULL, NULL, FF_COMPATIBLE_NODE_1);
     if (!dev_node) {
-        printk("of_find_compatible_node(.., '%s') failed.", FF_COMPATIBLE_NODE_1);
+        FF_LOGE("of_find_compatible_node(.., '%s') failed.", FF_COMPATIBLE_NODE_1);
         return (-ENODEV);
     }
 
@@ -129,14 +125,14 @@ int ff_ctl_init_pins(int *irq_num)
     /* Convert to platform device. */
     pdev = of_find_device_by_node(dev_node);
     if (!pdev) {
-        printk("of_find_device_by_node(..) failed.");
+        FF_LOGE("of_find_device_by_node(..) failed.");
         return (-ENODEV);
     }
 
     /* Retrieve the pinctrl handler. */
     g_context->pinctrl = devm_pinctrl_get(&pdev->dev);
     if (!g_context->pinctrl) {
-        printk("devm_pinctrl_get(..) failed.");
+        FF_LOGE("devm_pinctrl_get(..) failed.");
         return (-ENODEV);
     }
 
@@ -144,7 +140,7 @@ int ff_ctl_init_pins(int *irq_num)
     for (i = 0; i < FF_PINCTRL_STATE_MAXIMUM; ++i) {
         g_context->pin_states[i] = pinctrl_lookup_state(g_context->pinctrl, g_pinctrl_state_names[i]);
         if (!g_context->pin_states[i]) {
-            printk("can't find pinctrl state for '%s'.", g_pinctrl_state_names[i]);
+            FF_LOGE("can't find pinctrl state for '%s'.", g_pinctrl_state_names[i]);
             err = (-ENODEV);
             break;
         }
@@ -152,7 +148,7 @@ int ff_ctl_init_pins(int *irq_num)
     if (i < FF_PINCTRL_STATE_MAXIMUM) {
         return (-ENODEV);
     }
-  
+
 	 /* Initialize the SPI pins. */
     err = pinctrl_select_state(g_context->pinctrl, g_context->pin_states[FF_PINCTRL_STATE_SPI_CS_ACT]);
     err = pinctrl_select_state(g_context->pinctrl, g_context->pin_states[FF_PINCTRL_STATE_SPI_CK_ACT]);
@@ -161,6 +157,52 @@ int ff_ctl_init_pins(int *irq_num)
 
     /* Initialize the INT pin. */
     err = pinctrl_select_state(g_context->pinctrl, g_context->pin_states[FF_PINCTRL_STATE_INT_ACT]);
+
+    /* Retrieve the irq number. 
+    dev_node = of_find_compatible_node(NULL, NULL, FF_COMPATIBLE_NODE_2);
+    if (!dev_node) {
+        printk("of_find_compatible_node(.., '%s') failed.", FF_COMPATIBLE_NODE_2);
+        return (-ENODEV);
+    }
+    *irq_num = irq_of_parse_and_map(dev_node, 0);
+    printk("irq number is %d.", *irq_num);*/
+
+    pinctrl_select_state(g_context->pinctrl, g_context->pin_states[FF_PINCTRL_STATE_RST_ACT]);
+	
+#if 1
+//#if !defined(CONFIG_MTK_CLKMGR)
+    //
+    // Retrieve the clock source of the SPI controller.
+    //
+
+    /* 3-1: Find device tree node. */
+    dev_node = of_find_compatible_node(NULL, NULL, FF_COMPATIBLE_NODE_3);
+    if (!dev_node) {
+        FF_LOGE("of_find_compatible_node(.., '%s') failed.", FF_COMPATIBLE_NODE_3);
+        return (-ENODEV);
+    }
+
+    /* 3-2: Convert to platform device. */
+    pdev = of_find_device_by_node(dev_node);
+    if (!pdev) {
+        FF_LOGE("of_find_device_by_node(..) failed.");
+        return (-ENODEV);
+    } else {
+        //u32 frequency, div;
+        //err = of_property_read_u32(pdev->dev.of_node, "clock-frequency", &frequency);
+        //err = of_property_read_u32(pdev->dev.of_node, "clock-div", &div);
+        FF_LOGE("spi controller(#%d) name: %s.", pdev->id, pdev->name);
+        //FF_LOGD("spi controller(#%d) clk : %dHz.", pdev->id, frequency / div);
+    }
+
+    /* 3-3: Retrieve the SPI clk handler. */
+    g_context->spiclk = devm_clk_get(&pdev->dev, "main");
+    if (!g_context->spiclk) {
+        FF_LOGE("devm_clk_get(..) failed.");
+        return (-ENODEV);
+    }
+#endif
+
     ff_ctl_enable_power(true);
 
     printk("'%s' leave.", __func__);
@@ -184,37 +226,43 @@ int ff_ctl_free_pins(void)
 int ff_ctl_enable_spiclk(bool on)
 {
     int err = 0;
-	//static int count;
-    printk("'%s' enter.", __func__);
+    pr_debug("'%s' enter.", __func__);
     FF_LOGD("clock: '%s'.", on ? "enable" : "disabled");
+
+    if (unlikely(!g_context->spiclk)) {
+        return (-ENOSYS);
+    }
 	
-	printk("focal '%s' b_spiclk_enabled = %d. \n", __func__, g_context->b_spiclk_enabled);
-#if 0
+	pr_debug("focal '%s' b_spiclk_enabled = %d. \n", __func__, g_context->b_spiclk_enabled);
+
+#if !defined(CONFIG_MTK_CLKMGR)
+    /* Prepare the clock source. */
+    //err = clk_prepare(g_context->spiclk);
+#endif
+
     /* Control the clock source. */
     if (on && !g_context->b_spiclk_enabled) {
+//#if !defined(CONFIG_MTK_CLKMGR)
+	//err = clk_prepare(g_context->spiclk);
         err = clk_prepare_enable(g_context->spiclk);;
         if (err) {
             FF_LOGE("clk_prepare_enable(..) = %d.", err);
         }
+//#else
+        //enable_clock(MT_CG_PERI_SPI0, "spi");
+//#endif
         g_context->b_spiclk_enabled = true;
     } else if (!on && g_context->b_spiclk_enabled) {
+//#if !defined(CONFIG_MTK_CLKMGR)
+        //clk_disable(g_context->spiclk);
+//#else
+        //disable_clock(MT_CG_PERI_SPI0, "spi");
+//#endif
 		clk_disable_unprepare(g_context->spiclk);
         g_context->b_spiclk_enabled = false;
     }
 
-#endif
-
-    if (on && !g_context->b_spiclk_enabled) {
-		printk("'%s' pzp enter.mt_spi_enable_master_clk", __func__);
-        mt_spi_enable_master_clk(g_spidev);
-        g_context->b_spiclk_enabled = true;
-    }
-    else if (!on && g_context->b_spiclk_enabled) {
-        mt_spi_disable_master_clk(g_spidev);
-		printk("'%s' pzp enter.mt_spi_disable_master_clk", __func__);
-        g_context->b_spiclk_enabled = false;
-    }
-    printk("'%s' leave.", __func__);
+    pr_debug("'%s' leave.", __func__);
     return err;
 }
 
@@ -224,7 +272,9 @@ int ff_ctl_enable_power(bool on)
     printk("'%s' enter.", __func__);
     FF_LOGD("power: '%s'.", on ? "on" : "off");
 
-   
+    if (unlikely(!g_context->pinctrl)) {
+        return (-ENOSYS);
+    }
 
     if (on) {
         err = pinctrl_select_state(g_context->pinctrl, g_context->pin_states[FF_PINCTRL_STATE_PWR_ACT]);
@@ -249,8 +299,7 @@ int ff_ctl_reset_device(void)
 	err = pinctrl_select_state(g_context->pinctrl, g_context->pin_states[FF_PINCTRL_STATE_RST_ACT]);
 	mdelay(1);
     /* 3-1: Pull down RST pin. */
-	
-    err = pinctrl_select_state(g_context->pinctrl, g_context->pin_states[FF_PINCTRL_STATE_RST_CLR]);
+	err = pinctrl_select_state(g_context->pinctrl, g_context->pin_states[FF_PINCTRL_STATE_RST_CLR]);
 
     /* 3-2: Delay for 10ms. */
     mdelay(10);
@@ -264,6 +313,7 @@ int ff_ctl_reset_device(void)
 
 const char *ff_ctl_arch_str(void)
 {
-    return ("CONFIG_MTK_PLATFORM");
+    //return ("CONFIG_MTK_PLATFORM");
+	return (CONFIG_MTK_PLATFORM);
 }
 
