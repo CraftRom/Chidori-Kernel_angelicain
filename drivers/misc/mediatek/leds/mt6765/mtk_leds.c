@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2015 MediaTek Inc.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (C) 2019 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -46,6 +46,8 @@
 #ifdef MET_USER_EVENT_SUPPORT
 #include <mt-plat/met_drv.h>
 #endif
+
+extern int mt6370_flashlight_strobe_node(int level);
 
 /* for LED&Backlight bringup, define the dummy API */
 #ifndef CONFIG_MTK_PMIC_NEW_ARCH
@@ -98,6 +100,7 @@ char *leds_name[MT65XX_LED_TYPE_TOTAL] = {
 	"keyboard-backlight",
 	"button-backlight",
 	"lcd-backlight",
+	"flashlight"
 };
 
 struct cust_mt65xx_led *pled_dtsi;
@@ -601,15 +604,27 @@ int mt_led_blink_pmic(enum mt65xx_led_pmic pmic_type, struct nled_setting *led)
 	switch (pmic_type) {
 #ifdef CONFIG_MTK_PMIC_CHIP_MT6357
 	case MT65XX_LED_PMIC_NLED_ISINK1:
-		pmic_set_register_value(PMIC_ISINK_CH1_EN, NLED_OFF);
+//		pmic_set_register_value(PMIC_ISINK_CH1_EN, NLED_OFF);
+//		pmic_set_register_value(PMIC_RG_DRV_ISINK1_CK_PDN, 0);
+//		pmic_set_register_value(PMIC_ISINK_CH1_MODE, ISINK_PWM_MODE);
+//		pmic_set_register_value(PMIC_ISINK_CH1_STEP, ISINK_3);
+//		pmic_set_register_value(PMIC_ISINK_DIM1_DUTY, duty);
+//		pmic_set_register_value(PMIC_ISINK_DIM1_FSEL,
+//			pmic_freqsel_array[time_index]);
+//		pmic_set_register_value(PMIC_ISINK_CH1_BIAS_EN, NLED_ON);
+//		pmic_set_register_value(PMIC_ISINK_CHOP1_EN, NLED_ON);
+//		pmic_set_register_value(PMIC_ISINK_CH1_EN, NLED_ON);
+		pmic_set_register_value(PMIC_ISINK_CH1_MODE, ISINK_BREATH_MODE);
+		pmic_set_register_value(PMIC_ISINK_CH1_STEP, ISINK_0); 
+		pmic_set_register_value(PMIC_ISINK_BREATH1_TR1_SEL, 0x03);
+		pmic_set_register_value(PMIC_ISINK_BREATH1_TR2_SEL, 0x03);
+		pmic_set_register_value(PMIC_ISINK_BREATH1_TF1_SEL, 0x03);
+		pmic_set_register_value(PMIC_ISINK_BREATH1_TF2_SEL, 0x03);
+		pmic_set_register_value(PMIC_ISINK_BREATH1_TON_SEL, 0x00);
+		pmic_set_register_value(PMIC_ISINK_BREATH1_TOFF_SEL, 0x02);
+		pmic_set_register_value(PMIC_ISINK_DIM1_DUTY, 15);
+		pmic_set_register_value(PMIC_ISINK_DIM1_FSEL, 11);
 		pmic_set_register_value(PMIC_RG_DRV_ISINK1_CK_PDN, 0);
-		pmic_set_register_value(PMIC_ISINK_CH1_MODE, ISINK_PWM_MODE);
-		pmic_set_register_value(PMIC_ISINK_CH1_STEP, ISINK_3);
-		pmic_set_register_value(PMIC_ISINK_DIM1_DUTY, duty);
-		pmic_set_register_value(PMIC_ISINK_DIM1_FSEL,
-			pmic_freqsel_array[time_index]);
-		pmic_set_register_value(PMIC_ISINK_CH1_BIAS_EN, NLED_ON);
-		pmic_set_register_value(PMIC_ISINK_CHOP1_EN, NLED_ON);
 		pmic_set_register_value(PMIC_ISINK_CH1_EN, NLED_ON);
 		break;
 #endif
@@ -781,7 +796,7 @@ int mt_brightness_set_pmic(enum mt65xx_led_pmic pmic_type, u32 level, u32 div)
 		pmic_set_register_value(PMIC_RG_DRV_128K_CK_PDN, 0x0);
 		pmic_set_register_value(PMIC_RG_DRV_ISINK1_CK_PDN, 0);
 		pmic_set_register_value(PMIC_ISINK_CH1_MODE, ISINK_PWM_MODE);
-		pmic_set_register_value(PMIC_ISINK_CH1_STEP, ISINK_3);
+		pmic_set_register_value(PMIC_ISINK_CH1_STEP, ISINK_0); 
 		pmic_set_register_value(PMIC_ISINK_DIM1_DUTY, 255);
 		pmic_set_register_value(PMIC_ISINK_DIM1_FSEL, ISINK_128K_500HZ);
 		pmic_set_register_value(PMIC_ISINK_CH1_BIAS_EN, NLED_ON);
@@ -884,6 +899,9 @@ int mt_mt65xx_led_set_cust(struct cust_mt65xx_led *cust, int level)
 #endif
 		return ((cust_set_brightness) (cust->data)) (level);
 
+	case MT65XX_LED_MODE_FLASHLIGHT:
+		return mt6370_flashlight_strobe_node(level);
+
 	case MT65XX_LED_MODE_NONE:
 	default:
 		break;
@@ -926,10 +944,6 @@ void mt_mt65xx_led_set(struct led_classdev *led_cdev, enum led_brightness level)
 				    255;
 			}
 			backlight_debug_log(led_data->level, level);
-#ifdef CONFIG_BACKLIGHT_SUPPORT_2047_FEATURE
-			disp_pq_notify_backlight_changed(level);
-			disp_aal_notify_backlight_changed(level);
-#else
 			disp_pq_notify_backlight_changed((((1 <<
 					MT_LED_INTERNAL_LEVEL_BIT_CNT)
 							    - 1) * level +
@@ -938,7 +952,6 @@ void mt_mt65xx_led_set(struct led_classdev *led_cdev, enum led_brightness level)
 					MT_LED_INTERNAL_LEVEL_BIT_CNT)
 							    - 1) * level +
 							   127) / 255);
-#endif
 		}
 	}
 #else

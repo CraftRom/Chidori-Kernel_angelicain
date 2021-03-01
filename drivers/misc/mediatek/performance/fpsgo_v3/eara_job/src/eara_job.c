@@ -31,14 +31,12 @@
 #include "fpsgo_base.h"
 #include "fstb.h"
 #include "eara_job_usedext.h"
-#include "mtk_upower.h"
 #if defined(CONFIG_MTK_VPU_SUPPORT)
 #include "vpu_dvfs.h"
 #endif
 #if defined(CONFIG_MTK_MDLA_SUPPORT)
 #include "mdla_dvfs.h"
 #endif
-
 
 #define MAX_DEVICE 2
 struct EARA_NN_JOB {
@@ -139,7 +137,7 @@ static struct EARA_NN_JOB *eara_update_job_collect(int pid, int tid,
 		struct EARA_NN_JOB *new_nn_job;
 
 		new_nn_job = kmalloc(sizeof(struct EARA_NN_JOB), GFP_KERNEL);
-		if (!new_nn_job || !arr_length)
+		if (!new_nn_job)
 			goto out;
 
 		new_nn_job->pid = pid;
@@ -238,7 +236,6 @@ void eara_nn_nvip_ttime(struct EARA_NN_JOB *nn_job)
 {
 	int i, j;
 	long long cur_time_us;
-	unsigned long long temp;
 
 	if (!nn_job)
 		return;
@@ -250,10 +247,9 @@ void eara_nn_nvip_ttime(struct EARA_NN_JOB *nn_job)
 			if (cur_time_us - last_fps_bound_ts < 1000000 &&
 				bw_bound) {
 				/*TODO: 1.25 may use same freq*/
-				temp = nn_job->exec_time[i * MAX_DEVICE + j] *
-					125ULL;
-				do_div(temp, 100ULL);
-				nn_job->target_time[i * MAX_DEVICE + j] = temp;
+				nn_job->target_time[i * MAX_DEVICE + j] =
+					nn_job->exec_time[i * MAX_DEVICE + j] *
+					125 / 100;
 			} else {
 				nn_job->target_time[i * MAX_DEVICE + j] = 0;
 			}
@@ -644,19 +640,13 @@ static int decrease_xpu_cap(long long *t_c_time,
 	int ori_cpu_power, ori_vpu_power, ori_mdla_power;
 	int power_diff_c, power_diff_v, power_diff_m;
 	int dbg_cnt = 0;
-	unsigned long long temp;
 
-	temp = c_time * eara_cpu_table.capacity_ratio[get_c_opp(c_cap)];
-	do_div(temp, 100ULL);
-	min_cpu_time = temp;
-
-	temp = v_time * eara_vpu_table.capacity_ratio[get_v_opp(v_cap)];
-	do_div(temp, 100ULL);
-	min_vpu_time = temp;
-
-	temp = m_time * eara_mdla_table.capacity_ratio[get_m_opp(m_cap)];
-	do_div(temp, 100ULL);
-	min_mdla_time = temp;
+	min_cpu_time = c_time *
+		eara_cpu_table.capacity_ratio[get_c_opp(c_cap)] / 100;
+	min_vpu_time = v_time *
+		eara_vpu_table.capacity_ratio[get_v_opp(v_cap)] / 100;
+	min_mdla_time = m_time *
+		eara_mdla_table.capacity_ratio[get_m_opp(m_cap)] / 100;
 
 	new_cpu_time = c_time;
 	new_vpu_time = v_time;
@@ -674,8 +664,8 @@ static int decrease_xpu_cap(long long *t_c_time,
 	ori_mdla_power = m_time / 1000 *
 		eara_mdla_table.power[new_mdla_opp];
 
-	while ((new_cpu_time + new_vpu_time + new_mdla_time * 100) <
-			t_t_t *TARGET_TIME_MARGIN &&
+	while (new_cpu_time + new_vpu_time + new_mdla_time <
+			t_t_t *TARGET_TIME_MARGIN / 100 &&
 			(new_cpu_opp < NR_FREQ_CPU - 1 ||
 			 new_vpu_opp < VPU_OPP_NUM - 1 ||
 			 new_mdla_opp < MDLA_OPP_NUM - 1)) {
@@ -689,15 +679,11 @@ static int decrease_xpu_cap(long long *t_c_time,
 			new_cpu_cap =
 				eara_cpu_table.capacity_ratio[
 				new_cpu_opp];
-
-			temp = min_cpu_time * 100ULL;
-			do_div(temp, new_cpu_cap);
-			new_cpu_time = temp;
-
-			temp = new_cpu_time * 1000ULL;
-			do_div(temp, eara_cpu_table.power[new_cpu_opp]);
-			new_cpu_power = temp;
-
+			new_cpu_time =
+				min_cpu_time * 100 / new_cpu_cap;
+			new_cpu_power =
+				new_cpu_time / 1000 *
+				eara_cpu_table.power[new_cpu_opp];
 			power_diff_c =
 				ori_cpu_power - new_cpu_power;
 		}
@@ -869,19 +855,13 @@ static int increase_xpu_cap(long long *t_c_time, long long *t_v_time,
 	int ori_cpu_power, ori_vpu_power, ori_mdla_power;
 	int power_diff_c, power_diff_v, power_diff_m;
 	int dbg_cnt = 0;
-	unsigned long long temp;
 
-	temp = c_time * eara_cpu_table.capacity_ratio[get_c_opp(c_cap)];
-	do_div(temp, 100ULL);
-	min_cpu_time = temp;
-
-	temp = v_time * eara_vpu_table.capacity_ratio[get_v_opp(v_cap)];
-	do_div(temp, 100ULL);
-	min_vpu_time = temp;
-
-	temp = m_time * eara_mdla_table.capacity_ratio[get_m_opp(m_cap)];
-	do_div(temp, 100ULL);
-	min_mdla_time = temp;
+	min_cpu_time = c_time *
+		eara_cpu_table.capacity_ratio[get_c_opp(c_cap)] / 100;
+	min_vpu_time = v_time *
+		eara_vpu_table.capacity_ratio[get_v_opp(v_cap)] / 100;
+	min_mdla_time = m_time *
+		eara_mdla_table.capacity_ratio[get_m_opp(m_cap)] / 100;
 
 	new_cpu_time = c_time;
 	new_vpu_time = v_time;
@@ -910,14 +890,11 @@ static int increase_xpu_cap(long long *t_c_time, long long *t_v_time,
 			new_cpu_cap =
 				eara_cpu_table.capacity_ratio[
 				new_cpu_opp];
-			temp = min_cpu_time * 100ULL;
-			do_div(temp, new_cpu_cap);
-			new_cpu_time = temp;
-
-			temp = new_cpu_time * 1000ULL;
-			do_div(temp, eara_cpu_table.power[new_cpu_opp]);
-			new_cpu_power = temp;
-
+			new_cpu_time =
+				min_cpu_time * 100 / new_cpu_cap;
+			new_cpu_power =
+				new_cpu_time / 1000 *
+				eara_cpu_table.power[new_cpu_opp];
 			power_diff_c =
 				new_cpu_power - ori_cpu_power;
 		}
@@ -956,7 +933,6 @@ static int increase_xpu_cap(long long *t_c_time, long long *t_v_time,
 
 			ori_cpu_power = new_cpu_power;
 
-#if defined(CONFIG_MTK_VPU_SUPPORT)
 			if (power_diff_v != INT_MAX) {
 				new_vpu_opp++;
 				new_vpu_cap =
@@ -965,9 +941,7 @@ static int increase_xpu_cap(long long *t_c_time, long long *t_v_time,
 				new_vpu_time =
 					min_vpu_time * 100 / new_vpu_cap;
 			}
-#endif
 
-#if defined(CONFIG_MTK_MDLA_SUPPORT)
 			if (power_diff_m != INT_MAX) {
 				new_mdla_opp++;
 				new_mdla_cap =
@@ -976,7 +950,6 @@ static int increase_xpu_cap(long long *t_c_time, long long *t_v_time,
 				new_mdla_time =
 					min_mdla_time * 100 / new_mdla_cap;
 			}
-#endif
 
 		} else if (power_diff_v &&
 				power_diff_v <= power_diff_c &&
@@ -993,7 +966,6 @@ static int increase_xpu_cap(long long *t_c_time, long long *t_v_time,
 					min_cpu_time * 100 / new_cpu_cap;
 			}
 
-#if defined(CONFIG_MTK_MDLA_SUPPORT)
 			if (power_diff_m != INT_MAX) {
 				new_mdla_opp++;
 				new_mdla_cap =
@@ -1002,7 +974,6 @@ static int increase_xpu_cap(long long *t_c_time, long long *t_v_time,
 				new_mdla_time =
 					min_mdla_time * 100 / new_mdla_cap;
 			}
-#endif
 		} else if (power_diff_m &&
 				power_diff_m <= power_diff_c &&
 				power_diff_m <= power_diff_v) {
@@ -1018,7 +989,6 @@ static int increase_xpu_cap(long long *t_c_time, long long *t_v_time,
 					min_cpu_time * 100 / new_cpu_cap;
 			}
 
-#if defined(CONFIG_MTK_VPU_SUPPORT)
 			if (power_diff_v != INT_MAX) {
 				new_vpu_opp++;
 				new_vpu_cap =
@@ -1027,7 +997,6 @@ static int increase_xpu_cap(long long *t_c_time, long long *t_v_time,
 				new_vpu_time =
 					min_vpu_time * 100 / new_vpu_cap;
 			}
-#endif
 		}
 	}
 
@@ -1072,8 +1041,8 @@ void fpsgo_fstb2eara_optimize_power(unsigned long long mid,
 		fpsgo_systrace_c_fstb(-500, 1, "pframe_state");
 		increase_xpu_cap(&v_c_time, &v_v_time, &v_m_time, t_t_t,
 			c_time, v_time, m_time, c_cap, v_cap, m_cap);
-	} else if ((c_time + v_time + m_time * 100LL) <
-		t_t_t *TARGET_TIME_MARGIN) {
+	} else if (c_time + v_time + m_time <
+		t_t_t *TARGET_TIME_MARGIN / 100LL) {
 		fpsgo_systrace_c_fstb(-500, 2, "pframe_state");
 		decrease_xpu_cap(&v_c_time, &v_v_time, &v_m_time, t_t_t,
 			c_time, v_time, m_time, c_cap, v_cap, m_cap);
@@ -1092,7 +1061,7 @@ void fpsgo_fstb2eara_optimize_power(unsigned long long mid,
 
 static void get_pwr_tbl(void)
 {
-	struct ppm_cobra_data *cobra_tbl = NULL;
+	struct ppm_cobra_data *cobra_tbl;
 	int cluster, opp;
 	struct cpumask cluster_cpus;
 	int cpu;
@@ -1101,9 +1070,7 @@ static void get_pwr_tbl(void)
 	unsigned int temp2;
 	int cluster_num = 2;
 
-#if defined(CONFIG_MACH_MT6779)
 	cobra_tbl = ppm_cobra_pass_tbl();
-#endif
 	if (!cobra_tbl)
 		return;
 

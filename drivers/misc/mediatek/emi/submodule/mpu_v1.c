@@ -19,7 +19,6 @@
 #include <linux/of.h>
 #include <linux/of_irq.h>
 #include <linux/printk.h>
-#include <linux/arm-smccc.h>
 #include <mt-plat/sync_write.h>
 #include <mt-plat/mtk_io.h>
 #include <mt-plat/mtk_meminfo.h>
@@ -50,10 +49,6 @@ static void (*check_violation_cb)(void);
 static const char *UNKNOWN_MASTER = "unknown";
 static unsigned int show_region;
 
-#ifdef MPU_BYPASS
-static unsigned int init_flag;
-#endif
-
 static unsigned int match_id(
 	unsigned int axi_id, unsigned int tbl_idx, unsigned int port_id)
 {
@@ -81,7 +76,6 @@ static void clear_violation(void)
 {
 	unsigned int mpus, mput, i;
 #ifdef CONFIG_MTK_DEVMPU
-	struct arm_smccc_res smc_res;
 	unsigned int mput_2nd;
 #endif
 
@@ -106,10 +100,10 @@ static void clear_violation(void)
 
 #ifdef CONFIG_MTK_DEVMPU
 	/* clear hyp violation status */
-	arm_smccc_smc(MTK_SIP_KERNEL_DEVMPU_VIO_CLR,
-			0, 0, 0, 0, 0, 0, 0, &smc_res);
+	mt_reg_sync_writel(0x40000000, EMI_MPUT_2ND);
+
 	mput_2nd = readl(IOMEM(EMI_MPUT_2ND));
-	if ((smc_res.a0) || ((mput_2nd >> 21) & 0x3)) {
+	if ((mput_2nd >> 21) & 0x3) {
 		pr_info("[MPU] fail to clear hypervisor violation\n");
 		pr_info("[MPU] EMI_MPT_2ND: %x\n", mput_2nd);
 	}
@@ -178,14 +172,6 @@ static void check_violation(void)
 		pr_info("[MPU] write out-of-range violation\n");
 	else if (wr_oo_vio == 2)
 		pr_info("[MPU] read out-of-range violation\n");
-
-#ifdef MPU_BYPASS
-	if (bypass_violation(mpus, &init_flag)) {
-		clear_violation();
-		clear_md_violation();
-		return;
-	}
-#endif
 
 #ifdef CONFIG_MTK_AEE_FEATURE
 	if (wr_vio != 0) {
@@ -322,12 +308,12 @@ static ssize_t mpu_show(struct device_driver *driver, char *buf)
 	unsigned long long start, end;
 	static const char *permission[8] = {
 		"No",
-		"S_RW",
-		"S_RW_NS_R",
-		"S_RW_NS_W",
-		"S_R_NS_R",
-		"FORBIDDEN",
-		"S_R_NS_RW",
+		"SRW",
+		"SRW_NSR",
+		"SRW_NSW",
+		"SR_NSR",
+		"FRBD",
+		"SR_NSRW",
 		"NONE"
 	};
 
@@ -335,7 +321,6 @@ static ssize_t mpu_show(struct device_driver *driver, char *buf)
 	i = (*((unsigned int *)(mpu_test_buf + 0x10000)));
 	pr_info("[MPU] trigger violation with read 0x%x\n", i);
 #endif
-
 	for (region = show_region; region < EMI_MPU_REGION_NUM; region++) {
 		start = (unsigned long long)emi_mpu_smc_read(
 			EMI_MPU_SA(region));
@@ -412,10 +397,8 @@ static ssize_t mpu_store(
 		pr_info("[MPU] %s %s\n", token[0], token[1]);
 
 		ret = kstrtoul(token[1], 10, &region);
-		if (ret != 0) {
+		if (ret != 0)
 			pr_info("[MPU] fail to parse region\n");
-			goto mpu_store_end;
-		}
 
 		if (region < EMI_MPU_REGION_NUM) {
 			show_region = (unsigned int) region;
@@ -428,16 +411,11 @@ static ssize_t mpu_store(
 		pr_info("[MPU] %s %s %s\n", token[0], token[1], token[2]);
 
 		ret = kstrtoul(token[1], 10, &dgroup);
-		if (ret != 0) {
+		if (ret != 0)
 			pr_info("[MPU] fail to parse dgroup\n");
-			goto mpu_store_end;
-		}
-
 		ret = kstrtoul(token[2], 16, &apc);
-		if (ret != 0) {
+		if (ret != 0)
 			pr_info("[MPU] fail to parse apc\n");
-			goto mpu_store_end;
-		}
 
 		if (dgroup < EMI_MPU_DGROUP_NUM) {
 			region_info.apc[dgroup] = (unsigned int) apc;
@@ -452,22 +430,14 @@ static ssize_t mpu_store(
 			token[0], token[1], token[2], token[3]);
 
 		ret = kstrtoull(token[1], 16, &start);
-		if (ret != 0) {
+		if (ret != 0)
 			pr_info("[MPU] fail to parse start\n");
-			goto mpu_store_end;
-		}
-
 		ret = kstrtoull(token[2], 16, &end);
-		if (ret != 0) {
+		if (ret != 0)
 			pr_info("[MPU] fail to parse end\n");
-			goto mpu_store_end;
-		}
-
 		ret = kstrtoul(token[3], 10, &region);
-		if (ret != 0) {
+		if (ret != 0)
 			pr_info("[MPU] fail to parse region\n");
-			goto mpu_store_end;
-		}
 
 		if (region < EMI_MPU_REGION_NUM) {
 			region_info.start = start;
@@ -482,10 +452,8 @@ static ssize_t mpu_store(
 		pr_info("[MPU] %s %s\n", token[0], token[1]);
 
 		ret = kstrtoul(token[1], 10, &region);
-		if (ret != 0) {
+		if (ret != 0)
 			pr_info("[MPU] fail to parse region\n");
-			goto mpu_store_end;
-		}
 
 		if (region < EMI_MPU_REGION_NUM) {
 			region_info.region = (unsigned int)region;
@@ -555,10 +523,6 @@ void mpu_init(struct platform_driver *emi_ctrl, struct platform_device *pdev)
 		check_violation_cb();
 	} else
 		clear_violation();
-
-#ifdef MPU_BYPASS
-	bypass_init(&init_flag);
-#endif
 
 	if (node) {
 		mpu_irq = irq_of_parse_and_map(node, MPU_IRQ_INDEX);

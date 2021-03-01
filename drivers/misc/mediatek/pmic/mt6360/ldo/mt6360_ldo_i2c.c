@@ -335,7 +335,7 @@ static int mt6360_ldo_enable(struct regulator_dev *rdev)
 		ret = mt6360_ldo_reg_update_bits(mli, MT6360_LDO_LDO5_CTRL0,
 						 0x40, 0xff);
 		if (ret < 0) {
-			dev_notice(&rdev->dev,
+			dev_err(&rdev->dev,
 				"%s: en sdcard_det fail (%d)\n", __func__, ret);
 			return ret;
 		}
@@ -361,7 +361,7 @@ static int mt6360_ldo_disable(struct regulator_dev *rdev)
 		ret = mt6360_ldo_reg_update_bits(mli, MT6360_LDO_LDO5_CTRL0,
 						 0x40, 0);
 		if (ret < 0) {
-			dev_notice(&rdev->dev,
+			dev_err(&rdev->dev,
 				"%s: di sdcard_det fail (%d)\n", __func__, ret);
 			return ret;
 		}
@@ -740,7 +740,7 @@ static int mt6360_ldo_i2c_probe(struct i2c_client *client,
 	dev_dbg(&client->dev, "%s\n", __func__);
 	ret = mt6360_pmic_chip_id_check(client);
 	if (ret < 0) {
-		dev_notice(&client->dev, "no device found\n");
+		dev_err(&client->dev, "no device found\n");
 		return ret;
 	}
 	chip_rev = (u8)ret;

@@ -152,7 +152,7 @@ static int __init mtk_typec_init(void)
 
 	otg_tcpc_dev = tcpc_dev_get_by_name("type_c_port0");
 	if (!otg_tcpc_dev) {
-		pr_info("%s get tcpc device type_c_port0 fail\n", __func__);
+		pr_err("%s get tcpc device type_c_port0 fail\n", __func__);
 		return -ENODEV;
 	}
 
@@ -160,7 +160,7 @@ static int __init mtk_typec_init(void)
 	ret = register_tcp_dev_notifier(otg_tcpc_dev, &otg_nb,
 		TCP_NOTIFY_TYPE_USB|TCP_NOTIFY_TYPE_VBUS|TCP_NOTIFY_TYPE_MISC);
 	if (ret < 0) {
-		pr_info("%s register tcpc notifer fail\n", __func__);
+		pr_err("%s register tcpc notifer fail\n", __func__);
 		return -EINVAL;
 	}
 

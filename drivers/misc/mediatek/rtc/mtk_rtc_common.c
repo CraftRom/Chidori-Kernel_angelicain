@@ -430,8 +430,8 @@ void rtc_bbpu_power_down(void)
 {
 	unsigned long flags;
 	bool charger_status = false;
-	struct rtc_time rtc_time_now = {0};
-	struct rtc_time rtc_time_alarm = {0};
+	struct rtc_time rtc_time_now;
+	struct rtc_time rtc_time_alarm;
 	ktime_t ktime_now;
 	ktime_t ktime_alarm;
 	bool is_pwron_alarm;
@@ -529,15 +529,8 @@ void mt_power_off(void)
 		rtc_xinfo("arch_reset\n");
 #ifdef CONFIG_MTK_CHARGER
 		mtk_chr_is_charger_exist(&exist);
-		if (exist == 1 || count > 10) {
+		if (exist == 1 || count > 10)
 			arch_reset(0, "charger");
-			break;
-		}
-#else
-		if (count > 10) {
-			arch_reset(0, "charger");
-			break;
-		}
 #endif
 		count++;
 #endif
@@ -817,6 +810,22 @@ static int rtc_ops_ioctl(struct device *dev, unsigned int cmd,
 {
 	/* dump_stack(); */
 	rtc_xinfo("%s cmd=%d\n", __func__, cmd);
+	switch (cmd) {
+	case RTC_AUTOBOOT_ON:
+		{
+			hal_rtc_set_spare_register(RTC_AUTOBOOT, AUTOBOOT_ON);
+			rtc_xinfo("%s cmd=RTC_AUTOBOOT_ON\n", __func__);
+			return 0;
+		}
+	case RTC_AUTOBOOT_OFF:	/* IPO shutdown */
+		{
+			hal_rtc_set_spare_register(RTC_AUTOBOOT, AUTOBOOT_OFF);
+			rtc_xinfo("%s cmd=RTC_AUTOBOOT_OFF\n", __func__);
+			return 0;
+		}
+	default:
+		break;
+	}
 	return -ENOIOCTLCMD;
 }
 

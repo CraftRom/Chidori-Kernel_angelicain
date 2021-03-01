@@ -1180,12 +1180,14 @@ static void sensor_init(void)
 	write_cmos_sensor(0xBCB2, 0x01);
 
 	write_cmos_sensor(0x0138, 0x01);
+	write_cmos_sensor(0x0100, 0x00);
 }
 
 
 static void preview_setting(void)
 {
 	LOG_INF("%s.\n", __func__);
+	write_cmos_sensor(0x0100, 0x00);
 	/*
 	 * 1/2Binning@30fps
 	 * H: 2016
@@ -1280,6 +1282,7 @@ static void preview_setting(void)
 static void capture_setting(kal_uint16 currefps)
 {
 	LOG_INF("%s.\n", __func__);
+	write_cmos_sensor(0x0100, 0x00);
 	/* Mode Setting */
 	write_cmos_sensor(0x0112, 0x0A);
 	write_cmos_sensor(0x0113, 0x0A);
@@ -1365,6 +1368,7 @@ static void capture_setting(kal_uint16 currefps)
 static void hd_4k_setting(void)
 {
 	LOG_INF("%s.\n", __func__);
+	write_cmos_sensor(0x0100, 0x00);
 	/*
 	 * Full-reso (16:9)@30fps
 	 * H: 4032
@@ -1454,6 +1458,7 @@ static void hd_4k_setting(void)
 static void normal_video_setting(kal_uint16 currefps)
 {
 	LOG_INF("%s.\n", __func__);
+	write_cmos_sensor(0x0100, 0x00);
 	/*
 	 * 1/2Binning@30fps
 	 * H: 2016
@@ -1548,6 +1553,7 @@ static void normal_video_setting(kal_uint16 currefps)
 static void hs_video_setting(void)
 {
 	LOG_INF("%s.\n", __func__);
+	write_cmos_sensor(0x0100, 0x00);
 	/*
 	 * 1296X736@120fps
 	 * H: 1296
@@ -1639,6 +1645,7 @@ static void hs_video_setting(void)
 static void slim_video_setting(void)
 {
 	LOG_INF("%s.\n", __func__);
+	write_cmos_sensor(0x0100, 0x00);
 	/*
 	 * 1296X736@30fps
 	 * H: 1296
@@ -1730,6 +1737,7 @@ static void slim_video_setting(void)
 static void custom1_mode(void)
 {
 	LOG_INF("%s.\n", __func__);
+	write_cmos_sensor(0x0100, 0x00);
 	/* Mode Setting */
 	write_cmos_sensor(0x0112, 0x0A);
 	write_cmos_sensor(0x0113, 0x0A);
@@ -2577,14 +2585,11 @@ static kal_uint32 set_test_pattern_mode(kal_bool enable)
 
 static kal_uint32 streaming_control(kal_bool enable)
 {
-	pr_info("streaming_enable(0=Sw tandby,1=streaming): %d\n", enable);
-	if (enable) {
+	LOG_INF("streaming_enable(0=Sw Standby,1=streaming): %d\n", enable);
+	if (enable)
 		write_cmos_sensor(0x0100, 0X01);
-	if (imgsensor.current_scenario_id == MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO)
-		mdelay(32);
-	} else {
+	else
 		write_cmos_sensor(0x0100, 0x00);
-	}
 	return ERROR_NONE;
 }
 

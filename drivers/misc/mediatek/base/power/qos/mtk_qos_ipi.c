@@ -70,10 +70,8 @@ int qos_ipi_to_sspm_command(void *buffer, int slot)
 {
 	int ack_data = 0;
 #if defined(CONFIG_MTK_TINYSYS_SSPM_SUPPORT)
-	int ret = sspm_ipi_send_sync(IPI_ID_QOS, IPI_OPT_POLLING,
+	sspm_ipi_send_sync(IPI_ID_QOS, IPI_OPT_POLLING,
 			buffer, slot, &ack_data, 1);
-	if (ret != 0)
-		pr_err("qos_ipi_to_sspm error(%d)\n", ret);
 #endif
 	return ack_data;
 }

@@ -29,8 +29,6 @@
 #define VOWDRV_DEBUG(format, args...)
 #endif
 
-/* #define DUALMIC_SUPPORT */
-
 #define VOW_DEVNAME                    "vow"
 #define VOW_IOC_MAGIC                  'V'
 #define VOW_PRE_LEARN_MODE             1
@@ -38,32 +36,21 @@
 #define VOW_WAITCHECK_INTERVAL_MS      1
 #define MAX_VOW_INFO_LEN               5
 #define VOW_VOICE_RECORD_THRESHOLD     2560 /* 80ms */
-#define VOW_VOICE_RECORD_BIG_THRESHOLD 8320 /* 260ms */
+#define VOW_VOICE_RECORD_BIG_THRESHOLD 8000 /* 250ms */
 #define VOW_IPI_SEND_CNT_TIMEOUT       500 /* 500ms */
 #define VOW_VOICEDATA_OFFSET           0xDC00 /* UBM_V1:0xA000, UBM_V2:0xDC00 */
-#define VOW_VOICEDATA_SIZE             (0x12500) /* 74880, need over 2.3sec */
 #define WORD_H                         8
 #define WORD_L                         8
 #define WORD_H_MASK                    0xFF00
 #define WORD_L_MASK                    0x00FF
 /* multiplier of cycle to ns in 13m clock */
-#define CYCLE_TO_NS                    77
-#define VOW_STOP_DUMP_WAIT             50
-#define FRAME_BUF_SIZE                 8192
-
-#define VOW_RECOGDATA_OFFSET        (VOW_VOICEDATA_OFFSET + VOW_VOICEDATA_SIZE)
-#define VOW_RECOGDATA_SIZE             0x2800
-
-#define VOW_PCM_DUMP_BYTE_SIZE         0xA00 /* 320 * 8 */
-
+#define CYCLE_TO_NS                    71
 
 /* below is control message */
 #define VOW_SET_CONTROL               _IOW(VOW_IOC_MAGIC, 0x03, unsigned int)
 #define VOW_SET_SPEAKER_MODEL         _IOW(VOW_IOC_MAGIC, 0x04, unsigned int)
 #define VOW_CLR_SPEAKER_MODEL         _IOW(VOW_IOC_MAGIC, 0x05, unsigned int)
 #define VOW_SET_APREG_INFO            _IOW(VOW_IOC_MAGIC, 0x09, unsigned int)
-#define VOW_BARGEIN_ON                _IOW(VOW_IOC_MAGIC, 0x0A, unsigned int)
-#define VOW_BARGEIN_OFF               _IOW(VOW_IOC_MAGIC, 0x0B, unsigned int)
 #define VOW_CHECK_STATUS              _IOW(VOW_IOC_MAGIC, 0x0C, unsigned int)
 #define VOW_RECOG_ENABLE              _IOW(VOW_IOC_MAGIC, 0x0D, unsigned int)
 #define VOW_RECOG_DISABLE             _IOW(VOW_IOC_MAGIC, 0x0E, unsigned int)
@@ -72,22 +59,13 @@
 
 /* #define VOW_BARGEIN_OFFSET 0x1DC00 */
 #define VOW_BARGEIN_DUMP_OFFSET 0xA00
-#define VOW_BARGEIN_DUMP_SIZE    0x3C00
-
-#endif  /* #ifdef CONFIG_MTK_VOW_BARGE_IN_SUPPORT */
+#define VOW_BARGEIN_DUMP_SIZE 0x1400
+#define FRAME_BUF_SIZE   (8192)
+#define VOW_BARGEIN_WAIT (50)
 
 struct dump_package_t {
-	uint32_t dump_data_type;
 	uint32_t mic_offset;
 	uint32_t mic_data_size;
-	uint32_t recog_data_offset;
-	uint32_t recog_data_size;
-#ifdef DUALMIC_SUPPORT
-	uint32_t mic_offset_R;
-	uint32_t mic_data_size_R;
-	uint32_t recog_data_offset_R;
-	uint32_t recog_data_size_R;
-#endif  /* #ifdef DUALMIC_SUPPORT */
 	uint32_t echo_offset;
 	uint32_t echo_data_size;
 };
@@ -102,26 +80,15 @@ struct dump_work_t {
 	struct work_struct work;
 	uint32_t mic_offset;
 	uint32_t mic_data_size;
-	uint32_t recog_data_offset;
-	uint32_t recog_data_size;
-#ifdef DUALMIC_SUPPORT
-	uint32_t mic_offset_R;
-	uint32_t mic_data_size_R;
-	uint32_t recog_data_offset_R;
-	uint32_t recog_data_size_R;
-#endif  /* #ifdef DUALMIC_SUPPORT */
 	uint32_t echo_offset;
 	uint32_t echo_data_size;
 };
 
 enum { /* dump_data_t */
-	DUMP_RECOG = 0,
-#ifdef CONFIG_MTK_VOW_BARGE_IN_SUPPORT
-	DUMP_BARGEIN,
-#endif  /* #ifdef CONFIG_MTK_VOW_BARGE_IN_SUPPORT */
-	NUM_DUMP_DATA,
+	DUMP_BARGEIN = 0,
+	NUM_DUMP_DATA = 1,
 };
-
+#endif  /* #ifdef CONFIG_MTK_VOW_BARGE_IN_SUPPORT */
 
 /*****************************************************************************
  * VOW Enum
@@ -132,8 +99,12 @@ enum vow_control_cmd_t {
 	VOWControlCmd_EnableDebug,
 	VOWControlCmd_DisableDebug,
 	VOWControlCmd_EnableSeamlessRecord,
-	VOWControlCmd_EnableDump,
-	VOWControlCmd_DisableDump,
+#ifdef CONFIG_MTK_VOW_BARGE_IN_SUPPORT
+	VOW_BARGEIN_ON,
+	VOW_BARGEIN_OFF,
+	VOWControlCmd_EnableBargeinDump,
+	VOWControlCmd_DisableBargeinDump,
+#endif  /* #ifdef CONFIG_MTK_VOW_BARGE_IN_SUPPORT */
 };
 
 enum vow_ipi_msgid_t {
@@ -144,12 +115,17 @@ enum vow_ipi_msgid_t {
 	IPIMSG_VOW_SET_MODEL = 4,
 	IPIMSG_VOW_SET_FLAG = 5,
 	IPIMSG_VOW_SET_SMART_DEVICE = 6,
+	IPIMSG_VOW_DATAREADY_ACK = 7,
+	IPIMSG_VOW_DATAREADY = 8,
+	IPIMSG_VOW_RECOGNIZE_OK = 9,
 #ifdef CONFIG_MTK_VOW_BARGE_IN_SUPPORT
 	IPIMSG_VOW_SET_BARGEIN_ON = 10,
 	IPIMSG_VOW_SET_BARGEIN_OFF = 11,
+	IPIMSG_VOW_BARGEIN_DUMP_ON = 12,
+	IPIMSG_VOW_BARGEIN_DUMP_OFF = 13,
+	IPIMSG_VOW_BARGEIN_PCMDUMP_OK = 14,
+	IPIMSG_VOW_BARGEIN_DUMP_INFO = 16,
 #endif /* #ifdef CONFIG_MTK_VOW_BARGE_IN_SUPPORT */
-	IPIMSG_VOW_PCM_DUMP_ON = 12,
-	IPIMSG_VOW_PCM_DUMP_OFF = 13,
 	IPIMSG_VOW_COMBINED_INFO = 17,
 };
 
@@ -235,7 +211,6 @@ struct vow_speaker_model_t {
 	void *model_ptr;
 	int  id;
 	int  enabled;
-	unsigned int model_size;
 };
 
 struct vow_model_info_t {
@@ -260,13 +235,12 @@ struct vow_model_info_kernel_t {
 	compat_uptr_t *data;
 };
 
-#else  /* #ifdef CONFIG_COMPAT */
+#else
 
 struct vow_speaker_model_t {
 	void *model_ptr;
 	int  id;
 	int  enabled;
-	unsigned int model_size;
 };
 
 struct vow_model_info_t {
@@ -276,50 +250,29 @@ struct vow_model_info_t {
 	long  return_size_addr;
 	void *data;
 };
-#endif  /* #ifdef CONFIG_COMPAT */
-
-enum ipi_type_flag_t {
-	RECOG_OK_IDX = 0,
-	DEBUG_DUMP_IDX = 1,
-	RECOG_DUMP_IDX = 2,
-	BARGEIN_DUMP_INFO_IDX = 3,
-	BARGEIN_DUMP_IDX = 4
-};
-
-#define RECOG_OK_IDX_MASK           (0x01 << RECOG_OK_IDX)
-#define DEBUG_DUMP_IDX_MASK         (0x01 << DEBUG_DUMP_IDX)
-#define RECOG_DUMP_IDX_MASK         (0x01 << RECOG_DUMP_IDX)
-#define BARGEIN_DUMP_INFO_IDX_MASK  (0x01 << BARGEIN_DUMP_INFO_IDX)
-#define BARGEIN_DUMP_IDX_MASK       (0x01 << BARGEIN_DUMP_IDX)
+#endif
 
 struct vow_ipi_combined_info_t {
-	unsigned int ipi_type_flag;
 	/* IPIMSG_VOW_RECOGNIZE_OK */
+	unsigned int recog_ok_flag;
 	unsigned int recog_ret_info;
 	unsigned long long recog_ok_os_timer;
 	/* IPIMSG_VOW_DATAREADY */
+	unsigned int debug_dump_flag;
 	unsigned int voice_buf_offset;
 	unsigned int voice_length;
 #ifdef CONFIG_MTK_VOW_BARGE_IN_SUPPORT
 	/* IPIMSG_VOW_BARGEIN_DUMP_INFO */
+	unsigned int bargein_dump_info_flag;
 	unsigned int dump_frm_cnt;
 	unsigned int voice_sample_delay;
 	/* IPIMSG_VOW_BARGEIN_PCMDUMP_OK */
+	unsigned int bargein_dump_flag;
 	unsigned int mic_dump_size;
 	unsigned int mic_offset;
-#ifdef DUALMIC_SUPPORT
-	unsigned int mic_dump_size_R;
-	unsigned int mic_offset_R;
-#endif  /* #ifdef DUALMIC_SUPPORT */
 	unsigned int echo_dump_size;
 	unsigned int echo_offset;
-#endif  /* #ifdef CONFIG_MTK_VOW_BARGE_IN_SUPPORT */
-	unsigned int recog_dump_size;
-	unsigned int recog_dump_offset;
-#ifdef DUALMIC_SUPPORT
-	unsigned int recog_dump_size_R;
-	unsigned int recog_dump_offset_R;
-#endif  /* #ifdef DUALMIC_SUPPORT */
+#endif
 };
 
 #endif /*__VOW_H__ */

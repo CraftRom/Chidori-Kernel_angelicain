@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 MediaTek Inc.
+ * Copyright (C) 2019 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -1734,7 +1735,6 @@ void DSI_PHY_TIMCONFIG(enum DISP_MODULE_ENUM module,
 	unsigned int ui = 0;
 	unsigned int hs_trail_m, hs_trail_n;
 	unsigned char timcon_temp;
-	unsigned int temp_date_rate = 0;
 
 #ifdef CONFIG_FPGA_EARLY_PORTING
 	/* sync from cmm */
@@ -1783,22 +1783,16 @@ void DSI_PHY_TIMCONFIG(enum DISP_MODULE_ENUM module,
 
 #define NS_TO_CYCLE(n, c)	((n) / (c))
 
-	if (dsi_params->data_rate != 0)
-		temp_date_rate = dsi_params->data_rate;
-	else
-		temp_date_rate = dsi_params->PLL_CLOCK * 2;
-
 	hs_trail_m = 1;
 	hs_trail_n = (dsi_params->HS_TRAIL == 0) ?
-		(NS_TO_CYCLE(((hs_trail_m * 0x4 * ui) + 0x50)
-		* temp_date_rate, 0x1F40) + 0x1) :
+		NS_TO_CYCLE(((hs_trail_m * 0x4 * ui) + 0x50), cycle_time) :
 		dsi_params->HS_TRAIL;
 	/* +3 is recommended from designer becauase of HW latency */
 	timcon0.HS_TRAIL = (hs_trail_m > hs_trail_n) ? hs_trail_m : hs_trail_n;
 
 	timcon0.HS_PRPR =
 		(dsi_params->HS_PRPR == 0) ?
-		(NS_TO_CYCLE((0x40 + 0x5 * ui), cycle_time) + 0x1) :
+		NS_TO_CYCLE((0x40 + 0x5 * ui), cycle_time) :
 		dsi_params->HS_PRPR;
 	/* HS_PRPR can't be 1. */
 	if (timcon0.HS_PRPR < 1)
@@ -1814,8 +1808,7 @@ void DSI_PHY_TIMCONFIG(enum DISP_MODULE_ENUM module,
 
 	timcon0.LPX =
 		(dsi_params->LPX == 0) ?
-		(NS_TO_CYCLE(temp_date_rate * 0x4b, 0x1F40) + 0x1) :
-		dsi_params->LPX;
+		NS_TO_CYCLE(0x55, cycle_time) : dsi_params->LPX;
 	if (timcon0.LPX < 1)
 		timcon0.LPX = 1;
 
@@ -1840,8 +1833,8 @@ void DSI_PHY_TIMCONFIG(enum DISP_MODULE_ENUM module,
 
 	timcon2.CLK_TRAIL =
 		((dsi_params->CLK_TRAIL == 0) ?
-		NS_TO_CYCLE(0x64 * temp_date_rate,
-		0x1F40) : dsi_params->CLK_TRAIL) + 0x01;
+		NS_TO_CYCLE(0x60, cycle_time) :
+		dsi_params->CLK_TRAIL) + 0x01;
 	/* CLK_TRAIL can't be 1. */
 	if (timcon2.CLK_TRAIL < 2)
 		timcon2.CLK_TRAIL = 2;
@@ -1854,8 +1847,8 @@ void DSI_PHY_TIMCONFIG(enum DISP_MODULE_ENUM module,
 
 	timcon3.CLK_HS_PRPR =
 		(dsi_params->CLK_HS_PRPR == 0) ?
-		NS_TO_CYCLE(0x50 * temp_date_rate,
-		0x1F40) : dsi_params->CLK_HS_PRPR;
+		NS_TO_CYCLE(0x40, cycle_time) :
+		dsi_params->CLK_HS_PRPR;
 
 	if (timcon3.CLK_HS_PRPR < 1)
 		timcon3.CLK_HS_PRPR = 1;
@@ -3365,28 +3358,25 @@ int DSI_Send_ROI(enum DISP_MODULE_ENUM module, void *handle, unsigned int x,
 
 	unsigned int data_array[16];
 
-	if (!primary_display_is_video_mode()) {
-		data_array[0] = 0x00053902;
-		data_array[1] = (x1_MSB << 24) | (x0_LSB << 16) |
-			(x0_MSB << 8) | 0x2a;
-		data_array[2] = (x1_LSB);
-		DSI_set_cmdq(module, handle, data_array, 3, 1);
-		data_array[0] = 0x00053902;
-		data_array[1] = (y1_MSB << 24) | (y0_LSB << 16) |
-			(y0_MSB << 8) | 0x2b;
-		data_array[2] = (y1_LSB);
-		DSI_set_cmdq(module, handle, data_array, 3, 1);
-		DDPMSG("%s(%d,%d,%dx%d)Done!\n",
-			__func__, x, y, width, height);
-	} else
-		DDPDBG("LCM is video mode, no need DSI send ROI!\n");
+	if(_is_lcm_cmd_mode(module) == 0)
+		return 0;
+
+	data_array[0] = 0x00053902;
+	data_array[1] = (x1_MSB << 24) | (x0_LSB << 16) | (x0_MSB << 8) | 0x2a;
+	data_array[2] = (x1_LSB);
+	DSI_set_cmdq(module, handle, data_array, 3, 1);
+	data_array[0] = 0x00053902;
+	data_array[1] = (y1_MSB << 24) | (y0_LSB << 16) | (y0_MSB << 8) | 0x2b;
+	data_array[2] = (y1_LSB);
+	DSI_set_cmdq(module, handle, data_array, 3, 1);
+	DDPMSG("DSI_Send_ROI(%d,%d,%dx%d)Done!\n", x, y, width, height);
 
 	return 0;
 }
 
 static void lcm_set_reset_pin(UINT32 value)
 {
-#if 1
+#if 0
 	DSI_OUTREG32(NULL, DISP_REG_CONFIG_MMSYS_LCM_RST_B, value);
 #else
 #if !defined(CONFIG_MTK_LEGACY)
@@ -4436,11 +4426,6 @@ int ddp_dsi_switch_mode(enum DISP_MODULE_ENUM module, void *cmdq_handle,
 	struct LCM_DSI_PARAMS *dsi_params = &_dsi_context[0].dsi_params;
 	int mode = (int)(lcm_cmd.mode);
 	int wait_count = 100;
-
-	if (!cmdq_handle) {
-		ASSERT(0);
-		return -1;
-	}
 
 	if (dsi_currect_mode == mode) {
 		DDPMSG("[%s] no switch mode, current mode = %d, switch to %d\n",

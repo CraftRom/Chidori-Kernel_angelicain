@@ -992,8 +992,13 @@ int get_dlpt_imix(void)
 				pr_notice("do_ptim more than twice times\n");
 			else if (count_do_ptim > 3) {
 				pr_notice("do_ptim more than five times\n");
+#if 0 /* debug AUXADC timeout, remove this reset behavior */
+				ptim_lock();
+				wk_auxadc_reset();
+				ptim_unlock();
 #if defined(CONFIG_MTK_AEE_FEATURE)
 				aee_kernel_warning("PTIM timeout", "PTIM");
+#endif
 #endif
 				break;
 			}

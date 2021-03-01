@@ -32,6 +32,7 @@
 #include <asm/pgtable.h>
 #include <asm/processor.h>
 #include <mtk_wd_api.h>
+#include <mtk_platform_debug.h>
 #if defined(CONFIG_FIQ_GLUE)
 #include <mt-plat/fiq_smp_call.h>
 #endif
@@ -254,9 +255,7 @@ void __mrdump_create_oops_dump(enum AEE_REBOOT_MODE reboot_mode,
 		local_fiq_disable();
 
 #if defined(CONFIG_SMP)
-		if ((reboot_mode != AEE_REBOOT_MODE_WDT) &&
-		    (reboot_mode != AEE_REBOOT_MODE_GZ_WDT))
-			__mrdump_reboot_stop_all(crash_record);
+		__mrdump_reboot_stop_all(crash_record);
 #endif
 
 		cpu = get_HW_cpuid();
@@ -283,12 +282,14 @@ void __mrdump_create_oops_dump(enum AEE_REBOOT_MODE reboot_mode,
 		crash_record->fault_cpu = cpu;
 
 		/* FIXME: Check reboot_mode is valid */
-		crash_record->reboot_mode = reboot_mode;
+			crash_record->reboot_mode = reboot_mode;
 	}
 }
 
 int __init mrdump_full_init(void)
 {
+	int res;
+
 	if (mrdump_cblock == NULL) {
 		memset(mrdump_lk, 0, sizeof(mrdump_lk));
 		pr_notice("%s: MT-RAMDUMP no control block\n", __func__);
@@ -310,6 +311,16 @@ int __init mrdump_full_init(void)
 
 	mrdump_cblock->enabled = MRDUMP_ENABLE_COOKIE;
 	__inner_flush_dcache_all();
+
+#ifdef CONFIG_MTK_DFD_INTERNAL_DUMP
+	/* DFD cache dump */
+	res = dfd_setup(DFD_EXTENDED_DUMP);
+	if (res == -1)
+		pr_notice("%s: DFD_EXTENDED_DUMP disabled\n", __func__);
+	else
+		pr_notice("%s: DFD_EXTENDED_DUMP enabled\n", __func__);
+#endif
+
 	pr_info("%s: MT-RAMDUMP enabled done\n", __func__);
 	return 0;
 }

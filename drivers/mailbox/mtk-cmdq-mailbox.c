@@ -38,7 +38,6 @@
 #define CMDQ_SYNC_TOKEN_VAL		0x64
 #define CMDQ_SYNC_TOKEN_UPD		0x68
 #define CMDQ_PREFETCH_GSIZE		0xC0
-#define CMDQ_TPR_MASK			0xD0
 
 #define CMDQ_THR_BASE			0x100
 #define CMDQ_THR_SIZE			0x80
@@ -71,7 +70,7 @@
 #define CMDQ_THR_IRQ_EN			(CMDQ_THR_IRQ_ERROR | CMDQ_THR_IRQ_DONE)
 #define CMDQ_THR_IS_WAITING		BIT(31)
 #define CMDQ_THR_PRIORITY		0x7
-#define CMDQ_TPR_EN			BIT(31)
+
 
 #define CMDQ_JUMP_BY_OFFSET		0x10000000
 #define CMDQ_JUMP_BY_PA			0x10000001
@@ -121,31 +120,7 @@ struct cmdq {
 	bool			suspended;
 	atomic_t		usage;
 	struct workqueue_struct *timeout_wq;
-	struct wakeup_source	wake_lock;
 };
-
-static void cmdq_lock_wake_lock(struct cmdq *cmdq, bool lock)
-{
-	static bool is_locked;
-
-	if (lock) {
-		if (!is_locked) {
-			__pm_stay_awake(&cmdq->wake_lock);
-			is_locked = true;
-		} else  {
-			/* should not reach here */
-			cmdq_err("try lock twice");
-		}
-	} else {
-		if (is_locked) {
-			__pm_relax(&cmdq->wake_lock);
-			is_locked = false;
-		} else {
-			/* should not reach here */
-			cmdq_err("try unlock twice");
-		}
-	}
-}
 
 static s32 cmdq_clk_enable(struct cmdq *cmdq)
 {
@@ -161,9 +136,6 @@ static s32 cmdq_clk_enable(struct cmdq *cmdq)
 		if (cmdq->prefetch)
 			writel(cmdq->prefetch,
 				cmdq->base + CMDQ_PREFETCH_GSIZE);
-		writel(CMDQ_TPR_EN, cmdq->base + CMDQ_TPR_MASK);
-		/* make sure pm not suspend */
-		cmdq_lock_wake_lock(cmdq, true);
 	}
 	return err;
 }
@@ -179,11 +151,6 @@ static void cmdq_clk_disable(struct cmdq *cmdq)
 		cmdq_err("ref count error after dec:%d", usage);
 	else if (usage == 0)
 		cmdq_log("cmdq shutdown mbox");
-
-	if (usage == 0) {
-		/* now allow pm suspend */
-		cmdq_lock_wake_lock(cmdq, false);
-	}
 }
 
 static dma_addr_t cmdq_thread_get_pc(struct cmdq_thread *thread)
@@ -422,11 +389,8 @@ static void cmdq_task_exec(struct cmdq_pkt *pkt, struct cmdq_thread *thread)
 	dma_handle = buf->pa_base;
 
 	task = kzalloc(sizeof(*task), GFP_ATOMIC);
-	if (!task) {
-		cmdq_task_callback(pkt, -ENOMEM);
-		cmdq_err("callback with error since allocate fail");
+	if (!task)
 		return;
-	}
 	task->cmdq = cmdq;
 	INIT_LIST_HEAD(&task->list_entry);
 	task->pa_base = dma_handle;
@@ -1064,7 +1028,7 @@ static int cmdq_suspend(struct device *dev)
 		if (!list_empty(&thread->task_busy_list)) {
 			cmdq_mbox_thread_stop(thread);
 			task_running = true;
-			cmdq_err("thread %d running", i);
+			break;
 		}
 	}
 
@@ -1150,7 +1114,7 @@ static struct mbox_chan *cmdq_xlate(struct mbox_controller *mbox,
 
 static s32 cmdq_config_prefetch(struct device_node *np, struct cmdq *cmdq)
 {
-	u32 i, prefetch_cnt = 0, prefetchs[4] = {0};
+	u32 i, prefetch_cnt = 0, prefetchs[4];
 	s32 err;
 
 	cmdq->prefetch = 0;
@@ -1275,8 +1239,6 @@ static int cmdq_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, cmdq);
 	WARN_ON(clk_prepare(cmdq->clock) < 0);
 
-	wakeup_source_init(&cmdq->wake_lock, "cmdq_wakelock");
-
 	return 0;
 }
 
@@ -1367,17 +1329,6 @@ u32 cmdq_mbox_set_thread_timeout(void *chan, u32 timeout)
 	return timeout_prv;
 }
 EXPORT_SYMBOL(cmdq_mbox_set_thread_timeout);
-
-s32 cmdq_mbox_chan_id(void *chan)
-{
-	struct cmdq_thread *thread = ((struct mbox_chan *)chan)->con_priv;
-
-	if (!thread || !thread->occupied)
-		return -1;
-
-	return thread->idx;
-}
-EXPORT_SYMBOL(cmdq_mbox_chan_id);
 
 s32 cmdq_task_get_thread_pc(struct mbox_chan *chan, dma_addr_t *pc_out)
 {
@@ -1546,7 +1497,7 @@ u32 cmdq_get_event(void *chan, u16 event_id)
 	struct cmdq *cmdq = container_of(((struct mbox_chan *)chan)->mbox,
 		typeof(*cmdq), mbox);
 
-	writel(0x3FF & event_id, cmdq->base + CMDQ_SYNC_TOKEN_ID);
+	writel(0x3FF & event_id, cmdq->base + CMDQ_SYNC_TOKEN_UPD);
 	return readl(cmdq->base + CMDQ_SYNC_TOKEN_VAL);
 }
 EXPORT_SYMBOL(cmdq_get_event);

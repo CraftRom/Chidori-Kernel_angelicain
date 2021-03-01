@@ -57,9 +57,6 @@
 #include <sspm_ipi.h>
 #endif /* CONFIG_MTK_TINYSYS_SSPM_SUPPORT */
 
-__attribute__((weak))
-void cm_mgr_update_dram_by_cpu_opp(int cpu_opp) {};
-
 spinlock_t cm_mgr_lock;
 
 static unsigned long long test_diff;
@@ -643,8 +640,6 @@ void check_cm_mgr_status(unsigned int cluster, unsigned int freq)
 	prev_freq[cluster] = 0;
 #endif /* CONFIG_MTK_CPU_FREQ */
 
-	cm_mgr_update_dram_by_cpu_opp(prev_freq_idx[CM_MGR_CPU_CLUSTER - 1]);
-
 	check_cm_mgr_status_internal();
 }
 
@@ -887,13 +882,13 @@ static int dbg_cm_mgr_proc_show(struct seq_file *m, void *v)
 #define CPU_FW_FILE "cpu_data.bin"
 #include <linux/firmware.h>
 static struct device cm_mgr_device = {
-	.init_name = "cm_mgr_device",
+	.init_name = "cm_mgr_device ",
 };
 
 static void cm_mgr_update_fw(void)
 {
 	int j = 0;
-	const struct firmware *fw = NULL;
+	const struct firmware *fw;
 	int err;
 	int copy_size = 0;
 	int offset = 0;

@@ -45,6 +45,9 @@
 #endif
 
 static int auxadc_bat_temp_cali(int bat_temp, int precision_factor);
+static void wake_up_mdrt_thread(void);
+
+static unsigned int mdrt_adc;
 
 /*********************************
  * PMIC AUXADC Exported API
@@ -79,6 +82,10 @@ void pmic_auxadc_resume(void)
 	pmic_set_register_value(PMIC_AUXADC_MDRT_DET_WKUP_EN, 0);
 
 	/* no need to disable BAT_TEMP detect, remove wk_auxadc_bgd_ctrl */
+
+	/* check MDRT ready is normal or not */
+	mdrt_adc = pmic_get_register_value(PMIC_AUXADC_ADC_OUT_MDRT);
+	wake_up_mdrt_thread();
 }
 
 void lockadcch3(void)
@@ -101,7 +108,7 @@ void wk_auxadc_reset(void)
 	pmic_set_register_value(PMIC_HK_AUXADC_KEY, 0);
 	/* avoid GPS can't receive AUXADC ready after reset, request again */
 	if (PMIC_CHIP_VER() != 0x5910)
-		pmic_set_register_value(PMIC_AUXADC_RQST_CH7_BY_GPS, 1);
+		pmic_set_register_value(PMIC_AUXADC_RQST_CH7, 1);
 	pmic_set_register_value(PMIC_AUXADC_RQST_DCXO_BY_GPS, 1);
 	pr_notice("reset AUXADC done\n");
 	/* special call to restore bat_temp_prev after reset AUXADC */
@@ -249,7 +256,6 @@ static void wk_auxadc_dbg_init(void)
  * PMIC AUXADC MDRT debug(MTS=Modem Temp Share)
  *********************************/
 /* global variable */
-static unsigned int mdrt_adc;
 static struct wakeup_source mdrt_wakelock;
 static struct mutex mdrt_mutex;
 static struct task_struct *mdrt_thread_handle;
@@ -399,9 +405,6 @@ static int mdrt_kthread(void *x)
 
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule();
-		/* Fix Cove.Scan, should not happened */
-		if (polling_cnt >= 0x1000)
-			break;
 	}
 	return 0;
 }

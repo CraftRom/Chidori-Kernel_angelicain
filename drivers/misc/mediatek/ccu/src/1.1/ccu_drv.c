@@ -633,13 +633,7 @@ static long ccu_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 			struct ccu_cmd_s *cmd = 0;
 
 			/*allocate ccu_cmd_st_list instead of struct ccu_cmd_s*/
-			ret = ccu_alloc_command(&cmd);
-			if (ret != 0) {
-				LOG_ERR(
-					"[%s] ccu_alloc_command failed, ret=%d\n",
-					"ENQUE_COMMAND", ret);
-				return -EFAULT;
-			}
+			ccu_alloc_command(&cmd);
 			ret = copy_from_user(cmd, (void *)arg,
 				sizeof(struct ccu_cmd_s));
 			if (ret != 0) {
@@ -673,7 +667,7 @@ static long ccu_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 				LOG_ERR(
 					"[%s] pop command failed, ret=%d\n",
 					"DEQUE_COMMAND", ret);
-				ret = -EFAULT;
+				return -EFAULT;
 			}
 
 			ret = copy_to_user((void *)arg, cmd,
@@ -682,7 +676,7 @@ static long ccu_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 				LOG_ERR(
 					"[%s] copy_to_user failed, ret=%d\n",
 					"DEQUE_COMMAND", ret);
-				ret = -EFAULT;
+				return -EFAULT;
 			}
 
 			ret = ccu_free_command(cmd);
@@ -690,7 +684,7 @@ static long ccu_ioctl(struct file *flip, unsigned int cmd, unsigned long arg)
 				LOG_ERR(
 					"[%s] free command, ret=%d\n",
 					"DEQUE_COMMAND", ret);
-				ret = -EFAULT;
+				return -EFAULT;
 			}
 
 			break;

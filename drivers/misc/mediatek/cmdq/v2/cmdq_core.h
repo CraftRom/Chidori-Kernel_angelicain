@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2015 MediaTek Inc.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -53,12 +52,6 @@
 		highAddr = ((addr >> 32) & 0xffff);                            \
 	}
 #else
-#ifdef CONFIG_ARM64
-#define CMDQ_GET_HIGH_ADDR(addr, highAddr)                                     \
-	{                                                                      \
-		highAddr = ((addr >> 32) & 0xffff);                    \
-	}
-#else
 #define CMDQ_GET_HIGH_ADDR(addr, highAddr)                                     \
 	{                                                                      \
 		if (enable_4G())                                               \
@@ -66,7 +59,6 @@
 		else                                                           \
 			highAddr = ((addr >> 32) & 0xffff);                    \
 	}
-#endif
 #endif
 #else
 #define CMDQ_GET_HIGH_ADDR(addr, highAddr)                                     \
@@ -77,7 +69,6 @@
 
 #define CMDQ_LONGSTRING_MAX (180)
 #define CMDQ_DELAY_RELEASE_RESOURCE_MS (1000)
-#define CMDQ_MAX_DUMP_REG_COUNT (2048)
 
 #define CMDQ_ENG_ISP_GROUP_BITS                                                \
 	((1LL << CMDQ_ENG_ISP_IMGI) | (1LL << CMDQ_ENG_ISP_IMGO) |             \
@@ -1111,8 +1102,6 @@ void cmdqCoreSetResourceCallback(enum CMDQ_EVENT_ENUM resourceEvent,
 				 CmdqResourceReleaseCB resourceRelease);
 
 void cmdq_core_dump_dts_setting(void);
-int32_t cmdq_core_get_running_task_by_engine_unlock(uint64_t engineFlag,
-		uint32_t userDebugStrLen, struct TaskStruct *p_out_task);
 int32_t cmdq_core_get_running_task_by_engine(uint64_t engineFlag,
 					     uint32_t userDebugStrLen,
 					     struct TaskStruct *p_out_task);

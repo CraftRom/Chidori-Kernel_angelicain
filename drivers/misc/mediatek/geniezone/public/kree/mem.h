@@ -19,11 +19,11 @@
 #ifndef __KREE_MEM_H__
 #define __KREE_MEM_H__
 
-#if defined(CONFIG_MTK_IN_HOUSE_TEE_SUPPORT)	\
-	|| defined(CONFIG_MTK_ENABLE_GENIEZONE)
+#if defined(CONFIG_MTK_IN_HOUSE_TEE_SUPPORT) || defined(CONFIG_TRUSTY)
 
 #include <tz_cross/trustzone.h>
 #include <tz_cross/gz_version.h>
+#include "system.h"
 
 #define KREE_SESSION_HANDLE_NULL ((KREE_SESSION_HANDLE)0)
 #define KREE_SESSION_HANDLE_FAIL ((KREE_SESSION_HANDLE)-1)
@@ -39,9 +39,6 @@
  * According to their different purpose, they are redefined to specific name.
  * Just for easy programming.
  */
-
-/* / KREE session handle type. */
-typedef int32_t KREE_SESSION_HANDLE;
 
 /* Shared memory handle define */
 typedef uint32_t KREE_SHAREDMEM_HANDLE;
@@ -96,6 +93,14 @@ struct KREE_SHM_RUNLENGTH_LIST {
 	struct KREE_SHM_RUNLENGTH_LIST *next;
 };
 
+
+/* map_p: 0 = no remap, 1 = remap */
+TZ_RESULT kree_register_sharedmem(KREE_SESSION_HANDLE session,
+		KREE_SHAREDMEM_HANDLE *mem_handle, void *start,
+		uint32_t size, void *map_p, uint32_t cmd, uint32_t region_id);
+
+TZ_RESULT kree_unregister_sharedmem(KREE_SESSION_HANDLE session,
+				    KREE_SHAREDMEM_HANDLE mem_handle);
 
 /**
  * Shared memory
@@ -310,6 +315,7 @@ TZ_RESULT KREE_AppendSecureMultichunkmem(KREE_SESSION_HANDLE session,
 TZ_RESULT KREE_AppendSecureMultichunkmem_basic(KREE_SESSION_HANDLE session,
 					KREE_SHAREDMEM_HANDLE *cm_handle,
 					KREE_SHAREDMEM_PARAM *param);
+#if 1
 TZ_RESULT KREE_AllocSecureMultichunkmem(KREE_SESSION_HANDLE session,
 				KREE_SHAREDMEM_HANDLE chm_handle,
 				KREE_SECUREMEM_HANDLE *mem_handle,
@@ -324,7 +330,8 @@ TZ_RESULT KREE_ReferenceSecureMultichunkmem(KREE_SESSION_HANDLE session,
 					KREE_SECUREMEM_HANDLE mem_handle);
 
 TZ_RESULT KREE_UnreferenceSecureMultichunkmem(KREE_SESSION_HANDLE session,
-	KREE_SECUREMEM_HANDLE mem_handle, uint32_t *count);
+					KREE_SECUREMEM_HANDLE mem_handle);
+#endif
 
 TZ_RESULT KREE_ION_AllocChunkmem(KREE_SESSION_HANDLE session,
 				 KREE_SHAREDMEM_HANDLE chm_handle,
@@ -586,10 +593,6 @@ TZ_RESULT KREE_QuerySecurechunkmem(KREE_SESSION_HANDLE session,
 
 #endif /* end of chunk mem API */
 
-TZ_RESULT KREE_ConfigSecureMultiChunkMemInfo(KREE_SESSION_HANDLE session,
-					     uint64_t pa, uint32_t size,
-					     uint32_t region_id);
-
 /*fix mtee sync*/
 #ifdef CONFIG_MTEE_CMA_SECURE_MEMORY
 /**
@@ -618,5 +621,5 @@ TZ_RESULT KREE_ServReleaseChunkmemPool(u32 op,
 				       u8 uparam[REE_SERVICE_BUFFER_SIZE]);
 #endif /* CONFIG_MTEE_CMA_SECURE_MEMORY */
 
-#endif /* CONFIG_MTK_IN_HOUSE_TEE_SUPPORT || CONFIG_MTK_ENABLE_GENIEZONE*/
+#endif /* CONFIG_MTK_IN_HOUSE_TEE_SUPPORT || CONFIG_TRUSTY*/
 #endif /* __KREE_MEM_H__ */

@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0
-/*
- * Copyright (c) 2019 MediaTek Inc.
- * Author Che-Jui Chang <Che-Jui.Chang@mediatek.com>
- */
+//
+// mtk-scp-vow-common.c  --
+//
+// Copyright (c) 2018 MediaTek Inc.
+// Author: Poyen <Poyen.wu@mediatek.com>
+
+
 
 #include <linux/io.h>
 #include "mtk-sram-manager.h"
@@ -63,8 +66,8 @@ int allocate_vow_bargein_mem(struct snd_pcm_substream *substream,
 		return ret;
 	}
 
-	dev_info(afe->dev, "%s(), addr = %pad, area = %p, bytes = %zu\n",
-		 __func__, &dma_buf->addr, dma_buf->area,
+	dev_info(afe->dev, "%s(), addr = %llx, area = %p, bytes = %zu\n",
+		 __func__, dma_buf->addr, dma_buf->area,
 		 dma_buf->bytes);
 
 	if ((memif->using_sram == 0) && (afe->request_dram_resource))

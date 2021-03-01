@@ -244,8 +244,7 @@ static ssize_t show_eas_info_attr(struct kobject *kobj,
 
 	len += snprintf(buf+len, max_len - len, "\nwatershed=%d\n",
 		power_tuning.watershed);
-	len += snprintf(buf+len, max_len - len,
-		"turning_point=%d, big_cpu_eff_tp=%llu\n",
+	len += snprintf(buf+len, max_len - len, "turning_point=%d, big_cpu_eff_tp=%llu\n",
 		cpu_eff_tp, big_cpu_eff_tp);
 	len += snprintf(buf+len, max_len - len, "tiny_thresh=%d\n",
 		tiny_thresh);

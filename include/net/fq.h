@@ -1,6 +1,5 @@
 /*
  * Copyright (c) 2016 Qualcomm Atheros, Inc
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * GPL v2
  *
@@ -71,7 +70,7 @@ struct fq {
 	struct list_head backlogs;
 	spinlock_t lock;
 	u32 flows_cnt;
-	siphash_key_t	perturbation;
+	u32 perturbation;
 	u32 limit;
 	u32 memory_limit;
 	u32 memory_usage;

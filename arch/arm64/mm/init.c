@@ -93,7 +93,8 @@ static phys_addr_t __init max_zone_dma_phys(void)
 		return min(offset + zmc_max_zone_dma_phys,
 				memblock_end_of_DRAM());
 #endif
-	return min(offset + (1ULL << 32), memblock_end_of_DRAM());
+	return min(offset + (1ULL << CONFIG_ARCH_DMA_BITS),
+			memblock_end_of_DRAM());
 }
 
 #ifdef CONFIG_NUMA
@@ -195,13 +196,11 @@ static void __init zone_sizes_init(unsigned long min, unsigned long max)
 #endif /* CONFIG_NUMA */
 
 #ifdef CONFIG_HAVE_ARCH_PFN_VALID
+#define PFN_MASK ((1UL << (64 - PAGE_SHIFT)) - 1)
+
 int pfn_valid(unsigned long pfn)
 {
-	phys_addr_t addr = pfn << PAGE_SHIFT;
-
-	if ((addr >> PAGE_SHIFT) != pfn)
-		return 0;
-	return memblock_is_map_memory(addr);
+	return (pfn & PFN_MASK) == pfn && memblock_is_map_memory(pfn << PAGE_SHIFT);
 }
 EXPORT_SYMBOL(pfn_valid);
 #endif
@@ -322,7 +321,7 @@ void __init arm64_memblock_init(void)
 		 * memory spans, randomize the linear region as well.
 		 */
 		if (memstart_offset_seed > 0 && range >= ARM64_MEMSTART_ALIGN) {
-			range /= ARM64_MEMSTART_ALIGN;
+			range = range / ARM64_MEMSTART_ALIGN + 1;
 			memstart_addr -= ARM64_MEMSTART_ALIGN *
 					 ((range * memstart_offset_seed) >> 16);
 		}

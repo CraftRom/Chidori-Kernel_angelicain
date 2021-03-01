@@ -72,7 +72,7 @@ s32 pwrap_wacs2(u32 write, u32 adr, u32 wdata, u32 *rdata)
 	if (mt_wrp.wacs2_hal != NULL)
 		return mt_wrp.wacs2_hal(write, adr, wdata, rdata);
 
-	pr_notice("[WRAP]driver need registered!!");
+	pr_notice("[WRAP] driver need registered!!");
 	return -5;
 
 }
@@ -87,7 +87,7 @@ s32 pwrap_write(u32 adr, u32 wdata)
 {
 /*
  *#if defined PWRAP_TRACE
- *tracepwrap(adr, wdata);
+ *	tracepwrap(adr, wdata);
  *#endif
  */
 #ifdef CONFIG_MACH_MT6765
@@ -135,6 +135,11 @@ s32 pwrap_write(u32 adr, u32 wdata)
 			pr_notice("[PWRAP] adr:0x%x, wdata:0x%x\n", adr, wdata);
 			return ret;
 		}
+	} else if ((adr == 0x170E) && (wdata & 0x80)) {
+		pr_notice("[PWRAP] Illegal write 0x170E bit 7 to 1\n");
+		pr_notice("[PWRAP] Error: %s, line: %d\n", __func__, __LINE__);
+		pr_notice("[PWRAP] addr: 0x%x, wdata: 0x%x\n", adr, wdata);
+		return -1;
 	} else {
 		ret = pwrap_wacs2(PWRAP_WRITE, adr, wdata, 0);
 		if (ret != 0) {
@@ -181,11 +186,11 @@ static ssize_t mt_pwrap_show(struct device_driver *driver, char *buf)
 	if (mt_wrp.show_hal != NULL)
 		return mt_wrp.show_hal(buf);
 
-	return snprintf(buf, PAGE_SIZE, "%s\n", "[WRAP]need register!! ");
+	return snprintf(buf, PAGE_SIZE, "%s\n", "[WRAP]driver need register!!");
 }
 
 static ssize_t mt_pwrap_store(struct device_driver *driver,
-		const char *buf, size_t count)
+					const char *buf, size_t count)
 {
 	if (mt_wrp.store_hal != NULL)
 		return mt_wrp.store_hal(buf, count);

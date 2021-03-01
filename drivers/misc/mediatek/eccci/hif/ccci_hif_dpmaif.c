@@ -52,7 +52,6 @@
 #include "modem_reg_base.h"
 #include "ccci_fsm.h"
 #include "ccci_port.h"
-#include "ccci_aee_handle.h"
 
 #if defined(CCCI_SKB_TRACE)
 #undef TRACE_SYSTEM
@@ -97,13 +96,6 @@ TRACE_EVENT(ccci_skb_rx,
 
 static void dpmaif_dump_register(struct hif_dpmaif_ctrl *hif_ctrl, int buf_type)
 {
-	if (hif_ctrl->dpmaif_state == HIFDPMAIF_STATE_PWROFF
-		|| hif_ctrl->dpmaif_state == HIFDPMAIF_STATE_MIN) {
-		CCCI_MEM_LOG_TAG(hif_ctrl->md_id, TAG,
-			"DPMAIF not power on, skip dump\n");
-		return;
-	}
-
 	CCCI_BUF_LOG_TAG(hif_ctrl->md_id, buf_type, TAG,
 		"dump AP DPMAIF Tx pdn register\n");
 	ccci_util_mem_dump(hif_ctrl->md_id, buf_type,
@@ -1283,7 +1275,7 @@ static int dpmaif_rx_start(struct dpmaif_rx_queue *rxq, unsigned short pit_cnt,
 				notify_hw.frag_cnt++;
 			}
 #endif
-			if (pkt_inf_t->c_bit == 0) {
+			if (pkt_inf_t->c_bit == 0 && rxq->skb_idx != -1) {
 				/* last one, not msg pit, && data had rx. */
 				ret = dpmaif_send_skb_to_net(rxq,
 					rxq->skb_idx);
@@ -2239,7 +2231,7 @@ static void dpmaif_irq_cb(struct hif_dpmaif_ctrl *hif_ctrl)
 	}
 #if 0/* def CONFIG_MTK_AEE_FEATURE */
 	if (hif_ctrl->traffic_info.isr_cnt > 20000) {
-		ccci_aed_md_exception_api(NULL, 0, NULL,
+		aed_md_exception_api(NULL, 0, NULL,
 			0, "DPMAIF isr > 20000\n",
 			DB_OPT_DEFAULT);
 	}
@@ -2698,9 +2690,6 @@ int dpmaif_start(unsigned char hif_id)
 	struct dpmaif_tx_queue *txq;
 	int i, ret = 0;
 
-	if (dpmaif_ctrl->dpmaif_state == HIFDPMAIF_STATE_PWRON)
-		return 0;
-
 	if (dpmaif_ctrl->dpmaif_state == HIFDPMAIF_STATE_MIN)
 		dpmaif_late_init(hif_id);
 #ifdef DPMAIF_DEBUG_LOG
@@ -2987,7 +2976,7 @@ static int dpmaif_stop_rxq(struct dpmaif_rx_queue *rxq)
 		page = cur_page->page;
 		if (page != NULL) {
 			/* rx unmapping */
-			dma_unmap_page(
+			dma_unmap_single(
 				ccci_md_get_dev_by_id(dpmaif_ctrl->md_id),
 				cur_page->data_phy_addr, cur_page->data_len,
 				DMA_FROM_DEVICE);
@@ -3097,10 +3086,6 @@ void dpmaif_hw_reset(unsigned char md_id)
 
 int dpmaif_stop(unsigned char hif_id)
 {
-	if (dpmaif_ctrl->dpmaif_state == HIFDPMAIF_STATE_PWROFF ||
-		dpmaif_ctrl->dpmaif_state == HIFDPMAIF_STATE_MIN)
-		return 0;
-
 #ifdef DPMAIF_DEBUG_LOG
 	CCCI_HISTORY_LOG(-1, TAG, "dpmaif:stop\n");
 #else

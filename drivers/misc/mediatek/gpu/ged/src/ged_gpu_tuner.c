@@ -589,7 +589,7 @@ ERROR:
 
 GED_ERROR ged_gpu_tuner_init(void)
 {
-	GED_ERROR err = (int)GED_TRUE;
+	GED_ERROR err = GED_TRUE;
 
 	GPU_TUNER_DEBUG("[%s] In\n", __func__);
 
@@ -673,12 +673,12 @@ GED_ERROR ged_gpu_tuner_exit(void)
 
 	GPU_TUNER_DEBUG("[%s] Out\n", __func__);
 
-	return (int)GED_TRUE;
+	return GED_TRUE;
 }
 
 int ged_bridge_gpu_tuner_status(
-		struct GED_BRIDGE_IN_GPU_TUNER_STATUS *in,
-		struct GED_BRIDGE_OUT_GPU_TUNER_STATUS *out)
+		GED_BRIDGE_IN_GPU_TUNER_STATUS *in,
+		GED_BRIDGE_OUT_GPU_TUNER_STATUS *out)
 {
 	struct GED_GPU_TUNER_ITEM item;
 	GED_ERROR err = GED_ERROR_FAIL;

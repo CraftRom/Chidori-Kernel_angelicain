@@ -966,7 +966,7 @@ static void mt6360_led_bright_set(
 			rgbled_info->mpi, MT6360_PMU_RGB_EN,
 			en_mask, ~en_mask);
 		if (ret < 0)
-			dev_notice(led->dev, "update enable bit fail\n");
+			dev_err(led->dev, "update enable bit fail\n");
 	} else
 		mt6360_led_enable_dwork(led);
 }

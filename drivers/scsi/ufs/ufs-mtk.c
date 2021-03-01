@@ -27,9 +27,7 @@
 #include "ufs-mtk-block.h"
 #include "ufs-mtk-platform.h"
 #include "ufs-mtk-dbg.h"
-#ifdef SR_CLKEN_RC_READY
 #include "mtk_srclken_rc.h"
-#endif
 
 #include <mt-plat/keyhint.h>
 #include <mt-plat/mtk_partition.h>
@@ -64,8 +62,6 @@ static bool ufs_mtk_is_unmap_cmd(char cmd_op);
  */
 /* Self init Encryption and No Encryption array */
 static u8 di_init;
-/* Logical block count */
-static u64 logblk_cnt;
 /* For Encryption */
 static u16 *LBA_CRC16_ARRAY;
 /* For No Encryption */
@@ -78,6 +74,7 @@ void ufs_mtk_di_init(struct ufs_hba *hba)
 {
 	u8 ud_buf[UNIT_DESC_PARAM_ERASE_BLK_SIZE] = { 0 };
 	int len = UNIT_DESC_PARAM_ERASE_BLK_SIZE;
+	u64 logblk_cnt;
 
 	/* Already init */
 	if (di_init != 0)
@@ -92,10 +89,10 @@ void ufs_mtk_di_init(struct ufs_hba *hba)
 		((u64)ud_buf[UNIT_DESC_PARAM_LOGICAL_BLK_COUNT+1] << 48) |
 		((u64)ud_buf[UNIT_DESC_PARAM_LOGICAL_BLK_COUNT+2] << 40) |
 		((u64)ud_buf[UNIT_DESC_PARAM_LOGICAL_BLK_COUNT+3] << 32) |
-		((u64)ud_buf[UNIT_DESC_PARAM_LOGICAL_BLK_COUNT+4] << 24) |
-		((u64)ud_buf[UNIT_DESC_PARAM_LOGICAL_BLK_COUNT+5] << 16) |
-		((u64)ud_buf[UNIT_DESC_PARAM_LOGICAL_BLK_COUNT+6] << 8) |
-		((u64)ud_buf[UNIT_DESC_PARAM_LOGICAL_BLK_COUNT+7]));
+		(ud_buf[UNIT_DESC_PARAM_LOGICAL_BLK_COUNT+4] << 24) |
+		(ud_buf[UNIT_DESC_PARAM_LOGICAL_BLK_COUNT+5] << 16) |
+		(ud_buf[UNIT_DESC_PARAM_LOGICAL_BLK_COUNT+6] << 8) |
+		(ud_buf[UNIT_DESC_PARAM_LOGICAL_BLK_COUNT+7]));
 
 	pr_info("%s: mtk ufs di need %lluMB memory for total lba %llu(0x%llx)\n",
 		__func__, logblk_cnt * sizeof(u16) * 2 / 1024 / 1024
@@ -142,10 +139,6 @@ int ufs_mtk_di_cmp(struct ufs_hba *hba, struct scsi_cmnd *cmd)
 	char *buffer;
 	int i, len;
 	struct scatterlist *sg;
-#if defined(CONFIG_ARM) && !defined(CONFIG_ARM64)
-	struct page *page;
-	char *virtual_address;
-#endif
 	u32 lba, blk_cnt, end_lba;
 	u16 crc_temp = 0;
 
@@ -153,15 +146,6 @@ int ufs_mtk_di_cmp(struct ufs_hba *hba, struct scsi_cmnd *cmd)
 
 	lba = cmd->cmnd[5] | (cmd->cmnd[4] << 8) | (cmd->cmnd[3] << 16) |
 		(cmd->cmnd[2] << 24);
-
-	if ((u64)lba >= logblk_cnt) {
-		dev_info(hba->dev,
-			"%s: lba err! expected: logblk_cnt: 0x%llx, LBA: 0x%x\n",
-			__func__, logblk_cnt, lba);
-		WARN_ON(1);
-		return -EIO;
-	}
-
 	if (cmd->cmnd[0] == READ_16) /* HPB use READ_16, blk_cnt fix 1 */
 		blk_cnt = 1;
 	else
@@ -174,14 +158,7 @@ int ufs_mtk_di_cmp(struct ufs_hba *hba, struct scsi_cmnd *cmd)
 		&& (ufshcd_scsi_to_upiu_lun(cmd->device->lun) == 0x2)) {
 		if (scsi_sg_count(cmd)) {
 			for (i = 0; i < scsi_sg_count(cmd); i++) {
-#if defined(CONFIG_ARM) && !defined(CONFIG_ARM64)
-				page = sg_page(sg);
-				virtual_address = (char *) kmap_atomic(page)
-				buffer = virtual_address + sg->offset;
-#else
 				buffer = (char *)sg_virt(sg);
-#endif
-
 
 for (len = 0; len < sg->length; len = len + 0x1000, lba++) {
 	/*
@@ -235,7 +212,7 @@ for (len = 0; len < sg->length; len = len + 0x1000, lba++) {
 #ifdef CONFIG_MTK_UFS_LBA_CRC16_BUG_ON
 					BUG_ON(1);
 #endif
-					goto eio;
+					return -EIO;
 				}
 			}
 
@@ -257,7 +234,7 @@ for (len = 0; len < sg->length; len = len + 0x1000, lba++) {
 #ifdef CONFIG_MTK_UFS_LBA_CRC16_BUG_ON
 						BUG_ON(1);
 #endif
-						goto eio;
+						return -EIO;
 					}
 				}
 			} else {
@@ -276,7 +253,7 @@ for (len = 0; len < sg->length; len = len + 0x1000, lba++) {
 #ifdef CONFIG_MTK_UFS_LBA_CRC16_BUG_ON
 						BUG_ON(1);
 #endif
-						goto eio;
+						return -EIO;
 					}
 				}
 			}
@@ -284,9 +261,6 @@ for (len = 0; len < sg->length; len = len + 0x1000, lba++) {
 	}
 
 }
-#if defined(CONFIG_ARM) && !defined(CONFIG_ARM64)
-				kunmap_atomic(virtual_address);
-#endif
 				sg = sg_next(sg);
 			}
 			/*
@@ -305,11 +279,6 @@ for (len = 0; len < sg->length; len = len + 0x1000, lba++) {
 	}
 
 	return 0;
-eio:
-#if defined(CONFIG_ARM) && !defined(CONFIG_ARM64)
-		kunmap_atomic(virtual_address);
-#endif
-	return -EIO;
 }
 
 int ufs_mtk_di_inspect(struct ufs_hba *hba, struct scsi_cmnd *cmd)
@@ -613,7 +582,7 @@ int ufs_mtk_run_batch_uic_cmd(struct ufs_hba *hba,
 
 int ufs_mtk_cfg_unipro_cg(struct ufs_hba *hba, bool enable)
 {
-	u32 tmp = 0;
+	u32 tmp;
 
 	if (enable) {
 		ufshcd_dme_get(hba, UIC_ARG_MIB(VENDOR_SAVEPOWERCONTROL), &tmp);
@@ -1002,18 +971,24 @@ static int ufs_mtk_init_mphy(struct ufs_hba *hba)
 	return 0;
 }
 
-static int ufs_mtk_init_crypto(struct ufs_hba *hba)
+static int ufs_mtk_reset_host(struct ufs_hba *hba)
 {
+	if (!(hba->quirks & UFSHCD_QUIRK_UFS_HCI_VENDOR_HOST_RST))
+		return 0;
+
 	/* avoid resetting host during resume flow or when link is not off */
 	if (hba->pm_op_in_progress || !ufshcd_is_link_off(hba))
 		return 0;
+
+	dev_info(hba->dev, "reset host\n");
+
+	/* do host sw reset */
+	mt_secure_call(MTK_SIP_KERNEL_HW_FDE_UFS_CTL, (1 << 6), 0, 0, 0);
 
 #ifdef CONFIG_MTK_HW_FDE
 
 	/* restore HW FDE related settings by re-using resume operation */
 	mt_secure_call(MTK_SIP_KERNEL_HW_FDE_UFS_CTL, (1 << 2), 0, 0, 0);
-
-	dev_info(hba->dev, "crypto cfg initialized\n");
 #endif
 
 	return 0;
@@ -1047,19 +1022,15 @@ static int ufs_mtk_hce_enable_notify(struct ufs_hba *hba,
 
 	switch (stage) {
 	case PRE_CHANGE:
+		ret = ufs_mtk_reset_host(hba);
 		break;
 	case POST_CHANGE:
-		ret = ufs_mtk_init_crypto(hba);
 		/*
 		 * After HCE enable, need disable xoufs_req_s in ufshci
 		 * when xoufs hw solution is not ready.
 		 */
-#ifdef SR_CLKEN_RC_READY
 		if (srclken_get_stage() != SRCLKEN_FULL_SET)
 			ufshcd_writel(hba, 0, REG_UFS_ADDR_XOUFS_ST);
-#else
-		ufshcd_writel(hba, 0, REG_UFS_ADDR_XOUFS_ST);
-#endif
 		break;
 	default:
 		break;
@@ -1117,6 +1088,11 @@ static int ufs_mtk_post_link(struct ufs_hba *hba)
 		ret = 0;	/* skip error */
 	}
 
+#ifdef CONFIG_MTK_HW_FDE
+	/* init HW FDE feature inlined in HCI */
+	mt_secure_call(MTK_SIP_KERNEL_HW_FDE_UFS_CTL, (1 << 0), 0, 0, 0);
+#endif
+
 #ifdef CONFIG_HIE
 	/* init ufs crypto IP for HIE */
 	mt_secure_call(MTK_SIP_KERNEL_CRYPTO_HIE_INIT, 0, 0, 0, 0);
@@ -1171,7 +1147,8 @@ static int ufs_mtk_suspend(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 #endif
 
 #ifdef CONFIG_HIE
-		kh_suspend(ufs_mtk_get_kh());
+		/* hie suspend handling: reset key hint */
+		kh_reset(ufs_mtk_get_kh());
 #endif
 	}
 
@@ -1223,28 +1200,8 @@ static int ufs_mtk_resume(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 		 */
 		ret = ufshcd_dme_set(hba,
 			UIC_ARG_MIB_SEL(VENDOR_UNIPROPOWERDOWNCONTROL, 0), 0);
-		/*
-		 * If UniProp cannot power up, resume fail, and IO hang.
-		 * Try to sw reset UFS IP and UniProp power up again.
-		 */
-		if (ret) {
-			ufs_mtk_pltfrm_gpio_trigger_and_debugInfo_dump(hba);
-			ret = ufshcd_host_reset_and_restore(hba);
-			if (ret) {
-				dev_err(hba->dev, "%s: Host reset and restore failed %d\n",
-					__func__, ret);
-			}
-
-			ret = ufshcd_dme_set(hba,
-			  UIC_ARG_MIB_SEL(VENDOR_UNIPROPOWERDOWNCONTROL, 0), 0);
-			if (ret) {
-				dev_err(hba->dev,
-					"%s: UniProPowerDownControl fail ret:%d",
-					__func__, ret);
-				/* Something wrong, stop here or IO hang */
-				BUG();
-			}
-		}
+		if (ret)
+			return ret;
 
 		/*
 		 * Leave hibern8 state
@@ -2016,6 +1973,18 @@ static void ufs_mtk_auto_hibern8(struct ufs_hba *hba, bool enable)
 		return;
 
 	if (enable) {
+		/*
+		 * For UFSHCI 2.0 (in Elbrus), ensure hibernate enter/exit
+		 * interrupts are disabled during
+		 * auto hibern8.
+		 *
+		 * For UFSHCI 2.1 (in future projects), keep these 2
+		 * interrupts for auto-hibern8
+		 * error handling.
+		 */
+		ufshcd_disable_intr(hba, (UIC_HIBERNATE_ENTER |
+			UIC_HIBERNATE_EXIT));
+
 		/* set timer scale as "ms" and timer */
 		ufshcd_writel(hba, (0x03 << 10 | ufs_mtk_auto_hibern8_timer_ms),
 			REG_AHIT);
@@ -2024,6 +1993,13 @@ static void ufs_mtk_auto_hibern8(struct ufs_hba *hba, bool enable)
 	} else {
 		/* disable auto-hibern8 */
 		ufshcd_writel(hba, 0, REG_AHIT);
+
+		/*
+		 * ensure hibernate enter/exit interrupts
+		 * are enabled for future manual-hibern8
+		 */
+		ufshcd_enable_intr(hba, (UIC_HIBERNATE_ENTER |
+			UIC_HIBERNATE_EXIT));
 
 		ufs_mtk_auto_hibern8_enabled = false;
 	}

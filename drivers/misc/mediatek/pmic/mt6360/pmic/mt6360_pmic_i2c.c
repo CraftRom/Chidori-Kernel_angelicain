@@ -431,21 +431,21 @@ static int mt6360_enable_fpwm_usm(struct mt6360_pmic_info *mpi, bool en)
 	ret = mt6360_pmic_reg_update_bits(mpi, MT6360_PMIC_BUCK1_CTRL2,
 					  0x08, en ? 0xff : 0);
 	if (ret < 0) {
-		dev_notice(mpi->dev,
+		dev_err(mpi->dev,
 			"%s: enable ultra sonic mode fail\n", __func__);
 		return ret;
 	}
 
 	ret = charger_dev_enable_hidden_mode(mpi->chg_dev, true);
 	if (ret < 0) {
-		dev_notice(mpi->dev, "%s: enable hidden mode fail\n", __func__);
+		dev_err(mpi->dev, "%s: enable hidden mode fail\n", __func__);
 		return ret;
 	}
 	/* Enable FPWM mode */
 	ret = mt6360_pmic_reg_update_bits(mpi, MT6360_PMIC_BUCK1_Hidden1,
 					  0x02, en ? 0xff : 0);
 	if (ret < 0) {
-		dev_notice(mpi->dev, "%s: enable FPWM fail\n", __func__);
+		dev_err(mpi->dev, "%s: enable FPWM fail\n", __func__);
 		goto out;
 	}
 out:
@@ -509,7 +509,7 @@ static int mt6360_pmic_set_voltage_sel(struct regulator_dev *rdev,
 	ret = mt6360_pmic_reg_update_bits(mpi, desc->vsel_reg,
 					  desc->vsel_mask, sel << shift);
 	if (ret < 0)
-		dev_notice(&rdev->dev, "%s: fail(%d)\n", __func__, ret);
+		dev_err(&rdev->dev, "%s: fail(%d)\n", __func__, ret);
 	if ((id == MT6360_PMIC_BUCK1 || id == MT6360_PMIC_BUCK2) &&
 	    mpi->chip_rev <= 0x02) {
 		if (dvfs_down) {
@@ -517,7 +517,7 @@ static int mt6360_pmic_set_voltage_sel(struct regulator_dev *rdev,
 			/* Disble FPWM Mode */
 			ret = mt6360_enable_fpwm_usm(mpi, false);
 			if (ret < 0)
-				dev_notice(&rdev->dev,
+				dev_err(&rdev->dev,
 					"%s: disable fpwm fail\n", __func__);
 		}
 	}
@@ -806,14 +806,14 @@ static int mt6360_pmic_init_setting(struct mt6360_pmic_info *mpi)
 
 	ret = charger_dev_enable_hidden_mode(mpi->chg_dev, true);
 	if (ret < 0) {
-		dev_notice(mpi->dev, "%s: enable hidden mode fail\n", __func__);
+		dev_err(mpi->dev, "%s: enable hidden mode fail\n", __func__);
 		return ret;
 	}
 	/* Set USM Load Selection to 10mA */
 	ret = mt6360_pmic_reg_update_bits(mpi, MT6360_PMIC_BUCK1_Hidden1,
 					  0x1c, 0);
 	if (ret < 0) {
-		dev_notice(mpi->dev, "%s: enable FPWM fail\n", __func__);
+		dev_err(mpi->dev, "%s: enable FPWM fail\n", __func__);
 		goto out;
 	}
 out:
@@ -836,7 +836,7 @@ static int mt6360_pmic_i2c_probe(struct i2c_client *client,
 	dev_dbg(&client->dev, "%s\n", __func__);
 	ret = mt6360_ldo_chip_id_check(client);
 	if (ret < 0) {
-		dev_notice(&client->dev, "no device found\n");
+		dev_err(&client->dev, "no device found\n");
 		return ret;
 	}
 	chip_rev = (u8)ret;
@@ -882,13 +882,13 @@ static int mt6360_pmic_i2c_probe(struct i2c_client *client,
 	/* get charger device for dvfs in FPWM mode */
 	mpi->chg_dev = get_charger_by_name("primary_chg");
 	if (!mpi->chg_dev) {
-		dev_notice(&client->dev, "%s: get charger device fail\n",
+		dev_err(&client->dev, "%s: get charger device fail\n",
 			__func__);
 		goto out_pdata;
 	}
 	ret = mt6360_pmic_init_setting(mpi);
 	if (ret < 0) {
-		dev_notice(&client->dev, "%s: init setting fail\n", __func__);
+		dev_err(&client->dev, "%s: init setting fail\n", __func__);
 		goto out_pdata;
 	}
 
@@ -965,9 +965,9 @@ static void mt6360_pmic_shutdown(struct i2c_client *client)
 	struct mt6360_pmic_info *mpi = i2c_get_clientdata(client);
 	int ret = 0;
 
+	dev_dbg(mpi->dev, "%s\n", __func__);
 	if (mpi == NULL)
 		return;
-	dev_dbg(mpi->dev, "%s\n", __func__);
 	ret = mt6360_pmic_enable_poweroff_sequence(mpi, true);
 	if (ret < 0) {
 		dev_notice(mpi->dev, "%s: enable power off sequence fail\n",

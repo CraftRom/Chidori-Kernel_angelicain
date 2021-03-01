@@ -395,10 +395,8 @@ void gpd_switch_to_dram(struct device *dev)
 				(void *)(uintptr_t)Tx_gpd_Offset[index],
 				(void *)(uintptr_t)Tx_gpd_Offset_dram);
 		QMU_ERR("%s\n", string);
-#if 0
 #ifdef CONFIG_MTK_AEE_FEATURE
 		aee_kernel_warning(string, string);
-#endif
 #endif
 	}
 
@@ -1643,11 +1641,10 @@ finished:
 			default:
 				break;
 			}
-#if 0
+
 #ifdef CONFIG_MTK_AEE_FEATURE
 			if (val && !skip_val)
 				aee_kernel_warning(string, string);
-#endif
 #endif
 		}
 #endif
@@ -1751,10 +1748,8 @@ finished:
 
 		sprintf(string, "USB20_HOST, TXQ<%d> ERR, CSR:%x", epnum, val);
 		QMU_ERR("%s\n", string);
-#if 0
 #ifdef CONFIG_MTK_AEE_FEATURE
 		aee_kernel_warning(string, string);
-#endif
 #endif
 	}
 

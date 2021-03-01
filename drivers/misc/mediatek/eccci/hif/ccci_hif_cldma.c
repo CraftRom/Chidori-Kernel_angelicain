@@ -51,7 +51,6 @@
 #include "modem_reg_base.h"
 #include "ccci_fsm.h"
 #include "ccci_port.h"
-#include "ccci_aee_handle.h"
 
 #if defined(CLDMA_TRACE) || defined(CCCI_SKB_TRACE)
 #define CREATE_TRACE_POINTS
@@ -1879,7 +1878,7 @@ void cldma_stop(unsigned char hif_id)
 				 */
 				dump_emi_latency();
 #if defined(CONFIG_MTK_AEE_FEATURE)
-				ccci_aed_md_exception_api(NULL, 0, NULL, 0,
+				aed_md_exception_api(NULL, 0, NULL, 0,
 					"md1:\nUNKNOWN Exception\nstop Tx CLDMA failed.\n",
 					DB_OPT_DEFAULT);
 #endif
@@ -1925,7 +1924,7 @@ void cldma_stop(unsigned char hif_id)
 				 */
 				dump_emi_latency();
 #if defined(CONFIG_MTK_AEE_FEATURE)
-				ccci_aed_md_exception_api(NULL, 0, NULL, 0,
+				aed_md_exception_api(NULL, 0, NULL, 0,
 					"md1:\nUNKNOWN Exception\nstop Rx CLDMA failed.\n",
 					DB_OPT_DEFAULT);
 #endif
@@ -2048,7 +2047,7 @@ void cldma_stop_for_ee(unsigned char hif_id)
 				 */
 				dump_emi_latency();
 #if defined(CONFIG_MTK_AEE_FEATURE)
-				ccci_aed_md_exception_api(NULL, 0, NULL, 0,
+				aed_md_exception_api(NULL, 0, NULL, 0,
 					"md1:\nUNKNOWN Exception\nstop Tx CLDMA for EE failed.\n",
 					DB_OPT_DEFAULT);
 #endif
@@ -2094,7 +2093,7 @@ void cldma_stop_for_ee(unsigned char hif_id)
 				 */
 				dump_emi_latency();
 #if defined(CONFIG_MTK_AEE_FEATURE)
-				ccci_aed_md_exception_api(NULL, 0, NULL, 0,
+				aed_md_exception_api(NULL, 0, NULL, 0,
 					"md1:\nUNKNOWN Exception\nstop Rx CLDMA for EE failed.\n",
 					DB_OPT_DEFAULT);
 #endif

@@ -218,7 +218,6 @@ static struct regulator *vmdla_reg_id;
 
 static int mdla_init_done;
 static uint8_t segment_max_opp;
-static uint8_t segment_index;
 
 /* static function prototypes */
 static int mdla_boot_up(int core);
@@ -584,6 +583,148 @@ int get_mdla_opp_to_freq(uint8_t step)
 }
 EXPORT_SYMBOL(get_mdla_opp_to_freq);
 
+static int mdla_get_hw_vvpu_opp(int core)
+{
+	int opp_value = 0;
+	int get_vvpu_value = 0;
+#ifdef HQA_LOAD
+	int vvpu_opp_0;
+	int vvpu_opp_1;
+	int vvpu_opp_2;
+#endif
+	int vvpu_opp_0_vol;
+	int vvpu_opp_1_vol;
+	int vvpu_opp_2_vol;
+
+#ifdef HQA_LOAD
+//index63:PTPOD 0x11C105B4
+	vvpu_opp_0 = (get_devinfo_with_index(63) & (0x7<<15))>>15;
+	vvpu_opp_1 = (get_devinfo_with_index(63) & (0x7<<12))>>12;
+	vvpu_opp_2 = (get_devinfo_with_index(63) & (0x7<<9))>>9;
+#ifdef AGING_MARGIN
+	if ((vvpu_opp_0 <= 7) && (vvpu_opp_0 >= 3))
+		vvpu_opp_0_vol = (812500 - 25000);
+	else
+		vvpu_opp_0_vol = 812500;
+
+	if ((vvpu_opp_1 <= 7) && (vvpu_opp_1 >= 3))
+		vvpu_opp_1_vol = (712500 - 25000);
+	else
+		vvpu_opp_1_vol = 712500;
+
+		vvpu_opp_2_vol = 637500;
+#else
+	if ((vvpu_opp_0 <= 7) && (vvpu_opp_0 >= 3))
+		vvpu_opp_0_vol = 800000;
+	else
+		vvpu_opp_0_vol = 825000;
+
+	if ((vvpu_opp_1 <= 7) && (vvpu_opp_1 >= 3))
+		vvpu_opp_1_vol = 700000;
+	else
+		vvpu_opp_1_vol = 725000;
+
+		vvpu_opp_2_vol = 650000;
+#endif
+
+#else
+#ifdef AGING_MARGIN
+		vvpu_opp_0_vol = 812500;
+		vvpu_opp_1_vol = 712500;
+		vvpu_opp_2_vol = 637500;
+#else
+	vvpu_opp_0_vol = 825000;
+	vvpu_opp_1_vol = 725000;
+	vvpu_opp_2_vol = 650000;
+#endif
+
+#endif
+	get_vvpu_value = (int)regulator_get_voltage(vvpu_reg_id);
+	if (get_vvpu_value >= vvpu_opp_0_vol)
+		opp_value = 0;
+	else if (get_vvpu_value > vvpu_opp_1_vol)
+		opp_value = 0;
+	else if (get_vvpu_value > vvpu_opp_2_vol)
+		opp_value = 1;
+	else
+		opp_value = 2;
+
+	LOG_DBG("[mdla_%d] vvpu(%d->%d)\n", core, get_vvpu_value, opp_value);
+
+	return opp_value;
+}
+#if 0
+static int mdla_get_hw_vmdla_opp(int core)
+{
+	int opp_value = 0;
+	int get_vmdla_value = 0;
+#ifdef HQA_LOAD
+	int vmdla_opp_0;
+	int vmdla_opp_1;
+	int vmdla_opp_2;
+#endif
+	int vmdla_opp_0_vol;
+	int vmdla_opp_1_vol;
+	int vmdla_opp_2_vol;
+#ifdef HQA_LOAD
+	//index63:PTPOD 0x11C105B4
+	vmdla_opp_0 =  (get_devinfo_with_index(63) & (0x7<<24))>>24;
+	vmdla_opp_1 =  (get_devinfo_with_index(63) & (0x7<<21))>>21;
+	vmdla_opp_2 =  (get_devinfo_with_index(63) & (0x7<<18))>>18;
+#ifdef AGING_MARGIN
+	if ((vmdla_opp_0 <= 7) && (vmdla_opp_0 >= 3))
+		vmdla_opp_0_vol = (815000 - 25000);
+	else
+		vmdla_opp_0_vol = 815000;
+
+	if ((vmdla_opp_1 <= 7) && (vmdla_opp_1 >= 3))
+		vmdla_opp_1_vol = (715000 - 25000);
+	else
+		vmdla_opp_1_vol = 715000;
+
+		vmdla_opp_2_vol = 640000;
+#else
+	if ((vmdla_opp_0 <= 7) && (vmdla_opp_0 >= 3))
+		vmdla_opp_0_vol = 800000;
+	else
+		vmdla_opp_0_vol = 825000;
+
+	if ((vmdla_opp_1 <= 7) && (vmdla_opp_1 >= 3))
+		vmdla_opp_1_vol = 700000;
+	else
+		vmdla_opp_1_vol = 725000;
+
+		vmdla_opp_2_vol = 650000;
+
+#endif
+
+#else
+#ifdef AGING_MARGIN
+	vmdla_opp_0_vol = 815000;
+	vmdla_opp_1_vol = 715000;
+	vmdla_opp_2_vol = 640000;
+#else
+	vmdla_opp_0_vol = 825000;
+	vmdla_opp_1_vol = 725000;
+	vmdla_opp_2_vol = 650000;
+#endif
+#endif
+	get_vmdla_value = (int)regulator_get_voltage(vmdla_reg_id);
+	if (get_vmdla_value >= vmdla_opp_0_vol)
+		opp_value = 0;
+	else if (get_vmdla_value > vmdla_opp_1_vol)
+		opp_value = 0;
+	else if (get_vmdla_value > vmdla_opp_2_vol)
+		opp_value = 1;
+	else
+		opp_value = 2;
+
+	mdla_dvfs_debug("[mdla_%d] vmdla(%d->%d)\n",
+		core, get_vmdla_value, opp_value);
+
+	return opp_value;
+}
+#endif
 static void mdla_dsp_if_freq_check(int core, uint8_t vmdla_index)
 {
 	uint8_t vpu0_opp;
@@ -713,27 +854,13 @@ static void get_segment_from_efuse(void)
 	segment = get_devinfo_with_index(7) & 0xFF;
 	switch (segment) {
 	case 0x7://segment p90M 5mode
-		segment_max_opp = 0;
-		segment_index = SEGMENT_90M;
+		segment_max_opp = 5;
 		break;
 	case 0xE0://segment p90M 6mode 525M
-		segment_max_opp = 0;
-		segment_index = SEGMENT_90M;
-		break;
-	case 0x20://p95
-	case 0x4:
-	case 0x60:
-	case 0x6:
-	case 0x10:
-	case 0x8:
-	case 0x90:
-	case 0x9:
-		segment_max_opp = 0;
-		segment_index = SEGMENT_95;
+		segment_max_opp = 5;
 		break;
 	default: //segment p90
 		segment_max_opp = 0;
-		segment_index = SEGMENT_90;
 		break;
 	}
 	mdla_dvfs_debug("mdla segment_max_opp %d\n", segment_max_opp);
@@ -1702,8 +1829,6 @@ mdla_dvfs_debug("[mdla_%d] adjust(%d,%d) result vmdla=%d\n",
 
 out:
 	mdla_trace_tag_end();
-	if (mdla_klog & MDLA_DBG_DVFS)
-		apu_get_power_info();
 	is_power_on[core] = true;
 	force_change_vcore_opp[core] = false;
 	force_change_vmdla_opp[core] = false;
@@ -1862,11 +1987,8 @@ out:
 	vvpu_vmdla_vcore_checker();
 
 	is_power_on[core] = false;
-	if (!is_power_debug_lock) {
+	if (!is_power_debug_lock)
 		opps.mdlacore.index = 15;
-		opps.dsp.index = 9;
-		opps.ipu_if.index = 9;
-		}
 	mdla_dvfs_debug("[mdla_%d] dis_rc -\n", core);
 	return ret;
 #endif
@@ -2021,8 +2143,6 @@ int mdla_get_power(int core)
 		}
 	}
 	LOG_DBG("[mdla_%d/%d] gp -\n", core, power_counter[core]);
-	if (mdla_klog & MDLA_DBG_DVFS)
-		apu_get_power_info();
 	enable_apu_bw(0);
 	enable_apu_bw(1);
 	enable_apu_bw(2);
@@ -2390,9 +2510,9 @@ int mdla_init_hw(int core, struct platform_device *pdev)
 			opps.index = 5; /* user space usage*/
 			opps.vcore.index = 1;
 			opps.vmdla.index = 1;
-			opps.dsp.index = 9;
+			opps.dsp.index = 5;
 			opps.ipu_if.index = 9;
-			opps.mdlacore.index = 9;
+			opps.mdlacore.index = 3;
 #undef DEFINE_APU_OPP
 #undef DEFINE_APU_STEP
 
@@ -2674,8 +2794,10 @@ int mdla_dump_opp_table(struct seq_file *s)
 
 int mdla_dump_power(struct seq_file *s)
 {
+	int vvpu_opp = 0;
 	int vmdla_opp = 0;
 
+	vvpu_opp = mdla_get_hw_vvpu_opp(0);
 	vmdla_opp = mdla_get_hw_vmdla_opp(0);
 
 
@@ -3133,7 +3255,7 @@ static int mdla_lock_set_power(struct mdla_lock_power *mdla_lock_power)
 	if (core >= MTK_MDLA_USER || core < 0) {
 		LOG_ERR("wrong core index (0x%x/%d/%d)",
 			mdla_lock_power->core, core, MTK_MDLA_USER);
-		ret = -1;
+		ret = false;
 		mutex_unlock(&power_lock_mutex);
 		return ret;
 	}
@@ -3156,7 +3278,7 @@ static int mdla_lock_set_power(struct mdla_lock_power *mdla_lock_power)
 	}
 #endif
 	mutex_unlock(&power_lock_mutex);
-	return 0;
+	return ret;
 }
 
 static int mdla_unlock_set_power(struct mdla_lock_power *mdla_lock_power)
@@ -3330,7 +3452,6 @@ int mdla_dvfs_cmd_start(struct command_entry *ce)
 	ret = mdla_get_power(0);
 
 	if (ret) {
-		apu_get_power_info();
 		LOG_ERR("[mdla] fail to get power!\n");
 		return ret;
 	}

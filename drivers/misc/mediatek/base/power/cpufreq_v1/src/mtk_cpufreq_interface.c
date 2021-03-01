@@ -190,9 +190,11 @@ static ssize_t cpufreq_oppidx_proc_write(struct file *file,
 		if (oppidx >= 0 && oppidx < p->nr_opp_tbl) {
 			p->dvfs_disable_by_procfs = true;
 #ifdef CONFIG_HYBRID_CPU_DVFS
-			/* if (!cpu_dvfs_is(p, MT_CPU_DVFS_CCI)) */
+#if 0
+			if (!cpu_dvfs_is(p, MT_CPU_DVFS_CCI))
 			cpuhvfs_set_freq(arch_get_cluster_id(p->cpu_id),
 			cpu_dvfs_get_freq_by_idx(p, oppidx));
+#endif
 #else
 			_mt_cpufreq_dvfs_request_wrapper(p, oppidx,
 			MT_CPU_DVFS_NORMAL, NULL);
@@ -255,10 +257,12 @@ static ssize_t cpufreq_freq_proc_write(struct file *file,
 			if (found == 1) {
 				p->dvfs_disable_by_procfs = true;
 #ifdef CONFIG_HYBRID_CPU_DVFS
-				/* if (!cpu_dvfs_is(p, MT_CPU_DVFS_CCI)) */
+#if 0
+				if (!cpu_dvfs_is(p, MT_CPU_DVFS_CCI))
 				cpuhvfs_set_freq(
 				arch_get_cluster_id(p->cpu_id),
 				cpu_dvfs_get_freq_by_idx(p, i));
+#endif
 #else
 				_mt_cpufreq_dvfs_request_wrapper(p,
 				i, MT_CPU_DVFS_NORMAL, NULL);
@@ -300,7 +304,6 @@ static ssize_t cpufreq_volt_proc_write(struct file *file,
 	struct mt_cpu_dvfs *p = PDE_DATA(file_inode(file));
 #ifndef CONFIG_HYBRID_CPU_DVFS
 	struct buck_ctrl_t *vproc_p = id_to_buck_ctrl(p->Vproc_buck_id);
-	int ret = 0;
 #endif
 	int uv;
 	int rc;
@@ -322,10 +325,7 @@ static ssize_t cpufreq_volt_proc_write(struct file *file,
 		/* cpuhvfs_set_volt(arch_get_cluster_id(p->cpu_id), uv / 10); */
 #else
 		vproc_p->fix_volt = uv / 10;
-		ret = set_cur_volt_wrapper(p, vproc_p->fix_volt);
-		if (ret)
-			tag_pr_info("%s err to set_cur_volt_wrapper ret = %d\n",
-				__func__, ret);
+		set_cur_volt_wrapper(p, vproc_p->fix_volt);
 #endif
 		cpufreq_unlock(flags);
 	}

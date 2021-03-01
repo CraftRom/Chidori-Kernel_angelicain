@@ -471,7 +471,7 @@ static void ccci_dump_opt_tbl(void)
 static void parse_option_setting_from_lk(void)
 {
 	int i = 0;
-	int val = 0;
+	int val;
 	char *name;
 	int using_default = 1;
 	int using_lk_setting;
@@ -635,25 +635,8 @@ struct _ccb_layout {
 };
 static struct _ccb_layout ccb_info;
 static unsigned int md1_phy_cap_size;
-static int md1_smem_dfd_size = -1;
-static int smem_amms_pos_size = -1;
-static int smem_align_padding_size = -1;
+static int md1_smem_dfd_size;
 static unsigned int md1_bank4_cache_offset;
-struct _udc_info {
-	unsigned int noncache_size;
-	unsigned int cache_size;
-};
-static struct _udc_info udc_size;
-
-/* non-cacheable share memory */
-struct nc_smem_node {
-	unsigned int ap_offset;
-	unsigned int md_offset;
-	unsigned int size;
-	unsigned int id;
-};
-static struct nc_smem_node *s_nc_layout;
-static unsigned int s_nc_smem_ext_num;
 
 /* cacheable share memory */
 struct _csmem_item {
@@ -665,74 +648,7 @@ struct _csmem_item {
 static struct _csmem_item csmem_info;
 static struct _csmem_item *csmem_layout;
 
-
 static unsigned int md_mtee_support;
-
-static void nc_smem_info_parsing(void)
-{
-	unsigned int size, i;
-	unsigned int num = 0;
-
-	if (find_ccci_tag_inf("nc_smem_info_ext_num", (char *)&num,
-		sizeof(unsigned int)) != sizeof(unsigned int)) {
-		CCCI_UTIL_ERR_MSG("nc_smem_info_ext_num get fail\n");
-		s_nc_smem_ext_num = 0;
-		return;
-	}
-
-	s_nc_smem_ext_num = num;
-	size = num * sizeof(struct nc_smem_node);
-	s_nc_layout = kzalloc(size, GFP_KERNEL);
-	if (s_nc_layout == NULL) {
-		CCCI_UTIL_ERR_MSG("nc_layout:alloc nc_layout fail\n");
-		return;
-	}
-
-	if (find_ccci_tag_inf("nc_smem_info_ext", (char *)s_nc_layout,
-		size) != size) {
-		CCCI_UTIL_ERR_MSG("Invalid nc_layout from tag\n");
-		return;
-	}
-
-	for (i = 0; i < num; i++) {
-		CCCI_UTIL_INF_MSG("nc_smem<%d>: ap:0x%08x md:0x%08x[0x%08x]\n",
-			s_nc_layout[i].id, s_nc_layout[i].ap_offset,
-			s_nc_layout[i].md_offset, s_nc_layout[i].size);
-	}
-
-	/* For compatible of legacy design */
-	/* DFD part */
-	if (get_nc_smem_region_info(SMEM_USER_RAW_DFD, NULL, NULL,
-					(unsigned int *)&md1_smem_dfd_size))
-		CCCI_UTIL_INF_MSG("change dfd to: 0x%x\n", md1_smem_dfd_size);
-	/* AMMS POS part */
-	if (get_nc_smem_region_info(SMEM_USER_RAW_AMMS_POS, NULL, NULL,
-					(unsigned int *)&smem_amms_pos_size))
-		CCCI_UTIL_INF_MSG("change POS to: 0x%x\n", smem_amms_pos_size);
-}
-
-
-int get_nc_smem_region_info(unsigned int id, unsigned int *ap_off,
-				unsigned int *md_off, unsigned int *size)
-{
-	int i;
-
-	if (s_nc_layout == NULL || s_nc_smem_ext_num == 0)
-		return 0;
-
-	for (i = 0; i < s_nc_smem_ext_num; i++) {
-		if (s_nc_layout[i].id == id) {
-			if (ap_off)
-				*ap_off = s_nc_layout[i].ap_offset;
-			if (md_off)
-				*md_off = s_nc_layout[i].md_offset;
-			if (size)
-				*size = s_nc_layout[i].size;
-			return 1;
-		}
-	}
-	return 0;
-}
 
 static void cshare_memory_info_parsing(void)
 {
@@ -803,17 +719,6 @@ static void share_memory_info_parsing(void)
 	CCCI_UTIL_INF_MSG("ccci_util get ccb: data:%llx data_size:%d\n",
 			ccb_info.ccb_data_buffer_addr,
 			ccb_info.ccb_data_buffer_size);
-
-	/* Get udc cache&noncache size */
-	memset(&udc_size, 0, sizeof(struct _udc_info));
-	if (find_ccci_tag_inf("udc_layout", (char *)&udc_size,
-		sizeof(struct _udc_info)) != sizeof(struct _udc_info))
-		CCCI_UTIL_ERR_MSG("Invalid udc layout info dt para\n");
-
-	CCCI_UTIL_INF_MSG(
-		"ccci_util get udc: cache_size:0x%x noncache_size:0x%x\n",
-		udc_size.cache_size, udc_size.noncache_size);
-
 
 	/* Get md1_phy_cap_size  */
 	md1_phy_cap_size = 0;
@@ -901,8 +806,6 @@ static void share_memory_info_parsing(void)
 	else
 		CCCI_UTIL_INF_MSG("MTEE support: 0x%x\n", md_mtee_support);
 
-	nc_smem_info_parsing();
-
 	cshare_memory_info_parsing();
 {
 	int i;
@@ -921,7 +824,7 @@ static void md_mem_info_parsing(void)
 {
 	struct _modem_info md_inf[4];
 	struct _modem_info *curr;
-	int md_num = 0;
+	int md_num;
 	int md_id;
 
 	if (find_ccci_tag_inf("hdr_count",
@@ -1493,15 +1396,6 @@ int get_md_resv_ccb_info(int md_id, phys_addr_t *ccb_data_base,
 	return 0;
 }
 
-int get_md_resv_udc_info(int md_id, unsigned int *udc_noncache_size,
-	unsigned int *udc_cache_size)
-{
-	*udc_noncache_size = udc_size.noncache_size;
-	*udc_cache_size = udc_size.cache_size;
-
-	return 0;
-}
-
 unsigned int get_md_resv_phy_cap_size(int md_id)
 {
 	if (md_id == MD_SYS1)
@@ -1510,27 +1404,10 @@ unsigned int get_md_resv_phy_cap_size(int md_id)
 	return 0;
 }
 
-
 int get_md_smem_dfd_size(int md_id)
 {
 	if (md_id == MD_SYS1)
 		return md1_smem_dfd_size;
-
-	return 0;
-}
-
-int get_smem_amms_pos_size(int md_id)
-{
-	if (md_id == MD_SYS1)
-		return smem_amms_pos_size;
-
-	return 0;
-}
-
-int get_smem_align_padding_size(int md_id)
-{
-	if (md_id == MD_SYS1)
-		return smem_align_padding_size;
 
 	return 0;
 }
@@ -1571,7 +1448,6 @@ int get_md_cache_region_info(int region_id, unsigned int *buf_base,
 	}
 	return 0;
 }
-
 
 int get_md_resv_mem_info(int md_id, phys_addr_t *r_rw_base,
 	unsigned int *r_rw_size, phys_addr_t *srw_base,

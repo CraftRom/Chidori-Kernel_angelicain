@@ -325,7 +325,6 @@ struct clk * __init mtk_clk_register_mux_upd(const struct mtk_mux_upd *mu,
 	struct clk *clk;
 	struct mtk_mux_upd_data *mux;
 	struct clk_init_data init;
-	int ret;
 
 	mux = kzalloc(sizeof(*mux), GFP_KERNEL);
 	if (!mux)
@@ -356,16 +355,10 @@ struct clk * __init mtk_clk_register_mux_upd(const struct mtk_mux_upd *mu,
 	mux->hw.init = &init;
 
 	clk = clk_register(NULL, &mux->hw);
-	if (IS_ERR(clk)) {
-		ret = PTR_ERR(clk);
-		goto err_out;
-	}
+	if (IS_ERR(clk))
+		kfree(mux);
 
 	return clk;
-err_out:
-	kfree(mux);
-
-	return ERR_PTR(ret);
 }
 
 void __init mtk_clk_register_mux_upds(const struct mtk_mux_upd *mus,
@@ -398,7 +391,6 @@ struct clk * __init mtk_clk_register_mux_clr_set_upd(
 	struct clk *clk;
 	struct mtk_mux_clr_set_upd_data *mux;
 	struct clk_init_data init;
-	int ret;
 
 	mux = kzalloc(sizeof(*mux), GFP_KERNEL);
 	if (!mux)
@@ -432,16 +424,10 @@ struct clk * __init mtk_clk_register_mux_clr_set_upd(
 	mux->hw.init = &init;
 
 	clk = clk_register(NULL, &mux->hw);
-	if (IS_ERR(clk)) {
-		ret = PTR_ERR(clk);
-		goto err_out;
-	}
+	if (IS_ERR(clk))
+		kfree(mux);
 
 	return clk;
-err_out:
-	kfree(mux);
-
-	return ERR_PTR(ret);
 }
 
 void __init mtk_clk_register_mux_clr_set_upds(

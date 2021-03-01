@@ -185,7 +185,7 @@ int spkprotect_open_dump_file(void)
 	sprintf(path_decode_debugpcm, "%s/%s_%s",
 		DUMP_SMARTPA_PCM_DATA_PATH, string_time, string_debug_pcm);
 	pr_debug("%s(), path_decode_debug_pcm= %s\n", __func__,
-		 path_decode_debugpcm);
+		path_decode_debugpcm);
 
 	file_spk_pcm = filp_open(path_decode_pcm, O_CREAT | O_WRONLY, 0644);
 	if (IS_ERR(file_spk_pcm)) {
@@ -444,10 +444,9 @@ static int spk_pcm_dump_split_kthread(void *data)
 		} else {
 			spin_unlock_irqrestore(&dump_queue_lock, flags);
 			ret = wait_event_interruptible(
-				      wq_dump_pcm,
-				      (dump_queue->idx_r !=
-				       dump_queue->idx_w) ||
-				      split_dump_enable == false);
+				wq_dump_pcm,
+				(dump_queue->idx_r != dump_queue->idx_w) ||
+				split_dump_enable == false);
 			if (ret == -ERESTARTSYS) {
 				ret = -EINTR;
 				break;
@@ -466,8 +465,8 @@ static int spk_pcm_dump_split_kthread(void *data)
 			writedata = size;
 
 			pcm_dump = (struct pcm_dump_t *)
-				   (scp_spk_dump_mem.start_virt +
-				    dump_package->rw_idx);
+					(scp_spk_dump_mem.start_virt +
+					 dump_package->rw_idx);
 
 			while (size > 0) {
 				AUD_LOG_V("pcm_dump = %p writedata = %d\n",
@@ -491,8 +490,8 @@ static int spk_pcm_dump_split_kthread(void *data)
 			size = dump_package->data_size;
 			writedata = size;
 			pcm_dump = (struct pcm_dump_t *)
-				   (scp_spk_dump_mem.start_virt +
-				    dump_package->rw_idx);
+					(scp_spk_dump_mem.start_virt +
+					 dump_package->rw_idx);
 
 			while (size > 0) {
 				AUD_LOG_V("pcm_dump = %p writedata = %d\n",
@@ -514,10 +513,10 @@ static int spk_pcm_dump_split_kthread(void *data)
 			break;
 		default:
 			AUD_LOG_V(
-				"current_idx = %d, idx_r = %d, idx_w = %d, type = %d\n",
-				current_idx, dump_queue->idx_r,
-				dump_queue->idx_w,
-				dump_package->dump_data_type);
+				  "current_idx = %d, idx_r = %d, idx_w = %d, type = %d\n",
+				  current_idx, dump_queue->idx_r,
+				  dump_queue->idx_w,
+				  dump_package->dump_data_type);
 			break;
 		}
 
@@ -609,13 +608,13 @@ static int spkprotect_dump_kthread(void *data)
 			size = dump_package->data_size;
 			writedata = size;
 			pcm_dump = (struct pcm_dump_t *)
-				   (scp_spk_dump_mem.start_virt +
-				    dump_package->rw_idx);
+					(scp_spk_dump_mem.start_virt +
+					 dump_package->rw_idx);
 
 			while (size > 0) {
 				/* pr_debug("pcm_dump = %p writedata = %d,
-				 *          current_idx = %d\n",
-				 *          pcm_dump, writedata, current_idx);
+				 *	    current_idx = %d\n",
+				 *	    pcm_dump, writedata, current_idx);
 				 */
 				if (!IS_ERR(file_spk_pcm)) {
 					old_fs = get_fs();
@@ -636,12 +635,12 @@ static int spkprotect_dump_kthread(void *data)
 			size = dump_package->data_size;
 			writedata = size;
 			pcm_dump = (struct pcm_dump_t *)
-				   (scp_spk_dump_mem.start_virt +
-				    dump_package->rw_idx);
+					(scp_spk_dump_mem.start_virt +
+					 dump_package->rw_idx);
 
 			while (size > 0) {
 				/* pr_debug("pcm_dump = %p writedata = %d\n",
-				 *          pcm_dump, writedata);
+				 *	    pcm_dump, writedata);
 				 */
 				if (!IS_ERR(file_spk_iv)) {
 					old_fs = get_fs();
@@ -662,12 +661,12 @@ static int spkprotect_dump_kthread(void *data)
 			size = dump_package->data_size;
 			writedata = size;
 			pcm_dump = (struct pcm_dump_t *)
-				   (scp_spk_dump_mem.start_virt +
-				    dump_package->rw_idx);
+					(scp_spk_dump_mem.start_virt +
+					 dump_package->rw_idx);
 
 			while (size > 0) {
 				/* pr_debug("pcm_dump = %p writedata = %d\n",
-				 *          pcm_dump, writedata);
+				 *	    pcm_dump, writedata);
 				 */
 				if (!IS_ERR(file_spk_debug)) {
 					old_fs = get_fs();

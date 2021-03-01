@@ -430,7 +430,7 @@ static int maghub_open_report_data(int open)
 
 static int maghub_get_data(int *x, int *y, int *z, int *status)
 {
-	char buff[MAGHUB_BUFSIZE] = {0};
+	char buff[MAGHUB_BUFSIZE];
 
 	maghub_GetMData(buff, MAGHUB_BUFSIZE);
 

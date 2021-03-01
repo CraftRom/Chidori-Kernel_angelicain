@@ -104,8 +104,10 @@ static enum wdt_rst_modes mtk_wdt_get_rst_mode(struct device_node *node)
 	err = of_property_read_u32(node, "rstmode", &rst_mode);
 	if (err < 0)
 		return WDT_RST_MODE_DEFAULT;
+
 	if (rst_mode)
 		return WDT_RST_MODE_PMIC;
+
 	return WDT_RST_MODE_DEFAULT;
 }
 
@@ -256,7 +258,7 @@ void mtk_wdt_mode_config(bool dual_mode_en,
 	 *we use it as bypass powerkey flag.
 	 */
 	/* Because HW reboot always need reboot to kernel, we set it always. */
-	tmp |= MTK_WDT_MODE_AUTO_RESTART;
+	tmp |= MTK_WDT_MODE_AUTO_RESTART | MTK_WDT_MODE_IRQ_LEVEL_EN;
 
 	mt_reg_sync_writel(tmp, MTK_WDT_MODE);
 	/* dual_mode(1); //always dual mode */
@@ -333,10 +335,8 @@ void mtk_wdt_restart(enum wd_restart_type type)
 			break;
 		}
 		toprgu_base = of_iomap(np_rgu, 0);
-		if (!toprgu_base) {
+		if (!toprgu_base)
 			pr_debug("RGU iomap failed\n");
-			return;
-		}
 	}
 
 	if (type == WD_TYPE_NORMAL) {
@@ -365,16 +365,9 @@ void mtk_wdt_restart(enum wd_restart_type type)
 
 void mtk_wd_suspend(void)
 {
-	unsigned int wdt_sta_val = __raw_readl(MTK_WDT_STATUS);
-
 	/* mtk_wdt_ModeSelection(KAL_FALSE, KAL_FALSE, KAL_FALSE); */
 	/* en debug, dis irq, dis ext, low pol, dis wdt */
-	if (!(wdt_sta_val & (MTK_WDT_STATUS_SYSRST_RST |
-					MTK_WDT_STATUS_EINT_RST)))
-		mtk_wdt_mode_config(TRUE, TRUE, TRUE, FALSE, FALSE);
-	else
-		pr_info("%s without change mode %x",
-			__func__, wdt_sta_val);
+	mtk_wdt_mode_config(TRUE, TRUE, TRUE, FALSE, FALSE);
 
 	mtk_wdt_restart(WD_TYPE_NORMAL);
 
@@ -386,16 +379,7 @@ void mtk_wd_resume(void)
 {
 
 	if (wdt_enable == 1) {
-		unsigned int wdt_sta_val;
-
 		mtk_wdt_set_time_out_value(wdt_last_timeout_val);
-		wdt_sta_val = __raw_readl(MTK_WDT_STATUS);
-		if (!(wdt_sta_val & (MTK_WDT_STATUS_SYSRST_RST |
-						MTK_WDT_STATUS_EINT_RST)))
-			mtk_wdt_mode_config(TRUE, TRUE, TRUE, FALSE, TRUE);
-		else
-			pr_info("%s without change mode setting %x",
-				__func__, wdt_sta_val);
 		mtk_wdt_mode_config(TRUE, TRUE, TRUE, FALSE, TRUE);
 		mtk_wdt_restart(WD_TYPE_NORMAL);
 	}
@@ -473,10 +457,8 @@ void wdt_arch_reset(char mode)
 
 	if (!toprgu_base) {
 		toprgu_base = of_iomap(np_rgu, 0);
-		if (!toprgu_base) {
+		if (!toprgu_base)
 			pr_info("RGU iomap failed\n");
-			return;
-		}
 		pr_debug("RGU base: 0x%p  RGU irq: %d\n",
 			toprgu_base, wdt_irq_id);
 	}
@@ -486,6 +468,7 @@ void wdt_arch_reset(char mode)
 
 	/* Watchdog Rest */
 	mt_reg_sync_writel(MTK_WDT_RESTART_KEY, MTK_WDT_RESTART);
+
 #ifndef CONFIG_FPGA_EARLY_PORTING
 #ifdef CONFIG_MTK_PMIC
 	/*
@@ -501,6 +484,7 @@ void wdt_arch_reset(char mode)
 	pmic_pre_wdt_reset();
 #endif
 #endif
+
 	wdt_mode_val = __raw_readl(MTK_WDT_MODE);
 
 	pr_debug("%s: wdt_mode=0x%x\n", __func__, wdt_mode_val);
@@ -512,7 +496,7 @@ void wdt_arch_reset(char mode)
 
 	/* make sure WDT mode is hw reboot mode, can not config isr mode */
 	wdt_mode_val &= (~(MTK_WDT_MODE_IRQ | MTK_WDT_MODE_IRQ_LEVEL_EN |
-			MTK_WDT_MODE_DUAL_MODE));
+			MTK_WDT_MODE_ENABLE | MTK_WDT_MODE_DUAL_MODE));
 
 	if (mode & WD_SW_RESET_BYPASS_PWR_KEY) {
 		/* Bypass power key reboot, We using auto_restart bit
@@ -575,6 +559,7 @@ void wdt_arch_reset(char mode)
 		wdt_dump_reg();
 		cpu_relax();
 	}
+
 }
 
 int mtk_rgu_dram_reserved(int enable)
@@ -763,10 +748,8 @@ int mtk_wdt_request_en_set(int mark_bit, enum wk_req_en en)
 		}
 		toprgu_base = of_iomap(np_rgu, 0);
 
-		if (!toprgu_base) {
+		if (!toprgu_base)
 			pr_info("RGU iomap failed\n");
-			return -1;
-		}
 
 		pr_info("RGU base: 0x%p, RGU irq: %d\n",
 			toprgu_base, wdt_irq_id);
@@ -837,10 +820,8 @@ int mtk_wdt_request_mode_set(int mark_bit, enum wk_req_mode mode)
 			break;
 		}
 		toprgu_base = of_iomap(np_rgu, 0);
-		if (!toprgu_base) {
+		if (!toprgu_base)
 			pr_info("RGU iomap failed\n");
-			return -1;
-		}
 		pr_debug("RGU base: 0x%p  RGU irq: %d\n",
 			toprgu_base, wdt_irq_id);
 	}
@@ -893,10 +874,8 @@ void mtk_wdt_set_c2k_sysrst(unsigned int flag, unsigned int shift)
 		}
 
 		toprgu_base = of_iomap(np_rgu, 0);
-		if (!toprgu_base) {
+		if (!toprgu_base)
 			pr_info("%s RGU iomap failed\n", __func__);
-			return;
-		}
 		pr_debug("%s RGU base: 0x%p  RGU irq: %d\n",
 			__func__, toprgu_base, wdt_irq_id);
 	}

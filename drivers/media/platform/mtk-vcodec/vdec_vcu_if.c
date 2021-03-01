@@ -79,33 +79,18 @@ inline int get_mapped_fd(struct dma_buf *dmabuf)
 	struct files_struct *f = NULL;
 	struct sighand_struct *sighand;
 	spinlock_t      siglock;
-	struct fdtable fdt;
 
 	if (dmabuf == NULL || dmabuf->file == NULL)
 		return 0;
 
-	vcu_get_file_lock();
-
-	vcu_get_task(&task, &f, 0);
+	vcu_get_task(&task, &f);
 	if (task == NULL || f == NULL ||
 		probe_kernel_address(&task->sighand, sighand) ||
-		probe_kernel_address(&task->sighand->siglock, siglock)) {
-		vcu_put_file_lock();
+		probe_kernel_address(&task->sighand->siglock, siglock))
 		return -EMFILE;
-	}
 
-	spin_lock(&f->file_lock);
-	if (probe_kernel_address(files_fdtable(f), fdt)) {
-		spin_unlock(&f->file_lock);
-		vcu_put_file_lock();
+	if (!lock_task_sighand(task, &irqs))
 		return -EMFILE;
-	}
-	spin_unlock(&f->file_lock);
-
-	if (!lock_task_sighand(task, &irqs)) {
-		vcu_put_file_lock();
-		return -EMFILE;
-	}
 
 	rlim_cur = task_rlimit(task, RLIMIT_NOFILE);
 	unlock_task_sighand(task, &irqs);
@@ -113,15 +98,9 @@ inline int get_mapped_fd(struct dma_buf *dmabuf)
 	target_fd = __alloc_fd(f, 0, rlim_cur, O_CLOEXEC);
 
 	get_file(dmabuf->file);
-
-	if (target_fd < 0) {
-		vcu_put_file_lock();
+	if (target_fd < 0)
 		return -EMFILE;
-	}
-
 	__fd_install(f, target_fd, dmabuf->file);
-
-	vcu_put_file_lock();
 
 	/* pr_info("get_mapped_fd: %d", target_fd); */
 #endif
@@ -134,9 +113,7 @@ inline void close_mapped_fd(unsigned int target_fd)
 	struct task_struct *task = NULL;
 	struct files_struct *f = NULL;
 
-	vcu_get_file_lock();
-	vcu_get_task(&task, &f, 0);
-	vcu_put_file_lock();
+	vcu_get_task(&task, &f);
 	if (task == NULL || f == NULL)
 		return;
 
@@ -157,9 +134,7 @@ int vcu_dec_ipi_handler(void *data, unsigned int len, void *priv)
 	struct task_struct *task = NULL;
 	struct files_struct *f = NULL;
 
-	vcu_get_file_lock();
-	vcu_get_task(&task, &f, 0);
-	vcu_put_file_lock();
+	vcu_get_task(&task, &f);
 	if (msg == NULL || task == NULL ||
 	   task->tgid != current->tgid ||
 	   (struct vdec_vcu_inst *)msg->ap_inst_addr == NULL) {
@@ -170,7 +145,7 @@ int vcu_dec_ipi_handler(void *data, unsigned int len, void *priv)
 	vcu = (struct vdec_vcu_inst *)(unsigned long)msg->ap_inst_addr;
 	mtk_vcodec_debug(vcu, "+ id=%X status = %d\n", msg->msg_id, msg->status);
 
-	if (vcu != NULL && vcu->abort)
+	if (vcu->abort)
 		return -EINVAL;
 
 	if (msg->status == 0) {
@@ -197,6 +172,22 @@ int vcu_dec_ipi_handler(void *data, unsigned int len, void *priv)
 			mtk_vcodec_perf_log("irq:%ld",
 				(t_e.tv_sec - t_s.tv_sec) * 1000000 +
 				(t_e.tv_usec - t_s.tv_usec));
+			ret = 1;
+			break;
+		case VCU_IPIMSG_DEC_CLOCK_ON:
+			/* TEST: need to remove v4l2 code to do experiment.
+			 * It may be removed later
+			 */
+			mtk_vcodec_dec_clock_on(&vcu->ctx->dev->pm);
+			enable_irq(vcu->ctx->dev->dec_irq);
+			ret = 1;
+			break;
+		case VCU_IPIMSG_DEC_CLOCK_OFF:
+			/* TEST: need to remove v4l2 code to do experiment.
+			 * It may be removed later
+			 */
+			disable_irq(vcu->ctx->dev->dec_irq);
+			mtk_vcodec_dec_clock_off(&vcu->ctx->dev->pm);
 			ret = 1;
 			break;
 		case VCU_IPIMSG_DEC_GET_FRAME_BUFFER:

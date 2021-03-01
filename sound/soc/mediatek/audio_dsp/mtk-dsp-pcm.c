@@ -53,8 +53,6 @@ static char *dsp_task_dsp_name[AUDIO_TASK_DAI_NUM] = {
 	[AUDIO_TASK_CAPTURE_UL1_ID] = "mtk_dsp_capture1",
 	[AUDIO_TASK_A2DP_ID]        = "mtk_dsp_a2dp",
 	[AUDIO_TASK_DATAPROVIDER_ID] = "mtk_dsp_dataprovider",
-	[AUDIO_TASK_CALL_FINAL_ID]  = "mtk_dsp_call_final",
-	[AUDIO_TASK_KTV_ID]         = "mtk_dsp_ktv",
 };
 
 static int dsp_runtime_suspend(struct device *dev)
@@ -97,16 +95,6 @@ static int dsp_pcm_taskattr_init(struct platform_device *pdev)
 			set_task_attr(dsp_id,
 				      ADSP_TASK_ATTR_MEMREF,
 				      task_attr.afe_memif_ref);
-			if (dsp_id == AUDIO_TASK_PLAYBACK_ID) {
-				ret = of_property_read_u32(pdev->dev.of_node,
-					"swdsp_smartpa_process_enable",
-					&(task_attr.spk_protect_in_dsp));
-				if (ret)
-					task_attr.spk_protect_in_dsp = 0;
-				set_task_attr(dsp_id,
-					      ADSP_TASK_ATTR_SMARTPA,
-					      task_attr.spk_protect_in_dsp);
-			}
 		}
 		dump_all_task_attr();
 	}

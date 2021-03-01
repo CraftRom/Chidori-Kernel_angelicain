@@ -593,8 +593,9 @@ static int mtu3_gadget_pullup(struct usb_gadget *gadget, int is_on)
 		mtu3_dev_on_off(mtu, is_on);
 	}
 
-	if (is_usb_rdy() == false && is_on)
+	if (is_usb_rdy() == false && is_on) {
 		set_usb_rdy();
+	}
 
 	/* Trigger connection when force on*/
 	if (mtu3_cable_mode == CABLE_MODE_FORCEON) {

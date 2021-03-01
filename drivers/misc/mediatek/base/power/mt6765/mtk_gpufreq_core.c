@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2017 MediaTek Inc.
+ * Copyright (C) 2019 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -147,11 +148,6 @@ static struct g_opp_table_info g_opp_table_segment4[] = {
 GPUOP(SEG4_GPU_DVFS_FREQ0, SEG4_GPU_DVFS_VOLT0, SEG4_GPU_DVFS_VSRAM0, 0),
 GPUOP(SEG4_GPU_DVFS_FREQ1, SEG4_GPU_DVFS_VOLT1, SEG4_GPU_DVFS_VSRAM1, 1),
 GPUOP(SEG4_GPU_DVFS_FREQ2, SEG4_GPU_DVFS_VOLT2, SEG4_GPU_DVFS_VSRAM2, 2),
-};
-static struct g_opp_table_info g_opp_table_segment5[] = {
-GPUOP(SEG5_GPU_DVFS_FREQ0, SEG5_GPU_DVFS_VOLT0, SEG5_GPU_DVFS_VSRAM0, 0),
-GPUOP(SEG5_GPU_DVFS_FREQ1, SEG5_GPU_DVFS_VOLT1, SEG5_GPU_DVFS_VSRAM1, 1),
-GPUOP(SEG5_GPU_DVFS_FREQ2, SEG5_GPU_DVFS_VOLT2, SEG5_GPU_DVFS_VSRAM2, 2),
 };
 static const struct of_device_id g_gpufreq_of_match[] = {
 	{ .compatible = "mediatek,mt6765-gpufreq" },
@@ -2355,9 +2351,6 @@ static void __mt_gpufreq_set_initial(void)
 	/* default OPP index */
 	g_cur_opp_cond_idx = 0;
 
-	/* set POST_DIVIDER initial value */
-	g_cur_post_divider_power = POST_DIV4;
-
 	g_parking = false;
 
 	gpufreq_pr_debug("@%s: initial opp index = %d\n",
@@ -2366,6 +2359,11 @@ static void __mt_gpufreq_set_initial(void)
 	cur_vsram_volt = __mt_gpufreq_get_cur_vsram_volt();
 	cur_volt = __mt_gpufreq_get_cur_volt();
 	cur_freq = __mt_gpufreq_get_cur_freq();
+
+	/* set POST_DIVIDER initial value */
+	g_cur_post_divider_power =
+		(DRV_Reg32(GPUPLL_CON1) & (0x7 << POST_DIV_SHIFT))
+		>> POST_DIV_SHIFT;
 
 	__mt_gpufreq_set(cur_freq, g_opp_table[g_cur_opp_cond_idx].gpufreq_khz,
 			cur_volt, g_opp_table[g_cur_opp_cond_idx].gpufreq_volt,
@@ -2473,9 +2471,6 @@ static int __mt_gpufreq_pdrv_probe(struct platform_device *pdev)
 	} else if (g_efuse_id == 0x2 || g_efuse_id == 0x5) {
 		/* SpeedBin */
 		g_segment_id = MT6765T_SEGMENT;
-	} else if (g_efuse_id == 0x20) {
-		/* 6762D */
-		g_segment_id = MT6762D_SEGMENT;
 	} else {
 		/* Other Version, set default segment */
 		g_segment_id = MT6765_SEGMENT;
@@ -2533,10 +2528,6 @@ static int __mt_gpufreq_pdrv_probe(struct platform_device *pdev)
 	} else if (g_segment_id == MT6765T_SEGMENT) {
 		__mt_gpufreq_setup_opp_table(g_opp_table_segment4,
 			ARRAY_SIZE(g_opp_table_segment4));
-		g_fixed_vsram_volt_idx = 2;
-	} else if (g_segment_id == MT6762D_SEGMENT) {
-		__mt_gpufreq_setup_opp_table(g_opp_table_segment5,
-			ARRAY_SIZE(g_opp_table_segment5));
 		g_fixed_vsram_volt_idx = 2;
 	}
 

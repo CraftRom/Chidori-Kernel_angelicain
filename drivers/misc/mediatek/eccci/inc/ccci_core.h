@@ -274,10 +274,6 @@ extern struct ccci_ccb_config ccb_configs[];
 #define CCCI_IOC_CCB_CTRL_INFO			\
 	_IOWR(CCCI_IOC_MAGIC, 71, struct ccb_ctrl_info)
 
-/* for user space ccci mdinit user */
-#define CCCI_IOC_GET_MDINIT_KILLED      \
-	_IOR(CCCI_IOC_MAGIC, 72, unsigned int)
-
 #define CCCI_IOC_SET_HEADER			\
 	_IO(CCCI_IOC_MAGIC,  112) /* emcs_va */
 #define CCCI_IOC_CLR_HEADER			\
@@ -484,17 +480,11 @@ typedef enum {
 	CCCI_XCAP_TX			= 174,
 	CCCI_BIP_RX			= 175,
 	CCCI_BIP_TX			= 176,
-	CCCI_UDC_RX			= 177,
-	CCCI_UDC_TX			= 178,
 
 	CCCI_TCHE_RX			= 181,
 	CCCI_TCHE_TX			= 182,
 	CCCI_DISP_RX			= 183,
 	CCCI_DISP_TX			= 184,
-	CCCI_WIFI_RX			= 187,
-	CCCI_WIFI_TX			= 188,
-	CCCI_VTS_RX			= 189,
-	CCCI_VTS_TX			= 190,
 
 
 	CCCI_C2K_PPP_DATA, /* data ch for c2k */
@@ -580,7 +570,6 @@ enum md_bc_event {
 	MD_STA_EV_HS1,
 	MD_STA_EV_READY,
 	MD_STA_EV_EXCEPTION,
-	MD_STA_EV_STOP,
 };
 
 /* ========================================================================= */

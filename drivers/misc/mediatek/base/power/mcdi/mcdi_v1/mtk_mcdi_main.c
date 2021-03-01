@@ -163,7 +163,8 @@ static int mcdi_stress_task(void *arg)
 static void mcdi_stress_start(void)
 {
 	int i;
-	char name[16] = {0};
+	char name[24] = {0};
+	int ret = 0;
 
 	if (mcdi_stress_en)
 		return;
@@ -171,7 +172,9 @@ static void mcdi_stress_start(void)
 	mcdi_stress_en = true;
 
 	for (i = 0; i < NF_CPU; i++) {
-		snprintf(name, sizeof(name), "mcdi_stress_task%d", i);
+		ret = scnprintf(name, sizeof(name), "mcdi_stress_task%d", i);
+		if (ret == 0)
+			pr_info("[mcdi]%s task naming fail\n", __func__);
 
 		mcdi_stress_tsk[i] =
 			kthread_create(mcdi_stress_task, NULL, name);
@@ -215,7 +218,7 @@ static ssize_t mcdi_state_read(struct file *filp,
 	int len = 0;
 	int i;
 	char *p = dbg_buf;
-	unsigned long ac_cpu_cond_info[NF_ANY_CORE_CPU_COND_INFO] = {0};
+	unsigned long ac_cpu_cond_info[NF_ANY_CORE_CPU_COND_INFO];
 	int latency_req = pm_qos_request(PM_QOS_CPU_DMA_LATENCY);
 
 	struct mcdi_feature_status feature_stat;
@@ -564,7 +567,7 @@ void mcdi_heart_beat_log_dump(void)
 	bool dump_log = false;
 	unsigned long mcdi_cnt;
 	unsigned long any_core_info = 0;
-	unsigned long ac_cpu_cond_info[NF_ANY_CORE_CPU_COND_INFO] = {0};
+	unsigned long ac_cpu_cond_info[NF_ANY_CORE_CPU_COND_INFO];
 	unsigned int cpu_mask = 0;
 	unsigned int cluster_mask = 0;
 	struct mcdi_feature_status feature_stat;

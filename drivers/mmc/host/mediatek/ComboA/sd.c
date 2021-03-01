@@ -2174,6 +2174,7 @@ int msdc_pio_read(struct msdc_host *host, struct mmc_data *data)
 		tmo = jiffies + 1 + host->timeout_ns / (1000000000UL/HZ) * 2;
 
 	WARN_ON(!kaddr);
+	WARN_ON(sg == NULL);
 	/* MSDC_CLR_BIT32(MSDC_INTEN, wints); */
 	while (1) {
 		if (!get_xfer_done) {
@@ -3398,6 +3399,8 @@ static int msdc_do_request_cq(struct mmc_host *mmc,
 	u32 l_force_prg = 0;
 #endif
 
+	WARN_ON(!mmc || !mrq);
+
 	host->error = 0;
 	atomic_set(&host->abort, 0);
 
@@ -3564,7 +3567,7 @@ int msdc_error_tuning(struct mmc_host *mmc,  struct mmc_request *mrq)
 	u32 status;
 
 #ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
-	if (mmc->card && mmc_card_cmdq(mmc->card)) {
+	if (mmc_card_cmdq(mmc->card)) {
 		pr_notice("msdc%d waiting data transfer done3\n", host->id);
 		if (msdc_cq_cmd_wait_xfr_done(host)) {
 			pr_notice("msdc%d waiting data transfer done3 TMO\n",
@@ -3663,7 +3666,7 @@ start_tune:
 				host->id, ++host->reautok_times);
 #if defined(CONFIG_MTK_EMMC_CQ_SUPPORT) || defined(CONFIG_MTK_EMMC_HW_CQ)
 			/* CQ DAT tune in MMC layer, here tune CMD13 CRC */
-			if (mmc->card && mmc_card_cmdq(mmc->card))
+			if (mmc_card_cmdq(mmc->card))
 				emmc_execute_dvfs_autok(host, MMC_SEND_STATUS);
 			else
 #endif
@@ -3822,7 +3825,7 @@ static void msdc_post_req(struct mmc_host *mmc, struct mmc_request *mrq,
 	data = mrq->data;
 	if (data && (msdc_use_async_dma(data->host_cookie))) {
 #ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
-		if (mmc->card && !mmc_card_cmdq(mmc->card))
+		if (!mmc_card_cmdq(mmc->card))
 #endif
 			host->xfer_size = data->blocks * data->blksz;
 		dir = data->flags & MMC_DATA_READ ?
@@ -4040,7 +4043,7 @@ static void msdc_ops_request_legacy(struct mmc_host *mmc,
 	}
 
 	/* only CMD0/12/13 can be send when non-empty queue @ CMDQ on */
-	if (mmc->card && mmc_card_cmdq(mmc->card)
+	if (mmc_card_cmdq(mmc->card)
 		&& atomic_read(&mmc->areq_cnt)
 		&& !check_mmc_cmd001213(cmd->opcode)
 		&& !check_mmc_cmd48(cmd->opcode)) {
@@ -4140,7 +4143,7 @@ int msdc_execute_tuning(struct mmc_host *mmc, u32 opcode)
 	autok_msdc_tx_setting(host, &mmc->ios);
 
 #ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
-	if (mmc->card && mmc_card_cmdq(mmc->card)) {
+	if (mmc_card_cmdq(mmc->card)) {
 		if (msdc_cq_cmd_wait_xfr_done(host)) {
 			pr_notice("msdc%d waiting data transfer done4 TMO\n",
 				host->id);
@@ -4726,8 +4729,7 @@ skip_non_FDE_ERROR_HANDLING:
 			host->mmc->is_data_dma = 0;
 
 			/* CQ mode:just set data->error & let mmc layer tune */
-			if (host->mmc->card
-				&& mmc_card_cmdq(host->mmc->card)) {
+			if (mmc_card_cmdq(host->mmc->card)) {
 				if (mrq->data->flags & MMC_DATA_WRITE)
 					atomic_set(&host->cq_error_need_stop,
 						1);
@@ -4834,9 +4836,8 @@ static irqreturn_t msdc_irq(int irq, void *dev_id)
 		intsts &= inten;
 
 #ifdef CONFIG_MTK_EMMC_HW_CQ
-	if (host->mmc->card
-		&& mmc_card_cmdq(host->mmc->card)
-		&& (intsts & MSDC_INT_CMDQ)) {
+	if (mmc_card_cmdq(host->mmc->card) &&
+		(intsts & MSDC_INT_CMDQ)) {
 		msdc_cmdq_irq(host, intsts);
 		MSDC_WRITE32(MSDC_INT, intsts); /* clear interrupts */
 
@@ -5129,8 +5130,6 @@ static void msdc_cqhci_pre_cqe_enable(struct mmc_host *mmc, bool en)
 	} else {
 		/* disable busy check */
 		MSDC_CLR_BIT32(MSDC_PATCH_BIT1, MSDC_PB1_BUSY_CHECK_SEL);
-		/* switch to PIO mode after cmdq_disable */
-		MSDC_SET_BIT32(MSDC_CFG, MSDC_CFG_PIO);
 	}
 }
 
@@ -5309,16 +5308,13 @@ static int msdc_drv_probe(struct platform_device *pdev)
 	host->dma.gpd = dma_alloc_coherent(&pdev->dev,
 			MAX_GPD_NUM * sizeof(struct gpd_t),
 			&host->dma.gpd_addr, GFP_KERNEL);
-	if (!host->dma.gpd)
-		return -ENOMEM;
 	host->dma.bd = dma_alloc_coherent(&pdev->dev,
 			MAX_BD_NUM * sizeof(struct bd_t),
 			&host->dma.bd_addr, GFP_KERNEL);
-	if (!host->dma.bd)
-		return -ENOMEM;
 	host->pio_kaddr = kmalloc(DIV_ROUND_UP(MAX_SGMT_SZ, PAGE_SIZE) *
 		sizeof(ulong), GFP_KERNEL);
 	WARN_ON(!host->pio_kaddr);
+	WARN_ON((!host->dma.gpd) || (!host->dma.bd));
 	msdc_init_gpd_bd(host, &host->dma);
 	mtk_msdc_host[host->id] = host;
 
@@ -5339,7 +5335,6 @@ static int msdc_drv_probe(struct platform_device *pdev)
 	spin_lock_init(&host->lock);
 	spin_lock_init(&host->reg_lock);
 	spin_lock_init(&host->remove_bad_card);
-	spin_lock_init(&host->cmd_dump_lock);
 	spin_lock_init(&host->sdio_irq_lock);
 
 #ifdef CONFIG_MTK_EMMC_CQ_SUPPORT

@@ -30,6 +30,11 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/fpsgo.h>
 
+#ifdef CONFIG_MTK_DYNAMIC_FPS_FRAMEWORK_SUPPORT
+#include "dfrc.h"
+#include "dfrc_drv.h"
+#endif
+
 #define TARGET_UNLIMITED_FPS 60
 
 enum FPSGO_NOTIFIER_PUSH_TYPE {
@@ -41,7 +46,6 @@ enum FPSGO_NOTIFIER_PUSH_TYPE {
 	FPSGO_NOTIFIER_NN_JOB_BEGIN			= 0x05,
 	FPSGO_NOTIFIER_NN_JOB_END			= 0x06,
 	FPSGO_NOTIFIER_GPU_BLOCK			= 0x07,
-	FPSGO_NOTIFIER_VSYNC				= 0x08,
 };
 
 /* TODO: use union*/
@@ -99,16 +103,6 @@ int fpsgo_is_enable(void)
 
 	FPSGO_LOGI("[FPSGO_CTRL] isenable %d\n", enable);
 	return enable;
-}
-
-static void fpsgo_notifier_wq_cb_vsync(unsigned long long ts)
-{
-	FPSGO_LOGI("[FPSGO_CB] vsync: %llu\n", ts);
-
-	if (!fpsgo_is_enable())
-		return;
-
-	fpsgo_ctrl2fbt_vsync(ts);
 }
 
 static void fpsgo_notifier_wq_cb_dfrc_fps(int dfrc_fps)
@@ -308,9 +302,6 @@ static void fpsgo_notifier_wq_cb(struct work_struct *psWork)
 		fpsgo_notifier_wq_cb_nn_job_end(vpPush->nn_pid, vpPush->nn_tid,
 			vpPush->nn_mid, vpPush->num_step, vpPush->boost,
 			vpPush->device, vpPush->exec_time);
-		break;
-	case FPSGO_NOTIFIER_VSYNC:
-		fpsgo_notifier_wq_cb_vsync(vpPush->cur_ts);
 		break;
 	default:
 		FPSGO_LOGE("[FPSGO_CTRL] unhandled push type = %d\n",
@@ -598,32 +589,12 @@ int fpsgo_notify_gpu_block(int tid, unsigned long long mid, int start)
 
 void fpsgo_notify_vsync(void)
 {
-	struct FPSGO_NOTIFIER_PUSH_TAG *vpPush;
-
 	FPSGO_LOGI("[FPSGO_CTRL] vsync\n");
 
 	if (!fpsgo_is_enable())
 		return;
 
-	vpPush = (struct FPSGO_NOTIFIER_PUSH_TAG *)
-		fpsgo_alloc_atomic(sizeof(struct FPSGO_NOTIFIER_PUSH_TAG));
-
-	if (!vpPush) {
-		FPSGO_LOGE("[FPSGO_CTRL] OOM\n");
-		return;
-	}
-
-	if (!g_psNotifyWorkQueue) {
-		FPSGO_LOGE("[FPSGO_CTRL] NULL WorkQueue\n");
-		fpsgo_free(vpPush, sizeof(struct FPSGO_NOTIFIER_PUSH_TAG));
-		return;
-	}
-
-	vpPush->ePushType = FPSGO_NOTIFIER_VSYNC;
-	vpPush->cur_ts = fpsgo_get_time();
-
-	INIT_WORK(&vpPush->sWork, fpsgo_notifier_wq_cb);
-	queue_work(g_psNotifyWorkQueue, &vpPush->sWork);
+	fpsgo_ctrl2fbt_vsync();
 }
 
 
@@ -640,6 +611,43 @@ void fpsgo_notify_cpufreq(int cid, unsigned long freq)
 	fpsgo_ctrl2fbt_cpufreq_cb(cid, freq);
 }
 
+#ifdef CONFIG_MTK_DYNAMIC_FPS_FRAMEWORK_SUPPORT
+void dfrc_fps_limit_cb(int fps_limit)
+{
+	unsigned int vTmp = TARGET_UNLIMITED_FPS;
+	struct FPSGO_NOTIFIER_PUSH_TAG *vpPush;
+
+	if (!fpsgo_is_enable())
+		return;
+
+	if (fps_limit != DFRC_DRV_FPS_NON_ASSIGN)
+		vTmp = fps_limit;
+
+	FPSGO_LOGI("[FPSGO_CTRL] dfrc_fps %d\n", vTmp);
+
+	vpPush =
+		(struct FPSGO_NOTIFIER_PUSH_TAG *)
+		fpsgo_alloc_atomic(sizeof(struct FPSGO_NOTIFIER_PUSH_TAG));
+
+	if (!vpPush) {
+		FPSGO_LOGE("[FPSGO_CTRL] OOM\n");
+		return;
+	}
+
+	if (!g_psNotifyWorkQueue) {
+		FPSGO_LOGE("[FPSGO_CTRL] NULL WorkQueue\n");
+		fpsgo_free(vpPush, sizeof(struct FPSGO_NOTIFIER_PUSH_TAG));
+		return;
+	}
+
+	vpPush->ePushType = FPSGO_NOTIFIER_DFRC_FPS;
+	vpPush->dfrc_fps = vTmp;
+
+	INIT_WORK(&vpPush->sWork, fpsgo_notifier_wq_cb);
+	queue_work(g_psNotifyWorkQueue, &vpPush->sWork);
+}
+EXPORT_SYMBOL(dfrc_fps_limit_cb);
+#endif
 
 /* FPSGO control */
 void fpsgo_switch_enable(int enable)
@@ -782,7 +790,7 @@ static int __init fpsgo_init(void)
 
 	cpufreq_notifier_fp = fpsgo_notify_cpufreq;
 
-	fpsgo_notify_vsync_fp = fpsgo_notify_vsync;
+	ged_vsync_notifier_fp = fpsgo_notify_vsync;
 
 	fpsgo_notify_qudeq_fp = fpsgo_notify_qudeq;
 	fpsgo_notify_connect_fp = fpsgo_notify_connect;

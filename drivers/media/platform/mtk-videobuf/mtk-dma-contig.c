@@ -155,7 +155,7 @@ static int vb2_dc_map_dmabuf(void *mem_priv)
 	}
 
 	if (mtk_secure_mode == 1) {
-		dprintk(INFO, "bypass %s for secure buffer\n", __func__);
+		dprintk(INFO, "bypass vb2_dc_map_dmabuf for secure buffer\n");
 		buf->dma_addr = 0;
 		buf->dma_sgt  = NULL;
 		buf->vaddr    = NULL;
@@ -201,7 +201,7 @@ static void vb2_dc_unmap_dmabuf(void *mem_priv)
 	}
 
 	if (mtk_secure_mode == 1) {
-		dprintk(INFO, "bypass %s for secure buffer\n", __func__);
+		dprintk(INFO, "bypass vb2_dc_unmap_dmabuf for secure buffer\n");
 		buf->dma_addr = 0;
 		buf->dma_sgt  = NULL;
 		buf->vaddr    = NULL;

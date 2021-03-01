@@ -336,7 +336,6 @@ static int systracker_watchpoint_enable_default(void)
 	track_config.enable_wp = 1;
 
 	writel(track_config.wp_phy_address, IOMEM(BUS_DBG_WP));
-	/* writel(0x0000000F, IOMEM(BUS_DBG_WP_MASK)); */
 	writel(0x00000000, IOMEM(BUS_DBG_WP_MASK));
 
 	con = readl(IOMEM(BUS_DBG_CON_INFRA)) | BUS_DBG_CON_WP_EN;
@@ -719,7 +718,7 @@ static ssize_t tracker_run_show(struct device_driver *driver, char *buf)
 static ssize_t tracker_run_store(struct device_driver *driver,
 		const char *buf, size_t count)
 {
-	unsigned int value = 0xdead;
+	unsigned int value;
 
 	if (kstrtou32(buf, 10, &value))
 		return -EINVAL;
@@ -744,7 +743,7 @@ static ssize_t enable_wp_show(struct device_driver *driver, char *buf)
 static ssize_t enable_wp_store(struct device_driver *driver,
 		const char *buf, size_t count)
 {
-	unsigned int value = 0xdead;
+	unsigned int value;
 
 	if (kstrtou32(buf, 10, &value))
 		return -EINVAL;
@@ -779,7 +778,7 @@ int systracker_set_watchpoint_addr(unsigned int addr)
 static ssize_t set_wp_address_store
 	(struct device_driver *driver, const char *buf, size_t count)
 {
-	unsigned int value = 0xdead;
+	unsigned int value;
 	int ret;
 
 	ret = kstrtou32(buf, 16, &value);

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2016 MediaTek Inc.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (C) 2019 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -24,7 +24,6 @@
 
 
 #define ALSPSHUB_DEV_NAME     "alsps_hub_pl"
-#define MTK_OLD_FACTORY_CALIBRATION
 
 struct alspshub_ipi_data {
 	struct work_struct init_done_work;
@@ -49,6 +48,11 @@ struct alspshub_ipi_data {
 	bool als_android_enable;
 	bool ps_android_enable;
 	struct wakeup_source ps_wake_lock;
+
+	struct timer_list timer_psdata;  /* ps polling timer */
+	struct work_struct report_psdata;
+	atomic_t delay_psdata;
+
 };
 
 static struct alspshub_ipi_data *obj_ipi_data;
@@ -531,16 +535,8 @@ static int pshub_factory_clear_cali(void)
 static int pshub_factory_set_cali(int32_t offset)
 {
 	struct alspshub_ipi_data *obj = obj_ipi_data;
-	int err = 0;
 
 	obj->ps_cali = offset;
-#ifdef MTK_OLD_FACTORY_CALIBRATION
-	err = sensor_set_cmd_to_hub(ID_PROXIMITY, CUST_ACTION_SET_CALI, &obj->ps_cali);
-	if(err < 0) {
-		pr_err("sensor_set_cmd_to_hub fail, (ID:%d), (action:%d)\n", ID_PROXIMITY, CUST_ACTION_RESET_CALI);
-		return -1;
-	}
-#endif
 	return 0;
 }
 static int pshub_factory_get_cali(int32_t *offset)
@@ -747,12 +743,16 @@ static int ps_open_report_data(int open)
 	return 0;
 }
 
+
+static int ps_cancel_enable = 0;
+
 static int ps_enable_nodata(int en)
 {
 	int res = 0;
 	struct alspshub_ipi_data *obj = obj_ipi_data;
 
-	pr_debug("obj_ipi_data als enable value = %d\n", en);
+	ps_cancel_enable = en;
+	pr_debug("ps_enable_nodata ps enable value = %d\n", en);
 	if (en == true)
 		WRITE_ONCE(obj->ps_android_enable, true);
 	else
@@ -762,6 +762,16 @@ static int ps_enable_nodata(int en)
 	if (res < 0) {
 		pr_err("als_enable_nodata is failed!!\n");
 		return -1;
+	}
+	if(en == true)
+		mod_timer(&obj->timer_psdata,jiffies + atomic_read(&obj->delay_psdata) /(1000 / HZ));
+	else
+	{
+		pr_debug("ps_enable_nodata ps disable");
+		smp_mb();
+		del_timer_sync(&obj->timer_psdata);
+		smp_mb();
+		cancel_work_sync(&obj->report_psdata);
 	}
 
 	mutex_lock(&alspshub_mutex);
@@ -863,6 +873,37 @@ static int scp_ready_event(uint8_t event, void *ptr)
 	return 0;
 }
 
+
+static void psdata_work_func(struct work_struct *work)
+{
+	struct alspshub_ipi_data *cxt = obj_ipi_data;
+	int32_t psrawdata = 0;
+	int err = 0;
+
+	pr_debug("psdata_work_func !!\n");
+	err = pshub_factory_get_raw_data(&psrawdata);
+	err = sensor_set_cmd_to_hub(ID_PROXIMITY,CUST_ACTION_SET_CALI, &cxt->ps_cali);
+	pr_debug("psdata_work_func data=%d,err=%d!!\n",psrawdata,err);
+	//pshub_factory_set_threshold();
+
+	smp_mb();/* for memory barrier */
+	del_timer_sync(&cxt->timer_psdata);
+	smp_mb();/* for memory barrier */
+	if(ps_cancel_enable == 1)
+		mod_timer(&cxt->timer_psdata,jiffies + atomic_read(&cxt->delay_psdata) /(1000 / HZ));
+}
+
+static void psdata_poll(unsigned long data)
+{
+	struct alspshub_ipi_data *obj = (struct alspshub_ipi_data *)data;
+
+	pr_debug("psdata_poll !!\n");
+
+	if (obj != NULL)
+		schedule_work(&obj->report_psdata);
+}
+
+
 static struct scp_power_monitor scp_ready_notifier = {
 	.name = "alsps",
 	.notifier_call = scp_ready_event,
@@ -908,6 +949,14 @@ static int alspshub_probe(struct platform_device *pdev)
 	WRITE_ONCE(obj->als_android_enable, false);
 	WRITE_ONCE(obj->ps_factory_enable, false);
 	WRITE_ONCE(obj->ps_android_enable, false);
+
+	atomic_set(&obj->delay_psdata,200); /* 5Hz,  set work queue delay time 200ms */
+	INIT_WORK(&obj->report_psdata, psdata_work_func);
+	init_timer(&obj->timer_psdata);
+	obj->timer_psdata.expires =
+		jiffies + atomic_read(&obj->delay_psdata) / (1000 / HZ);
+	obj->timer_psdata.function = psdata_poll;
+	obj->timer_psdata.data = (unsigned long)obj;
 
 	clear_bit(CMC_BIT_ALS, &obj->enable);
 	clear_bit(CMC_BIT_PS, &obj->enable);

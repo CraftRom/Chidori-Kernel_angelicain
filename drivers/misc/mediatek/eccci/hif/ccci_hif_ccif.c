@@ -154,8 +154,9 @@ static int rx_queue_buffer_size[QUEUE_NUM] = { 10 * 1024, 100 * 1024,
 static int tx_queue_buffer_size[QUEUE_NUM] = { 10 * 1024, 100 * 1024,
 	50 * 1024, 50 * 1024, 50 * 1024, 10 * 1024, 10 * 1024, 10 * 1024,
 };
+#endif
 
-#elif (MD_GENERATION >= 6295)
+#if (MD_GENERATION >= 6295)
 static int rx_queue_buffer_size[QUEUE_NUM] = { 80 * 1024, 80 * 1024,
 	40 * 1024, 80 * 1024, 20 * 1024, 20 * 1024, 64 * 1024, 0 * 1024,
 	8 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024, 0 * 1024,
@@ -292,9 +293,6 @@ static int ccci_ch_to_c2k_ch(int md_state, int ccci_ch, int direction)
 	u16 channel_map;
 	int i = 0;
 
-	if (md_state == INVALID)
-		goto md_state_invalid;
-
 	ccci_channel_id = (u16) ccci_ch;
 	for (i = 0; i < (sizeof(c2k_ports) / sizeof(struct c2k_port)); i++) {
 		channel_map = (direction == OUT) ? c2k_ports[i].tx_ch_mapping :
@@ -308,8 +306,6 @@ static int ccci_ch_to_c2k_ch(int md_state, int ccci_ch, int direction)
 				c2k_ports[i].excp_ch;
 		}
 	}
-
-md_state_invalid:
 
 	CCCI_ERROR_LOG(MD_SYS3, TAG,
 		"%s:ERR cannot find mapped ccci ch ID(%d)\n",

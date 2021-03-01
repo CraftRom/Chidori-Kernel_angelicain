@@ -34,9 +34,7 @@
 #include <ap_thermal_limit.h>
 #ifdef ATM_USES_PPM
 #include "mtk_ppm_api.h"
-#ifndef CONFIG_MACH_MT6757
 #include "mtk_ppm_platform.h"
-#endif
 #else
 #include "mt_cpufreq.h"
 #endif
@@ -61,7 +59,6 @@
 #include "mdla_dvfs.h"
 #endif
 #endif
-#include "mtk_cooler_setting.h"
 
 /*****************************************************************************
  *  Local switches
@@ -403,10 +400,6 @@ s64 gpu_pwr_lmt_latest_delay;
 unsigned int gpu_pwr_lmt_cnt = 1;
 #endif
 
-
-#if defined(THERMAL_APU_UNLIMIT)
-static unsigned long total_apu_polling_time;
-#endif
 /*=============================================================
  *Local function prototype
  *=============================================================
@@ -1032,36 +1025,6 @@ int tscpu_get_min_gpu_pwr(void)
 }
 EXPORT_SYMBOL(tscpu_get_min_gpu_pwr);
 
-#if defined(THERMAL_VPU_SUPPORT)
-int tscpu_get_min_vpu_pwr(void)
-{
-#if defined(THERMAL_APU_UNLIMIT)
-	if (cl_get_apu_status() == 1)
-		return MAXIMUM_VPU_POWER;
-	else
-		return MINIMUM_VPU_POWER;
-#else
-	return MINIMUM_VPU_POWER;
-#endif
-}
-EXPORT_SYMBOL(tscpu_get_min_vpu_pwr);
-#endif
-
-#if defined(THERMAL_MDLA_SUPPORT)
-int tscpu_get_min_mdla_pwr(void)
-{
-#if defined(THERMAL_APU_UNLIMIT)
-	if (cl_get_apu_status() == 1)
-		return MAXIMUM_MDLA_POWER;
-	else
-		return MINIMUM_MDLA_POWER;
-#else
-	return MINIMUM_MDLA_POWER;
-#endif
-}
-EXPORT_SYMBOL(tscpu_get_min_mdla_pwr);
-#endif
-
 #if CONTINUOUS_TM
 /**
  * @brief update cATM+ ttj control loop parameters
@@ -1182,14 +1145,8 @@ static int adjust_gpu_power(int power)
 static int EARA_handled(int total_power)
 {
 #if defined(EARA_THERMAL_SUPPORT)
-	int ret = 0;
+	int ret;
 	int total_power_eara;
-
-#if defined(THERMAL_APU_UNLIMIT)
-	if (cl_get_apu_status() == 1) {/*APU hint*/
-		total_power = 0;/*let EARA unlimit VPU/MDLA freq*/
-	}
-#endif
 
 #if defined(THERMAL_VPU_SUPPORT) && defined(THERMAL_MDLA_SUPPORT)
 	if (total_power == 0)
@@ -1397,50 +1354,22 @@ static int P_adaptive(int total_power, unsigned int gpu_loading)
 	tscpu_dprintk("%s cpu %d, gpu %d\n", __func__, cpu_power, gpu_power);
 
 #if defined(THERMAL_VPU_SUPPORT)
-	/*APU hint*/
-#if defined(THERMAL_APU_UNLIMIT)
-	if (cl_get_apu_status() == 1) {
-		set_adaptive_vpu_power_limit(0);
-	} else {
-		if (vpu_power != last_vpu_power) {
-			if (vpu_power >= MAXIMUM_VPU_POWER)
-				set_adaptive_vpu_power_limit(0);
-			else
-				set_adaptive_vpu_power_limit(vpu_power);
-		}
-	}
-#else
 	if (vpu_power != last_vpu_power) {
 		if (vpu_power >= MAXIMUM_VPU_POWER)
 			set_adaptive_vpu_power_limit(0);
 		else
 			set_adaptive_vpu_power_limit(vpu_power);
 	}
-#endif
 	tscpu_dprintk("%s vpu %d\n",
 		__func__, vpu_power);
 #endif
 #if defined(THERMAL_MDLA_SUPPORT)
-	/*APU hint*/
-#if defined(THERMAL_APU_UNLIMIT)
-	if (cl_get_apu_status() == 1) {
-		set_adaptive_mdla_power_limit(0);
-	} else {
-		if (mdla_power != last_mdla_power) {
-			if (mdla_power >= MAXIMUM_MDLA_POWER)
-				set_adaptive_mdla_power_limit(0);
-			else
-				set_adaptive_mdla_power_limit(mdla_power);
-		}
-	}
-#else
 	if (mdla_power != last_mdla_power) {
 		if (mdla_power >= MAXIMUM_MDLA_POWER)
 			set_adaptive_mdla_power_limit(0);
 		else
 			set_adaptive_mdla_power_limit(mdla_power);
 	}
-#endif
 	tscpu_dprintk("%s mdla %d\n",
 		__func__, mdla_power);
 #endif
@@ -1964,8 +1893,8 @@ static int decide_ttj(void)
 		if (ctm_on == 1) {
 			TARGET_TJ = MIN(MAX_TARGET_TJ,
 					MAX(STEADY_TARGET_TJ,
-						(COEF_AE - COEF_BE * (curr_tpcb
-								/ 1000))));
+						(COEF_AE - COEF_BE * curr_tpcb
+								/ 1000)));
 
 		} else if (ctm_on == 2) {
 			/* +++ cATM+ +++ */
@@ -1975,8 +1904,8 @@ static int decide_ttj(void)
 
 		current_ETJ = MIN(MAX_EXIT_TJ,
 				MAX(STEADY_EXIT_TJ,
-					(COEF_AX - COEF_BX * (curr_tpcb
-								/ 1000))));
+					(COEF_AX - COEF_BX * curr_tpcb
+								/ 1000)));
 
 		/* tscpu_printk("cttj %d cetj %d tpcb %d\n",
 		 *			TARGET_TJ, current_ETJ, curr_tpcb);
@@ -3345,7 +3274,7 @@ static enum hrtimer_restart atm_loop(struct hrtimer *timer)
 {
 	ktime_t ktime;
 #elif KRTATM_TIMER == KRTATM_NORMAL
-static void atm_loop(unsigned long data)
+static int atm_loop(void)
 {
 #endif
 	int temp;
@@ -3437,25 +3366,6 @@ exit:
 
 	polling_time = atm_get_timeout_time(atm_curr_maxtj);
 
-#if defined(THERMAL_APU_UNLIMIT)
-	if (cl_get_apu_status() == 1) {/*flag not be cleared*/
-		total_apu_polling_time =
-			total_apu_polling_time + polling_time;
-	} else {
-		/*flag is cleared, clear timer*/
-		total_apu_polling_time = 0;
-	}
-
-	/*count till 10 sec(10000ms) timeout*/
-	if (total_apu_polling_time >= 10000) {
-		total_apu_polling_time = 0;
-		cl_set_apu_status(0);//clear apu flag
-
-		tscpu_printk("%s ainr: total_apu_polling_time = 0\n",
-			__func__);
-	}
-#endif
-
 #if KRTATM_TIMER == KRTATM_HR
 
 	/* avoid overflow */
@@ -3480,6 +3390,7 @@ exit:
 	atm_timer.expires = jiffies + msecs_to_jiffies(polling_time);
 	add_timer(&atm_timer);
 
+	return 0;
 #endif
 
 }
@@ -3513,7 +3424,7 @@ static void atm_timer_init(void)
 						atm_timer_polling_delay : 100;
 
 	init_timer_deferrable(&atm_timer);
-	atm_timer.function = &atm_loop;
+	atm_timer.function = (void *)&atm_loop;
 	atm_timer.data = (unsigned long)&atm_timer;
 	atm_timer.expires =
 		jiffies + msecs_to_jiffies(atm_timer_polling_delay);
@@ -3619,74 +3530,6 @@ static int krtatm_thread(void *arg)
 }
 #endif	/* FAST_RESPONSE_ATM */
 
-static void init_ctm_param(void)
-{
-	int t_K_SUM_TT_HIGH = CLCTM_TT_HIGH;
-	int t_K_SUM_TT_LOW = CLCTM_TT_LOW;
-	int t_CATMP_STEADY_TTJ_DELTA = CLCTM_STEADY_TTJ_DELTA;
-
-	ctm_on = CLATM_INIT_CFG_CATM;	/* 2: cATM+, 1: cATMv1, 0: off */
-
-	MAX_TARGET_TJ = CLCTM_TARGET_TJ;
-	STEADY_TARGET_TJ = CLCTM_TARGET_TJ;
-	TRIP_TPCB = CLCTM_TPCB_1;
-	STEADY_TARGET_TPCB = CLCTM_TPCB_2;
-	MAX_EXIT_TJ = CLCTM_EXIT_TJ;
-	STEADY_EXIT_TJ = CLCTM_EXIT_TJ;
-
-	COEF_AE = CLCTM_AE;
-	COEF_BE = CLCTM_BE;
-	COEF_AX = CLCTM_AX;
-	COEF_BX = CLCTM_BX;
-
-#if defined(CATM_TPCB_EXTEND)
-	if (g_turbo_bin && (STEADY_TARGET_TPCB >= 52000)) {
-		if (t_TPCB_EXTEND > 0 && t_TPCB_EXTEND < 10000) {
-			TRIP_TPCB += t_TPCB_EXTEND;
-			STEADY_TARGET_TPCB += t_TPCB_EXTEND;
-			COEF_AE = STEADY_TARGET_TJ +
-				(STEADY_TARGET_TPCB * COEF_BE) / 1000;
-			COEF_AX = STEADY_EXIT_TJ +
-				(STEADY_TARGET_TPCB * COEF_BX) / 1000;
-			TPCB_EXTEND = t_TPCB_EXTEND;
-		}
-	}
-#endif
-
-	/* +++ cATM+ parameters +++ */
-	if (ctm_on == 2) {
-		if (t_K_SUM_TT_HIGH >= 0
-			&& t_K_SUM_TT_HIGH < MAX_K_SUM_TT)
-			K_SUM_TT_HIGH = t_K_SUM_TT_HIGH;
-
-		if (t_K_SUM_TT_LOW >= 0
-			&& t_K_SUM_TT_LOW < MAX_K_SUM_TT)
-			K_SUM_TT_LOW = t_K_SUM_TT_LOW;
-
-		if (t_CATMP_STEADY_TTJ_DELTA >= 0)
-			CATMP_STEADY_TTJ_DELTA =
-					t_CATMP_STEADY_TTJ_DELTA;
-
-		catmplus_update_params();
-	}
-	/* --- cATM+ parameters --- */
-
-	/* --- SPA parameters --- */
-	thermal_spa_t.t_spa_Tpolicy_info.steady_target_tj =
-						STEADY_TARGET_TJ;
-
-	thermal_spa_t.t_spa_Tpolicy_info.steady_exit_tj =
-						STEADY_EXIT_TJ;
-
-#ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT
-#if THERMAL_ENABLE_TINYSYS_SSPM && CPT_ADAPTIVE_AP_COOLER &&	\
-	PRECISE_HYBRID_POWER_BUDGET && CONTINUOUS_TM
-		atm_update_catm_param_to_sspm();
-#endif
-#endif
-
-}
-
 static int __init mtk_cooler_atm_init(void)
 {
 	int err = 0;
@@ -3755,7 +3598,6 @@ static int __init mtk_cooler_atm_init(void)
 #if 0
 		reset_gpu_power_history();
 #endif
-	init_ctm_param();
 	tscpu_dprintk("%s: end\n", __func__);
 	return 0;
 }

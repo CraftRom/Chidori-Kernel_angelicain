@@ -125,8 +125,7 @@ static int pe20_set_mivr(struct charger_manager *pinfo, int uV)
 		charger_dev_is_chip_enabled(pinfo->chg2_dev,
 			&chg2_chip_enabled);
 		if (chg2_chip_enabled) {
-			ret = charger_dev_set_mivr(pinfo->chg2_dev,
-				uV + pinfo->data.slave_mivr_diff);
+			ret = charger_dev_set_mivr(pinfo->chg2_dev, uV);
 			if (ret < 0)
 				pr_info("%s: chg2 failed, ret = %d\n", __func__,
 					ret);
@@ -589,9 +588,6 @@ int mtk_pe20_start_algorithm(struct charger_manager *pinfo)
 	__pm_stay_awake(&pe20->suspend_lock);
 	chr_debug("%s\n", __func__);
 
-	if (pe20->is_cable_out_occur)
-		mtk_pe20_plugout_reset(pinfo);
-
 	if (!pe20->is_connect) {
 		ret = -EIO;
 		chr_info("%s: stop, PE+20 is not connected\n",
@@ -643,8 +639,7 @@ int mtk_pe20_start_algorithm(struct charger_manager *pinfo)
 				pe20_set_mivr(pinfo, pe20->vbus - 500000);
 			else
 				pe20_leave(pinfo);
-		} else
-			pe20_set_mivr(pinfo, pe20->vbus - 500000);
+		}
 		break;
 	}
 	pes = 2;

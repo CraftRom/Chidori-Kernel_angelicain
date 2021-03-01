@@ -27,6 +27,7 @@
 
 #define LP_INIT_SETTING_VERIFIED	1
 
+/* used for Zion E1/E2 PMIC clear interrupt */
 unsigned int g_pmic_chip_version = 1;
 
 int PMIC_MD_INIT_SETTING_V1(void)
@@ -79,15 +80,15 @@ int PMIC_check_battery(void)
 int PMIC_POWER_HOLD(unsigned int hold)
 {
 	if (hold > 1) {
-		pr_notice("[PMIC_KERNEL] %s hold = %d only 0 or 1\n",
-			__func__, hold);
+		pr_notice("[PMIC_KERNEL] PMIC_POWER_HOLD hold = %d only 0 or 1\n"
+		       , hold);
 		return -1;
 	}
 
 	if (hold)
-		PMICLOG("[PMIC_KERNEL] %s ON\n", __func__);
+		PMICLOG("[PMIC_KERNEL] PMIC_POWER_HOLD ON\n");
 	else
-		PMICLOG("[PMIC_KERNEL] %s OFF\n", __func__);
+		PMICLOG("[PMIC_KERNEL] PMIC_POWER_HOLD OFF\n");
 
 	/* MT6357 must keep power hold */
 	pmic_config_interface_nolock(PMIC_RG_PWRHOLD_ADDR, hold

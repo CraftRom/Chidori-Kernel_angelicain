@@ -15,10 +15,7 @@
 #define CONFIG_MTK_UFS_DEBUG
 /* #define CONFIG_MTK_UFS_DEGUG_GPIO_TRIGGER */
 #ifdef CONFIG_MTK_ENG_BUILD
-/* workround:disable CONFIG_MTK_UFS_LBA_CRC16_CHECK for mt6763 */
-#ifndef CONFIG_MACH_MT6763
 #define CONFIG_MTK_UFS_LBA_CRC16_CHECK
-#endif
 #endif
 /* #define CONFIG_MTK_UFS_LBA_CRC16_BUG_ON */
 
@@ -183,7 +180,6 @@ struct ufs_crypt_info {
 
 
 extern u32 ufs_mtk_auto_hibern8_timer_ms;
-extern bool ufs_mtk_auto_hibern8_enabled;
 extern enum ufs_dbg_lvl_t ufs_mtk_dbg_lvl;
 extern struct ufs_hba *ufs_mtk_hba;
 extern bool ufs_mtk_host_deep_stall_enable;

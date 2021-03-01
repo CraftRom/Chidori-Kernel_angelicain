@@ -199,10 +199,12 @@ static int baro_recv_data(struct data_unit_t *event, void *reserved)
 	int err = 0;
 	struct barohub_ipi_data *obj = obj_ipi_data;
 
+	if (READ_ONCE(obj->android_enable) == false)
+		return 0;
+
 	if (event->flush_action == FLUSH_ACTION)
 		err = baro_flush_report();
-	else if (event->flush_action == DATA_ACTION &&
-			READ_ONCE(obj->android_enable) == true)
+	else if (event->flush_action == DATA_ACTION)
 		err = baro_data_report(event->pressure_t.pressure, 2,
 			(int64_t)event->time_stamp);
 	return err;
@@ -449,7 +451,7 @@ static int barohub_probe(struct platform_device *pdev)
 	ctl.is_support_batch = false;
 #elif defined CONFIG_NANOHUB
 	ctl.is_report_input_direct = true;
-	ctl.is_support_batch = true;
+	ctl.is_support_batch = false;
 #else
 #endif
 	err = baro_register_control_path(&ctl);

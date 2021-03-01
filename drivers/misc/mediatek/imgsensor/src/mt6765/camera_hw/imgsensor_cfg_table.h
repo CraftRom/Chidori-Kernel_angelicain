@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2017 MediaTek Inc.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -20,9 +19,14 @@
 
 #define IMGSENSOR_DEV_NAME "kd_camera_hw"
 
+#define IMGSENSOR_SENSOR_IDX_NAME_MAIN  "0"
+#define IMGSENSOR_SENSOR_IDX_NAME_SUB   "1"
+#define IMGSENSOR_SENSOR_IDX_NAME_MAIN2 "2"
+#define IMGSENSOR_SENSOR_IDX_NAME_SUB2 "3"
+#define IMGSENSOR_SENSOR_IDX_NAME_MAIN3 "4"
 
 #define IMGSENSOR_HW_POWER_INFO_MAX	12
-#define IMGSENSOR_HW_SENSOR_MAX_NUM	12
+#define IMGSENSOR_HW_SENSOR_MAX_NUM	8
 
 enum IMGSENSOR_HW_PIN {
 	IMGSENSOR_HW_PIN_NONE = 0,
@@ -97,18 +101,15 @@ enum IMGSENSOR_HW_ID {
 #define IMGSENSOR_I2C_DRV_NAME_0  "kd_camera_hw"
 #define IMGSENSOR_I2C_DRV_NAME_1  "kd_camera_hw_bus2"
 #define IMGSENSOR_I2C_DRV_NAME_2  "kd_camera_hw_bus3"
-#define IMGSENSOR_I2C_DRV_NAME_3  "kd_camera_hw_bus4"
 
 #define IMGSENSOR_I2C_OF_DRV_NAME_0 "mediatek,camera_main"
 #define IMGSENSOR_I2C_OF_DRV_NAME_1 "mediatek,camera_sub"
 #define IMGSENSOR_I2C_OF_DRV_NAME_2 "mediatek,camera_main_two"
-#define IMGSENSOR_I2C_OF_DRV_NAME_3 "mediatek,camera_main_three"
 
 enum IMGSENSOR_I2C_DEV {
 	IMGSENSOR_I2C_DEV_0,
 	IMGSENSOR_I2C_DEV_1,
 	IMGSENSOR_I2C_DEV_2,
-	IMGSENSOR_I2C_DEV_3,
 	IMGSENSOR_I2C_DEV_MAX_NUM,
 };
 
@@ -133,9 +134,8 @@ struct IMGSENSOR_HW_POWER_INFO {
 };
 
 struct IMGSENSOR_HW_POWER_SEQ {
-	char                   *name;
+	char                   *idx;
 	struct IMGSENSOR_HW_POWER_INFO pwr_info[IMGSENSOR_HW_POWER_INFO_MAX];
-	u32                    _idx;
 };
 
 struct IMGSENSOR_HW_DEVICE {

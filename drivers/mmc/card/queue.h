@@ -107,7 +107,6 @@ struct mmc_queue {
 #define IS_RT_CLASS_REQ(x)	\
 	(IOPRIO_PRIO_CLASS(req_get_ioprio(x)) == IOPRIO_CLASS_RT)
 #endif
-
 extern int mmc_init_queue(struct mmc_queue *, struct mmc_card *, spinlock_t *,
 			  const char *, int);
 extern void mmc_cleanup_queue(struct mmc_queue *);

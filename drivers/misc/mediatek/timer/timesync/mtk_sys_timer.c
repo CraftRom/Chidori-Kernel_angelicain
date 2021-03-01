@@ -11,7 +11,6 @@
  * See http://www.gnu.org/licenses/gpl-2.0.html for more details.
  */
 
-
 #include <linux/module.h>
 #if defined(CONFIG_MTK_TIMER_TIMESYNC) && !defined(CONFIG_FPGA_EARLY_PORTING)
 
@@ -161,7 +160,7 @@ void sys_timer_timesync_verify_sspm(void)
 {
 	struct plt_ipi_data_s ipi_data;
 	int ackdata = 0;
-	u32 ts_h = 0, ts_l = 0;
+	u32 ts_h, ts_l;
 	u64 ts_sspm, ts_ap1, ts_ap2, temp_u64[2];
 
 	/* reset debug mbox before test */
@@ -270,7 +269,6 @@ sys_timer_timesync_sync_base_internal(unsigned int flag)
 		adsp_enable_dsp_clk(false);
 	}
 #endif
-
 	/* sync with sspm */
 	sys_timer_timesync_update_sspm(freeze, tick, ts);
 

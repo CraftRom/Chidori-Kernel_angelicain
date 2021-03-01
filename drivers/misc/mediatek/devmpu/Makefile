@@ -14,6 +14,7 @@
 PLATFORM := $(subst ",,$(CONFIG_MTK_PLATFORM))
 
 ccflags-y += \
+	-I$(srctree)/drivers/misc/mediatek/devmpu/$(PLATFORM) \
 	-I$(srctree)/drivers/misc/mediatek/emi/$(PLATFORM) \
 	-I$(srctree)/drivers/misc/mediatek/emi/submodule
 

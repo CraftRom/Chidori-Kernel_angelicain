@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2015 MediaTek Inc.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (C) 2019 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -37,6 +37,10 @@
 #include <linux/gpio.h>
 #include <asm-generic/gpio.h>
 #endif
+
+#ifdef CONFIG_MTK_PMIC_NEW_ARCH
+#include <mt-plat/upmu_common.h>
+#endif
 /****************************************************************************
  * variables
  ***************************************************************************/
@@ -57,6 +61,7 @@ static unsigned int last_level1 = 102;
 static struct i2c_client *g_client;
 static int I2C_SET_FOR_BACKLIGHT  = 350;
 #endif
+static bool pmic_chrind_en = true;
 /****************************************************************************
  * DEBUG MACROS
  ***************************************************************************/
@@ -104,7 +109,6 @@ static unsigned int limit_flag;
 static unsigned int last_level;
 static unsigned int current_level;
 static DEFINE_MUTEX(bl_level_limit_mutex);
-unsigned int thermal_current_brightness;
 
 /****************************************************************************
  * external functions for display
@@ -151,14 +155,8 @@ int setMaxbrightness(int max_level, int enable)
 	}
 #else
 	LEDS_DRV_DEBUG("setMaxbrightness go through AAL\n");
-#ifdef CONFIG_BACKLIGHT_SUPPORT_2047_FEATURE
-	disp_bls_set_max_backlight(max_level);
-	disp_aal_notify_backlight_changed(thermal_current_brightness);
-#else
 	disp_bls_set_max_backlight(((((1 << LED_INTERNAL_LEVEL_BIT_CNT) -
 				      1) * max_level + 127) / 255));
-	disp_aal_notify_backlight_changed(thermal_current_brightness);
-#endif
 #endif				/* endif CONFIG_MTK_AAL_SUPPORT */
 	return 0;
 }
@@ -209,13 +207,9 @@ static int mt65xx_led_set_cust(struct cust_mt65xx_led *cust, int level)
 #endif
 #ifdef LED_INCREASE_LED_LEVEL_MTKPATCH
 	if (cust->mode == MT65XX_LED_MODE_CUST_BLS_PWM) {
-#ifdef CONFIG_BACKLIGHT_SUPPORT_2047_FEATURE
-		mt_mt65xx_led_set_cust(cust,level);
-#else
 		mt_mt65xx_led_set_cust(cust,
 				       ((((1 << LED_INTERNAL_LEVEL_BIT_CNT) -
 					  1) * level + 127) / 255));
-#endif
 	} else {
 		mt_mt65xx_led_set_cust(cust, level);
 	}
@@ -230,6 +224,13 @@ static void mt65xx_led_set(struct led_classdev *led_cdev,
 {
 	struct mt65xx_led_data *led_data =
 	    container_of(led_cdev, struct mt65xx_led_data, cdev);
+	if(true == pmic_chrind_en)
+	{
+		pmic_set_register_value(PMIC_CHRIND_EN_SEL, 1);
+		pmic_set_register_value(PMIC_CHRIND_MODE, 2);
+		pmic_set_register_value(PMIC_CHRIND_EN, 0);
+		pmic_chrind_en = false;
+	}
 #ifdef CONFIG_BACKLIGHT_SUPPORT_LP8557
 	bool flag = FALSE;
 	int value = 0;
@@ -302,6 +303,13 @@ static void mt65xx_led_set(struct led_classdev *led_cdev,
 static int mt65xx_blink_set(struct led_classdev *led_cdev,
 			    unsigned long *delay_on, unsigned long *delay_off)
 {
+	if(true == pmic_chrind_en)
+	{
+		pmic_set_register_value(PMIC_CHRIND_EN_SEL, 1);
+		pmic_set_register_value(PMIC_CHRIND_MODE, 2);
+		pmic_set_register_value(PMIC_CHRIND_EN, 0);
+		pmic_chrind_en = false;
+	}
 	if (mt_mt65xx_blink_set(led_cdev, delay_on, delay_off))
 		return -1;
 	else
@@ -339,17 +347,11 @@ int mt65xx_leds_brightness_set(enum mt65xx_led_type type,
 
 	if (type < 0 || type >= MT65XX_LED_TYPE_TOTAL)
 		return -1;
-#ifdef CONFIG_BACKLIGHT_SUPPORT_2047_FEATURE
-	if (level > 2047)
-		level = 2047;
-	else if (level < 0)
-		level = 0;
-#else
+
 	if (level > LED_FULL)
 		level = LED_FULL;
 	else if (level < 0)
 		level = 0;
-#endif
 
 #ifdef CONFIG_BACKLIGHT_SUPPORT_LP8557
 	retval = gpio_request(I2C_SET_FOR_BACKLIGHT, "i2c_set_for_backlight");
@@ -394,17 +396,12 @@ EXPORT_SYMBOL(mt65xx_leds_brightness_set);
 int backlight_brightness_set(int level)
 {
 	struct cust_mt65xx_led *cust_led_list = mt_get_cust_led_list();
-#ifdef CONFIG_BACKLIGHT_SUPPORT_2047_FEATURE
-	if (level > 2047)
-		level = 2047;
-	else if (level < 0)
-		level = 0;
-#else
+
 	if (level > ((1 << MT_LED_INTERNAL_LEVEL_BIT_CNT) - 1))
 		level = ((1 << MT_LED_INTERNAL_LEVEL_BIT_CNT) - 1);
 	else if (level < 0)
 		level = 0;
-#endif
+
 	if (MT65XX_LED_MODE_CUST_BLS_PWM ==
 	    cust_led_list[MT65XX_LED_TYPE_LCD].mode) {
 #ifdef CONTROL_BL_TEMPERATURE
@@ -429,15 +426,10 @@ int backlight_brightness_set(int level)
 		    mt_mt65xx_led_set_cust(&cust_led_list[MT65XX_LED_TYPE_LCD],
 					   level);
 	} else {
-#ifdef CONFIG_BACKLIGHT_SUPPORT_2047_FEATURE
-		return mt65xx_led_set_cust(&cust_led_list[MT65XX_LED_TYPE_LCD],
-					level);
-#else
 		return mt65xx_led_set_cust(&cust_led_list[MT65XX_LED_TYPE_LCD],
 					   (level >>
 					    (MT_LED_INTERNAL_LEVEL_BIT_CNT -
 					     8)));
-#endif
 	}
 
 }
@@ -739,11 +731,7 @@ static int mt65xx_leds_probe(struct platform_device *pdev)
 #ifdef CONTROL_BL_TEMPERATURE
 
 	last_level = 0;
-#ifdef CONFIG_BACKLIGHT_SUPPORT_2047_FEATURE
-	limit = 2047;
-#else
 	limit = 255;
-#endif
 	limit_flag = 0;
 	current_level = 0;
 	LEDS_DRV_DEBUG

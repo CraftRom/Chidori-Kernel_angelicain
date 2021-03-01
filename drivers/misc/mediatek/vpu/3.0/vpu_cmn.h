@@ -19,7 +19,6 @@
 #include <linux/interrupt.h>
 #include "vpu_drv.h"
 #include "vpu_dbg.h"
-#include "vpu_pool.h"
 
 #ifdef CONFIG_MTK_AEE_FEATURE
 #include <aee.h>
@@ -45,16 +44,18 @@ struct vpu_device {
 	unsigned int bin_size;
 	unsigned int irq_num[MTK_VPU_CORE];
 	unsigned int irq_trig_level;
-	struct mutex sdsp_control_mutex[MTK_VPU_CORE];
 	struct mutex user_mutex;
 	/* list of vlist_type(struct vpu_user) */
 	struct list_head user_list;
 	/* pool for each vpu core and common part */
 	/* need error handle, pop all requests in pool */
+	struct mutex servicepool_mutex[MTK_VPU_CORE];
+	struct list_head pool_list[MTK_VPU_CORE];
+	int servicepool_list_size[MTK_VPU_CORE];
 	bool service_core_available[MTK_VPU_CORE];
-	struct vpu_pool pool[MTK_VPU_CORE];
-	struct vpu_pool pool_common;
-	struct vpu_pool pool_multiproc;
+	struct mutex commonpool_mutex;
+	struct list_head cmnpool_list;
+	int commonpool_list_size;
 	/* notify enque thread */
 	wait_queue_head_t req_wait;
 	/*priority number list*/
@@ -105,7 +106,6 @@ enum vpu_power_param {
 	VPU_POWER_HAL_CTL,
 	VPU_EARA_CTL,
 	VPU_CT_INFO,
-	VPU_POWER_PARAM_DISABLE_OFF,
 };
 
 enum vpu_debug_algo_param {
@@ -131,9 +131,6 @@ enum VpuPowerOnType {
 
 	/* power on by enque, but want to immediately off(when exception) */
 	VPT_IMT_OFF		= 3,
-
-	/* same as VPT_IMT_OFF, from secure DSP */
-	VPT_SDSP_OFF	= 4,
 };
 
 
@@ -173,10 +170,12 @@ struct type ## _list { \
  */
 #define vlist_node(ptr, type) ((type *) ptr)
 
+
 DECLARE_VLIST(vpu_user);
 DECLARE_VLIST(vpu_algo);
 DECLARE_VLIST(vpu_request);
 DECLARE_VLIST(vpu_dev_debug_info);
+
 
 /* ========================= define in vpu_emu.c  ========================= */
 
@@ -220,25 +219,13 @@ int vpu_uninit_hw(void);
  * vpu_boot_up - boot up the vpu power and framework
  * @core: index of device
  */
-int vpu_boot_up(int core, bool secure);
+int vpu_boot_up(int core);
 
 /**
  * vpu_shut_down - shutdown the vpu framework and power
  * @core: index of device
  */
 int vpu_shut_down(int core);
-
-/**
- * vpu_get_power - power on vpu
- * @core: index of device
- */
-int vpu_get_power(int core, bool secure);
-
-/**
- * vpu_put_power - power off vpu
- * @core: index of device
- */
-void vpu_put_power(int core, enum VpuPowerOnType type);
 
 /**
  * vpu_hw_load_algo - call vpu program to load algo, by specifying the
@@ -356,7 +343,6 @@ int vpu_dump_image_file(struct seq_file *s);
  * @s:          the pointer to seq_file.
  */
 int vpu_dump_mesg(struct seq_file *s);
-int vpu_dump_mesg_seq(struct seq_file *s, int core);
 
 /**
  * vpu_dump_opp_table - dump the OPP table
@@ -414,20 +400,6 @@ int vpu_create_user(struct vpu_user **ruser);
 int vpu_set_power(struct vpu_user *user, struct vpu_power *power);
 
 /**
- * vpu_sdsp_get_power - get the power by sdsp
- * @user:       the pointer to user.
- * @power:      the user's power mode.
- */
-int vpu_sdsp_get_power(struct vpu_user *user);
-
-/**
- * vpu_sdsp_put_power - get the power by sdsp
- * @user:       the pointer to user.
- * @power:      the user's power mode.
- */
-int vpu_sdsp_put_power(struct vpu_user *user);
-
-/**
  * vpu_delete_user - delete vpu user, and remove it from user list
  * @user:       the pointer to user.
  */
@@ -482,27 +454,6 @@ int vpu_dump_user(struct seq_file *s);
  * @s:          the pointer to seq_file.
  */
 int vpu_dump_user_algo(struct seq_file *s);
-
-/**
- * vpu_bin_base() - get vpu binary base
- */
-unsigned long vpu_bin_base(void);
-
-/**
- * vpu_bin_base() - get vpu control base
- */
-unsigned long vpu_ctl_base(int core);
-
-/**
- * vpu_syscfg_base() - get syscfg base
- */
-unsigned long vpu_syscfg_base(void);
-
-/**
- * vpu_vcore_base() - get vcore base
- */
-unsigned long vpu_vcore_base(void);
-
 
 /* ========================== define in vpu_algo.c  ======================== */
 
@@ -604,8 +555,8 @@ bool vpu_is_idle(int core);
 	do { if (g_vpu_log_level > Log_STATE_MACHINE) \
 		pr_info(VPU_TAG " " format, ##args); \
 	} while (0)
-#define LOG_INF(format, args...)    pr_debug(VPU_TAG " " format, ##args)
-#define LOG_WRN(format, args...)    pr_debug(VPU_TAG "[warn] " format, ##args)
+#define LOG_INF(format, args...)    pr_info(VPU_TAG " " format, ##args)
+#define LOG_WRN(format, args...)    pr_info(VPU_TAG "[warn] " format, ##args)
 #define LOG_ERR(format, args...)    pr_info(VPU_TAG "[error] " format, ##args)
 
 #define PRINT_LINE() pr_info(VPU_TAG " %s (%s:%d)\n", \

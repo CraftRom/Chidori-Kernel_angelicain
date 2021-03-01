@@ -175,10 +175,7 @@ enum {
 #define REQ_CRC_STATUS_ERR (0x1 << 7)
 
 typedef void (*sdio_irq_handler_t)(void *);  /* external irq handler */
-#ifndef CONFIG_MTK_COMBO_COMM
-/* prevent type redefinition in mtk_wcn_cmb_stub.h */
 typedef void (*pm_callback_t)(pm_message_t state, void *data);
-#endif
 
 #define MSDC_CD_PIN_EN      (1 << 0)  /* card detection pin is wired   */
 #define MSDC_WP_PIN_EN      (1 << 1)  /* write protection pin is wired */
@@ -338,7 +335,7 @@ struct msdc_host {
 	 * race condition with hot-plug enable
 	 */
 	spinlock_t              remove_bad_card;
-	spinlock_t              cmd_dump_lock;
+
 	 /* avoid race condition at DAT1 interrupt case*/
 	spinlock_t              sdio_irq_lock;
 	int                     clk_gate_count;

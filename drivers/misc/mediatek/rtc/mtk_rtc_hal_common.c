@@ -116,7 +116,7 @@ void hal_rtc_set_spare_register(enum rtc_spare_enum cmd, u16 val)
 {
 	u16 tmp_val;
 
-	if ((int)cmd >= 0 && cmd < RTC_SPAR_NUM) {
+	if (cmd >= 0 && cmd < RTC_SPAR_NUM) {
 		hal_rtc_xinfo("%s: cmd[%d], set rg[0x%x, 0x%x , %d] = 0x%x\n",
 				__func__, cmd,
 				rtc_spare_reg[cmd][RTC_REG],
@@ -139,7 +139,7 @@ u16 hal_rtc_get_spare_register(enum rtc_spare_enum cmd)
 {
 	u16 tmp_val;
 
-	if ((int)cmd >= 0 && cmd < RTC_SPAR_NUM) {
+	if (cmd >= 0 && cmd < RTC_SPAR_NUM) {
 
 		tmp_val = rtc_read(rtc_spare_reg[cmd][RTC_REG]);
 		tmp_val =
@@ -159,6 +159,7 @@ u16 hal_rtc_get_spare_register(enum rtc_spare_enum cmd)
 
 static void rtc_get_tick(struct rtc_time *tm)
 {
+	tm->tm_cnt = rtc_read(RTC_INT_CNT);
 	tm->tm_sec = rtc_read(RTC_TC_SEC);
 	tm->tm_min = rtc_read(RTC_TC_MIN);
 	tm->tm_hour = rtc_read(RTC_TC_HOU);
@@ -178,7 +179,7 @@ void hal_rtc_get_tick_time(struct rtc_time *tm)
 	bbpu = rtc_read(RTC_BBPU) | RTC_BBPU_KEY | RTC_BBPU_RELOAD;
 	rtc_write(RTC_BBPU, bbpu);
 	rtc_write_trigger();
-	if (rtc_read(RTC_TC_SEC) < tm->tm_sec) {	/* SEC has carried */
+	if (rtc_read(RTC_INT_CNT) < tm->tm_cnt) {	/* SEC has carried */
 		rtc_get_tick(tm);
 	}
 }
@@ -207,31 +208,29 @@ void hal_rtc_get_alarm_time(struct rtc_time *tm)
 void hal_rtc_set_alarm_time(struct rtc_time *tm)
 {
 	hal_rtc_xinfo("mon = %d, day = %d, hour = %d\n",
-		      (rtc_read(RTC_AL_MTH) & ~(RTC_AL_MTH_MASK)) |
-		      (unsigned int)tm->tm_mon,
-		      (rtc_read(RTC_AL_DOM) & ~(RTC_AL_DOM_MASK)) |
-		      (unsigned int)tm->tm_mday,
-		      (rtc_read(RTC_AL_HOU) & ~(RTC_AL_HOU_MASK)) |
-		      (unsigned int)tm->tm_hour);
+		      (rtc_read(RTC_AL_MTH) & ~(RTC_AL_MTH_MASK)) | tm->tm_mon,
+		      (rtc_read(RTC_AL_DOM) & ~(RTC_AL_DOM_MASK)) | tm->tm_mday,
+		      (rtc_read(RTC_AL_HOU) & ~(RTC_AL_HOU_MASK)) | tm->
+		      tm_hour);
 
 	rtc_write(RTC_AL_YEA,
 		  (rtc_read(RTC_AL_YEA) & ~(RTC_AL_YEA_MASK)) |
-		  (((unsigned int)tm->tm_year) & RTC_AL_YEA_MASK));
+		  (tm->tm_year & RTC_AL_YEA_MASK));
 	rtc_write(RTC_AL_MTH,
 		  (rtc_read(RTC_AL_MTH) & ~(RTC_AL_MTH_MASK)) |
-		  (((unsigned int)tm->tm_mon) & RTC_AL_MTH_MASK));
+		  (tm->tm_mon & RTC_AL_MTH_MASK));
 	rtc_write(RTC_AL_DOM,
 		  (rtc_read(RTC_AL_DOM) & ~(RTC_AL_DOM_MASK)) |
-		  (((unsigned int)tm->tm_mday) & RTC_AL_DOM_MASK));
+		  (tm->tm_mday & RTC_AL_DOM_MASK));
 	rtc_write(RTC_AL_HOU,
 		  (rtc_read(RTC_AL_HOU) & ~(RTC_AL_HOU_MASK)) |
-		  (((unsigned int)tm->tm_hour) & RTC_AL_HOU_MASK));
+		  (tm->tm_hour & RTC_AL_HOU_MASK));
 	rtc_write(RTC_AL_MIN,
 		  (rtc_read(RTC_AL_MIN) & ~(RTC_AL_MIN_MASK)) |
-		  (((unsigned int)tm->tm_min) & RTC_AL_MIN_MASK));
+		  (tm->tm_min & RTC_AL_MIN_MASK));
 	rtc_write(RTC_AL_SEC,
 		  (rtc_read(RTC_AL_SEC) & ~(RTC_AL_SEC_MASK)) |
-		  (((unsigned int)tm->tm_sec) & RTC_AL_SEC_MASK));
+		  (tm->tm_sec & RTC_AL_SEC_MASK));
 	rtc_write(RTC_AL_MASK, RTC_AL_MASK_DOW);	/* mask DOW */
 	rtc_write_trigger();
 }
@@ -269,33 +268,30 @@ void hal_rtc_set_pwron_alarm_time(struct rtc_time *tm)
 {
 	rtc_write(RTC_PWRON_YEA,
 		  (rtc_read(RTC_PWRON_YEA) & ~(RTC_PWRON_YEA_MASK))
-		  | ((((unsigned int)tm->tm_year) << RTC_PWRON_YEA_SHIFT) &
+		  | ((tm->tm_year << RTC_PWRON_YEA_SHIFT) &
 		     RTC_PWRON_YEA_MASK));
 	rtc_write_trigger();
 	rtc_write(RTC_PWRON_MTH,
 		  (rtc_read(RTC_PWRON_MTH) & ~(RTC_PWRON_MTH_MASK))
-		  | ((((unsigned int)tm->tm_mon) << RTC_PWRON_MTH_SHIFT) &
-		     RTC_PWRON_MTH_MASK));
+		  | ((tm->tm_mon << RTC_PWRON_MTH_SHIFT) & RTC_PWRON_MTH_MASK));
 	rtc_write_trigger();
 	rtc_write(RTC_PWRON_DOM,
 		  (rtc_read(RTC_PWRON_DOM) & ~(RTC_PWRON_DOM_MASK))
-		  | ((((unsigned int)tm->tm_mday) << RTC_PWRON_DOM_SHIFT) &
+		  | ((tm->tm_mday << RTC_PWRON_DOM_SHIFT) &
 		     RTC_PWRON_DOM_MASK));
 	rtc_write_trigger();
 	rtc_write(RTC_PWRON_HOU,
 		  (rtc_read(RTC_PWRON_HOU) & ~(RTC_PWRON_HOU_MASK))
-		  | ((((unsigned int)tm->tm_hour) << RTC_PWRON_HOU_SHIFT) &
+		  | ((tm->tm_hour << RTC_PWRON_HOU_SHIFT) &
 		     RTC_PWRON_HOU_MASK));
 	rtc_write_trigger();
 	rtc_write(RTC_PWRON_MIN,
 		  (rtc_read(RTC_PWRON_MIN) & ~(RTC_PWRON_MIN_MASK))
-		  | ((((unsigned int)tm->tm_min) << RTC_PWRON_MIN_SHIFT) &
-		     RTC_PWRON_MIN_MASK));
+		  | ((tm->tm_min << RTC_PWRON_MIN_SHIFT) & RTC_PWRON_MIN_MASK));
 	rtc_write_trigger();
 	rtc_write(RTC_PWRON_SEC,
 		  (rtc_read(RTC_PWRON_SEC) & ~(RTC_PWRON_SEC_MASK))
-		  | ((((unsigned int)tm->tm_sec) << RTC_PWRON_SEC_SHIFT) &
-		     RTC_PWRON_SEC_MASK));
+		  | ((tm->tm_sec << RTC_PWRON_SEC_SHIFT) & RTC_PWRON_SEC_MASK));
 	rtc_write_trigger();
 }
 

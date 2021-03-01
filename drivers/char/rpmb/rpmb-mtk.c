@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2018 MediaTek Inc.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (C) 2019 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -677,10 +677,8 @@ int rpmb_req_get_wc_ufs(u8 *key, u32 *wc, u8 *frame)
 
 			data.ocmd.frames = rpmb_alloc_frames(1);
 
-			if (data.ocmd.frames == NULL) {
-				kfree(data.icmd.frames);
+			if (data.ocmd.frames == NULL)
 				return RPMB_ALLOC_ERROR;
-			}
 		}
 
 		/*
@@ -844,7 +842,7 @@ int rpmb_req_write_data_ufs(u8 *frame, u32 blk_cnt)
 	MSG(DBG_INFO, "%s: blk_cnt: %d\n", __func__, blk_cnt);
 
 	/*
-	 * Alloc output frame to avoid overwriting input frame
+	 * Alloc output frame to avoid overwritting input frame
 	 * buffer provided by TEE
 	 */
 	data.ocmd.frames = rpmb_alloc_frames(1);
@@ -913,7 +911,7 @@ int rpmb_req_program_key_ufs(u8 *frame, u32 blk_cnt)
 	MSG(DBG_INFO, "%s: blk_cnt: %d\n", __func__, blk_cnt);
 
 	/*
-	 * Alloc output frame to avoid overwriting input frame
+	 * Alloc output frame to avoid overwritting input frame
 	 * buffer provided by TEE
 	 */
 	data.ocmd.frames = rpmb_alloc_frames(1);
@@ -937,13 +935,11 @@ int rpmb_req_program_key_ufs(u8 *frame, u32 blk_cnt)
 	 * Microtrust TEE will check write counter in the first frame,
 	 * thus we copy response frame to the first frame.
 	 */
+	data.ocmd.frames->result = 0;
 	memcpy(frame, data.ocmd.frames, 512);
 
-	if (data.ocmd.frames->result) {
-		MSG(ERR, "%s, result error!!! (%x)\n", __func__,
-			cpu_to_be16(data.ocmd.frames->result));
-		ret = RPMB_RESULT_ERROR;
-	}
+	MSG(DBG_INFO, "%s: result 0x%x\n", __func__,
+		cpu_to_be16(data.ocmd.frames->result));
 
 	kfree(data.ocmd.frames);
 
@@ -1038,10 +1034,8 @@ int rpmb_req_ioctl_write_data_ufs(struct rpmb_ioc_param *param)
 
 		data.ocmd.frames = rpmb_alloc_frames(1);
 
-		if (data.ocmd.frames == NULL) {
-			kfree(data.icmd.frames);
+		if (data.ocmd.frames == NULL)
 			return RPMB_ALLOC_ERROR;
-		}
 
 		/*
 		 * Initial data buffer for HMAC computation.
@@ -1050,11 +1044,8 @@ int rpmb_req_ioctl_write_data_ufs(struct rpmb_ioc_param *param)
 		 */
 
 		dataBuf_start = dataBuf = kzalloc(284 * tran_blkcnt, 0);
-		if (!dataBuf_start) {
-			kfree(data.icmd.frames);
-			kfree(data.ocmd.frames);
+		if (!dataBuf_start)
 			return RPMB_ALLOC_ERROR;
-		}
 
 		/*
 		 * Prepare frame contents
@@ -1261,10 +1252,8 @@ int rpmb_req_ioctl_read_data_ufs(struct rpmb_ioc_param *param)
 
 		data.ocmd.frames = rpmb_alloc_frames(tran_blkcnt);
 
-		if (data.ocmd.frames == NULL) {
-			kfree(data.icmd.frames);
+		if (data.ocmd.frames == NULL)
 			return RPMB_ALLOC_ERROR;
-		}
 
 		/*
 		 * Initial data buffer for HMAC computation.
@@ -1273,11 +1262,8 @@ int rpmb_req_ioctl_read_data_ufs(struct rpmb_ioc_param *param)
 		 */
 
 		dataBuf_start = dataBuf = kzalloc(284 * tran_blkcnt, 0);
-		if (!dataBuf_start) {
-			kfree(data.icmd.frames);
-			kfree(data.ocmd.frames);
+		if (!dataBuf_start)
 			return RPMB_ALLOC_ERROR;
-		}
 
 		get_random_bytes(nonce, RPMB_SZ_NONCE);
 
@@ -1978,6 +1964,23 @@ int ut_rpmb_req_get_max_wr_size(struct mmc_card *card,
 
 	return 0;
 }
+
+int ut_rpmb_req_set_key(struct mmc_card *card, struct s_rpmb *param)
+{
+	struct emmc_rpmb_req rpmb_req;
+	int ret;
+
+	rpmb_req.type = RPMB_PROGRAM_KEY;
+	rpmb_req.blk_cnt = 1;
+	rpmb_req.data_frame = (u8 *)param;
+
+	ret = emmc_rpmb_req_handle(card, &rpmb_req);
+	if (ret)
+		MSG(ERR, "%s, rpmb_req_handle IO err(%x)\n", __func__, ret);
+
+	return ret;
+}
+
 int ut_rpmb_req_get_wc(struct mmc_card *card, unsigned int *wc)
 {
 	struct emmc_rpmb_req rpmb_req;
@@ -2060,20 +2063,6 @@ int ut_rpmb_req_write_data(struct mmc_card *card,
 	return ret;
 }
 EXPORT_SYMBOL(ut_rpmb_req_write_data);
-
-int ut_rpmb_req_set_key(struct mmc_card *card, struct s_rpmb *param)
-{
-    struct emmc_rpmb_req rpmb_req;
-    int ret;
-    rpmb_req.type = RPMB_PROGRAM_KEY;
-    rpmb_req.blk_cnt = 1;
-    rpmb_req.data_frame = (u8 *)param;
-    ret = emmc_rpmb_req_handle(card, &rpmb_req);
-    if (ret)
-	MSG(ERR, "%s, rpmb_req_handle IO err(%x)\n", __func__, ret);
-    return ret;
-}
-EXPORT_SYMBOL(ut_rpmb_req_set_key);
 #endif /* CONFIG_MICROTRUST_TEE_SUPPORT */
 
 /*
@@ -2678,9 +2667,9 @@ long rpmb_ioctl_ufs(struct file *file, unsigned int cmd, unsigned long arg)
 	}
 
 #if (defined(CONFIG_MICROTRUST_TEE_SUPPORT))
-	if ((cmd == RPMB_IOCTL_SOTER_WRITE_DATA) ||
-		(cmd == RPMB_IOCTL_SOTER_READ_DATA) ||
-		(cmd == RPMB_IOCTL_SOTER_SET_KEY)) {
+	if ((cmd == RPMB_IOCTL_SOTER_WRITE_DATA)
+			|| (cmd == RPMB_IOCTL_SOTER_READ_DATA)    
+			|| (cmd == RPMB_IOCTL_SOTER_SET_KEY)) {    
 		if (rpmb_buffer == NULL) {
 			MSG(ERR, "%s, rpmb_buffer is NULL!\n", __func__);
 			return -1;
@@ -2861,22 +2850,22 @@ long rpmb_ioctl_ufs(struct file *file, unsigned int cmd, unsigned long arg)
 			err = RPMB_ALLOC_ERROR;
 
 		break;
+
 	case RPMB_IOCTL_SOTER_SET_KEY:
-		MSG(DBG_INFO, "%s, cmd = RPMB_IOCTL_SOTER_WRITE_DATA\n",
-		    __func__);
-		err = ut_rpmb_req_set_key_ufs(rpmbinfor.data_frame);
-		if (err) {
-		    MSG(ERR,
-			"%s, Microtrust rpmb write request IO error!!!(%x)\n",
-			__func__, err);
-		    return err;
+
+		ret = ut_rpmb_req_set_key(card,
+				(struct s_rpmb *)(rpmbinfor.data_frame));
+		if (ret) {
+			MSG(ERR, "%s, Microtrust rpmb set key req err(%x)\n",
+					__func__, ret);
+			return ret;
 		}
-		err = copy_to_user((void *)arg,
-		    rpmb_buffer, 4 + rpmbinfor.size);
-		if (err) {
-		    MSG(ERR, "%s, copy to user user failed: %x\n",
-			__func__, err);
-		    return -EFAULT;
+		ret = copy_to_user((void *)arg, rpmb_buffer,
+				4 + rpmbinfor.size);
+		if (ret) {
+			MSG(ERR, "%s, copy to user user failed: %x\n",
+					__func__, ret);
+			return -EFAULT;
 		}
 		break;
 
@@ -2974,9 +2963,9 @@ long rpmb_ioctl_emmc(struct file *file, unsigned int cmd, unsigned long arg)
 #endif
 
 #if (defined(CONFIG_MICROTRUST_TEE_SUPPORT))
-	if ((cmd == RPMB_IOCTL_SOTER_WRITE_DATA) ||
-		(cmd == RPMB_IOCTL_SOTER_READ_DATA) ||
-		(cmd == RPMB_IOCTL_SOTER_SET_KEY)) {
+	if ((cmd == RPMB_IOCTL_SOTER_WRITE_DATA)
+			|| (cmd == RPMB_IOCTL_SOTER_READ_DATA)   
+			|| (cmd == RPMB_IOCTL_SOTER_SET_KEY)) {    
 		if (rpmb_buffer == NULL) {
 			MSG(ERR, "%s, rpmb_buffer is NULL!\n", __func__);
 			ret = -1;
@@ -3145,22 +3134,24 @@ long rpmb_ioctl_emmc(struct file *file, unsigned int cmd, unsigned long arg)
 
 		break;
 
-	case RPMB_IOCTL_SOTER_SET_KEY:
-		ret = ut_rpmb_req_set_key(card,
-		    (struct s_rpmb *)(rpmbinfor.data_frame));
-		if (ret) {
-		    MSG(ERR, "%s, Microtrust rpmb set key req err(%x)\n",
-			__func__, ret);
-		    return ret;
-		}
-		ret = copy_to_user((void *)arg, rpmb_buffer,
-		    4 + rpmbinfor.size);
-		if (ret) {
-		    MSG(ERR, "%s, copy to user user failed: %x\n",
-			__func__, ret);
-		    return -EFAULT;
-		}
-		break;
+		case RPMB_IOCTL_SOTER_SET_KEY:
+
+			ret = ut_rpmb_req_set_key(card,
+					(struct s_rpmb *)(rpmbinfor.data_frame));
+			if (ret) {
+				MSG(ERR, "%s, Microtrust rpmb set key req err(%x)\n",
+						__func__, ret);
+				return ret;
+			}
+			ret = copy_to_user((void *)arg, rpmb_buffer,
+					4 + rpmbinfor.size);
+			if (ret) {
+				MSG(ERR, "%s, copy to user user failed: %x\n",
+						__func__, ret);
+				return -EFAULT;
+			}
+
+			break;
 
 #endif
 	default:
@@ -3206,7 +3197,6 @@ static const struct file_operations rpmb_fops_emmc = {
 	.open = rpmb_open,
 	.release = rpmb_close,
 	.unlocked_ioctl = rpmb_ioctl_emmc,
-	.compat_ioctl = rpmb_ioctl_emmc,
 	.write = NULL,
 	.read = NULL,
 };
@@ -3277,7 +3267,7 @@ static int __init rpmb_init(void)
 	MSG(INFO, "%s, rpmb kzalloc memory done!!!\n", __func__);
 #endif
 
-	MSG(INFO, "%s end!!!!\n", __func__);
+	MSG(INFO, "rpmb_init end!!!!\n");
 
 	return 0;
 

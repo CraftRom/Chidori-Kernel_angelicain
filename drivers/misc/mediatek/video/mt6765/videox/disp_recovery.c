@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2016 MediaTek Inc.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -83,9 +82,7 @@ static atomic_t esd_ext_te_event = ATOMIC_INIT(0);
 static unsigned int esd_check_mode;
 static unsigned int esd_check_enable;
 unsigned int esd_checking;
-extern int esd_backlight_level;
-extern void esd_resume(int flag);
-extern char mtkfb_lcm_name[256];
+
 #if defined(CONFIG_MTK_DUAL_DISPLAY_SUPPORT) && \
 	(CONFIG_MTK_DUAL_DISPLAY_SUPPORT == 2)
 /***********external display dual LCM ESD check******************/
@@ -129,9 +126,6 @@ unsigned int _can_switch_check_mode(void)
 static unsigned int _need_do_esd_check(void)
 {
 	int ret = 0;
-#ifdef CONFIG_KERNEL_CUSTOM_FACTORY
-	return ret;
-#endif
 
 #ifdef CONFIG_OF
 	if ((primary_get_lcm()->params->dsi.esd_check_enable == 1) &&
@@ -416,6 +410,7 @@ int do_esd_check_read(void)
 		dpmgr_path_build_cmdq(phandle, qhandle, CMDQ_DSI_RESET, 0);
 		goto destroy_cmdq;
 	}
+
 	/* 2.check data(*cpu check now) */
 	ret = dpmgr_path_build_cmdq(phandle, qhandle, CMDQ_ESD_CHECK_CMP, 0);
 	if (ret)
@@ -833,16 +828,6 @@ int primary_display_esd_recovery(void)
 	DISPDBG("[POWER]lcm suspend[begin]\n");
 	/*after dsi_stop, we should enable the dsi basic irq.*/
 	dsi_basic_irq_enable(DISP_MODULE_DSI0, NULL);
-
-	/*2020.5.29 longcheer TaoCheng add for NVT IC Frozen screen issue begin*/
-	if (strnstr(mtkfb_lcm_name,"nt36525b",strlen(mtkfb_lcm_name))) {
-		esd_resume(0);
-		DISPCHECK("It is NVT IC, do tp suspend/resume\n");
-	} else{
-		DISPCHECK("It is not NVT IC, Skip\n");
-	}
-	/*2020.5.29 longcheer TaoCheng add for NVT IC Frozen screen issue end*/
-
 	disp_lcm_suspend(primary_get_lcm());
 	DISPCHECK("[POWER]lcm suspend[end]\n");
 
@@ -860,16 +845,6 @@ int primary_display_esd_recovery(void)
 
 	DISPDBG("[ESD]lcm recover[begin]\n");
 	disp_lcm_esd_recover(primary_get_lcm());
-
-	/*2020.5.29 longcheer TaoCheng add for NVT IC Frozen screen issue begin*/
-	if (strnstr(mtkfb_lcm_name,"nt36525b",strlen(mtkfb_lcm_name))) {
-		esd_resume(1);
-		DISPCHECK("It is NVT IC, do tp suspend/resume\n");
-	} else{
-		DISPCHECK("It is not NVT IC, Skip\n");
-	}
-	/*2020.5.29 longcheer TaoCheng add for NVT IC Frozen screen issue end*/
-
 	DISPCHECK("[ESD]lcm recover[end]\n");
 	mmprofile_log_ex(mmp_r, MMPROFILE_FLAG_PULSE, 0, 8);
 
@@ -919,7 +894,6 @@ int primary_display_esd_recovery(void)
 		cmdqCoreSetEvent(CMDQ_SYNC_TOKEN_CONFIG_DIRTY);
 		mdelay(40);
 	}
-	disp_lcm_set_backlight(primary_get_lcm(),NULL,esd_backlight_level);
 
 done:
 	primary_display_manual_unlock();

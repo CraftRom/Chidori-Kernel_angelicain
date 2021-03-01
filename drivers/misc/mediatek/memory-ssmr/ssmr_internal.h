@@ -13,16 +13,6 @@
 #ifndef __SSMR_INTERNAL_H__
 #define __SSMR_INTERNAL_H__
 
-#if defined(CONFIG_MTK_SEC_VIDEO_PATH_SUPPORT) ||\
-	defined(CONFIG_MTK_TEE_GP_SUPPORT) ||\
-	defined(CONFIG_TRUSTONIC_TEE_SUPPORT) ||\
-	defined(CONFIG_MTK_IRIS_SUPPORT) ||\
-	defined(CONFIG_MTK_CAM_SECURITY_SUPPORT)
-#define SSMR_SECMEM_REGION_ENABLE
-#else
-#undef SSMR_SECMEM_REGION_ENABLE
-#endif
-
 #if defined(CONFIG_TRUSTONIC_TRUSTED_UI) ||\
 	defined(CONFIG_BLOWFISH_TUI_SUPPORT) ||\
 	defined(CONFIG_MTK_SEC_VIDEO_PATH_SUPPORT)
@@ -51,9 +41,7 @@
 #define CMD_LEN  64
 
 enum region_type {
-#ifdef SSMR_SECMEM_REGION_ENABLE
 	SSMR_SECMEM,
-#endif
 #ifdef SSMR_TUI_REGION_ENABLE
 	SSMR_TUI,
 #endif
@@ -132,9 +120,6 @@ struct SSMR_Region {
 };
 
 static struct SSMR_Feature _ssmr_feats[__MAX_NR_SSMR_FEATURES] = {
-#if defined(CONFIG_MTK_SEC_VIDEO_PATH_SUPPORT) ||\
-	defined(CONFIG_MTK_TEE_GP_SUPPORT) ||\
-	defined(CONFIG_TRUSTONIC_TEE_SUPPORT)
 	[SSMR_FEAT_SVP] = {
 		.dt_prop_name = "svp-size",
 		.feat_name = "svp",
@@ -142,7 +127,6 @@ static struct SSMR_Feature _ssmr_feats[__MAX_NR_SSMR_FEATURES] = {
 		.cmd_offline = "svp=off",
 		.region = SSMR_SECMEM
 	},
-#endif
 #ifdef CONFIG_MTK_IRIS_SUPPORT
 	[SSMR_FEAT_IRIS] = {
 		.dt_prop_name = "iris-recognition-size",
@@ -226,12 +210,10 @@ static struct SSMR_Feature _ssmr_feats[__MAX_NR_SSMR_FEATURES] = {
 };
 
 static struct SSMR_Region _ssmregs[__MAX_NR_SSMRSUBS] = {
-#ifdef SSMR_SECMEM_REGION_ENABLE
 	[SSMR_SECMEM] = {
-		.name = "secmem_region",
+		.name = "svp_region",
 		.cur_feat = __MAX_NR_SSMR_FEATURES
 	},
-#endif
 #ifdef SSMR_TUI_REGION_ENABLE
 	[SSMR_TUI] = {
 		.name = "tui_region",

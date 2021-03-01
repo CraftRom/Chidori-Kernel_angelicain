@@ -266,9 +266,9 @@ static int rsu_get_cpu_usage(__u32 pid)
 	unsigned long flags;
 	int cpu_cnt = 0;
 	int cpu;
-	u64 cur_idle_time_i, cur_wall_time_i;
-	u64 cpu_idle_time = 0, cpu_wall_time = 0;
-	u64 curr_obv;
+	cputime64_t cur_idle_time_i, cur_wall_time_i;
+	cputime64_t cpu_idle_time = 0, cpu_wall_time = 0;
+	unsigned int curr_obv;
 	unsigned int *ceiling_idx;
 	int clus_max_idx;
 	int i;
@@ -276,7 +276,7 @@ static int rsu_get_cpu_usage(__u32 pid)
 	int ret = 0;
 
 	ceiling_idx =
-		kcalloc(nr_cpuclusters, sizeof(unsigned int), GFP_KERNEL);
+		kzalloc(nr_cpuclusters * sizeof(unsigned int), GFP_KERNEL);
 
 	if (!ceiling_idx)
 		return -1;
@@ -307,18 +307,16 @@ static int rsu_get_cpu_usage(__u32 pid)
 					cpucluster_info[i].lastfreq)
 					break;
 			}
-			curr_obv =
-			((u64) cpucluster_info[i].capacity_ratio[opp]) * 100;
+			curr_obv = cpucluster_info[i].capacity_ratio[opp] * 100;
 		} else {
-			curr_obv = ((u64) cpucluster_info[i].lastfreq) * 100;
+			curr_obv = (unsigned int)
+					(cpucluster_info[i].lastfreq * 100);
 		}
 
-		rsu_systrace_c(RSU_DEBUG_CPU, pid, (unsigned int) curr_obv,
-				"CURR_OBV[%d]", i);
+		rsu_systrace_c(RSU_DEBUG_CPU, pid, curr_obv, "CURR_OBV[%d]", i);
 		do_div(curr_obv, ceiling_idx[i]);
-		cpucluster_info[i].ceiling_obv = (unsigned int)
-				clamp(((unsigned int) curr_obv), 0U, 100U);
-		rsu_systrace_c(RSU_DEBUG_CPU, pid, (unsigned int) curr_obv,
+		cpucluster_info[i].ceiling_obv = clamp(curr_obv, 0U, 100U);
+		rsu_systrace_c(RSU_DEBUG_CPU, pid, curr_obv,
 				"CEILING_OBV[%d]", i);
 	}
 
@@ -352,7 +350,7 @@ static int rsu_get_cpu_usage(__u32 pid)
 	rsu_systrace_c(RSU_DEBUG_CPU, pid, cpu_cnt, "CPU_CNT");
 
 	if (cpu_cnt)
-		ret /= (cpu_cnt * 100);
+		do_div(ret, (cpu_cnt * 100));
 	else
 		ret = 100;
 
@@ -383,9 +381,9 @@ static int rsu_get_gpu_usage(__u32 pid)
 	cur *= 100;
 
 	if (ceiling) {
-		cur /= ceiling;
+		do_div(cur, ceiling);
 		cur *= gloading;
-		cur /= 100;
+		do_div(cur, 100);
 
 		cur = clamp(cur, 0U, 100U);
 	} else
@@ -440,10 +438,12 @@ static int rsu_get_mdla_usage(__u32 pid)
 					"RSU_MDLA_CURR_FREQ[%d]", i);
 
 			curr *= 100;
-			vRet += (curr / ceiling);
+			do_div(curr, ceiling);
+			vRet += curr;
 		}
 
-		ret = vRet / core_num;
+		do_div(vRet, core_num);
+		ret = vRet;
 	}
 
 final:
@@ -496,10 +496,12 @@ static int rsu_get_vpu_usage(__u32 pid)
 					"RSU_VPU_CURR_FREQ[%d]", i);
 
 			curr *= 100;
-			vRet += (curr / ceiling);
+			do_div(curr, ceiling);
+			vRet += curr;
 		}
 
-		ret = vRet / core_num;
+		do_div(vRet, core_num);
+		ret = vRet;
 	}
 
 final:
@@ -544,7 +546,7 @@ static int rsu_get_bw_usage(__u32 pid)
 
 	if (ret > 0) {
 		ret *= 100;
-		ret /= threshold;
+		do_div(ret, threshold);
 
 		ret = clamp(ret, 0, 100);
 	}

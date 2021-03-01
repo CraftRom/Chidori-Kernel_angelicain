@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2015 MediaTek Inc.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (C) 2019 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -81,6 +81,11 @@
 #ifdef CONFIG_MTK_SMI_EXT
 #include "smi_public.h"
 #endif
+#ifdef CONFIG_PM_WAKELOCKS
+#include <linux/pm_wakeup.h>
+#else
+#include <linux/wakelock.h>
+#endif
 
 /* static variable */
 static u32 MTK_FB_XRES;
@@ -97,7 +102,7 @@ static int vsync_cnt;
 static const struct timeval FRAME_INTERVAL = { 0, 30000 };	/* 33ms */
 static bool no_update;
 static struct disp_session_input_config session_input;
-extern char *saved_command_line;
+
 /* macro definiton */
 #define ALIGN_TO(x, n)  (((x) + ((n) - 1)) & ~((n) - 1))
 #define MTK_FB_XRESV (ALIGN_TO(MTK_FB_XRES, MTK_FB_ALIGNMENT))
@@ -112,8 +117,6 @@ extern char *saved_command_line;
 #define DISP_DEFAULT_UI_LAYER_ID (DDP_OVL_LAYER_MUN-1)
 #define DISP_CHANGED_UI_LAYER_ID (DDP_OVL_LAYER_MUN-2)
 #define NOT_REFERENCED(x)   { (x) = (x); }
-void console_lock(void);
-void console_unlock(void);
 #ifdef CONFIG_MTK_AEE_FEATURE
 #define CHECK_RET(expr)    \
 do {                   \
@@ -199,31 +202,45 @@ static int _parse_tag_videolfb(void);
 #endif
 static void mtkfb_late_resume(void);
 static void mtkfb_early_suspend(void);
-//2020.01.19 longcheer zhaoxiangxiang add for node start
-extern int lcd_thermal_zone_get_temp(void);
-static char lcd_lockdown_info[32] = {0};
-//2020.01.19 longcheer zhaoxiangxiang add for node end
+
 #define WAIT_RESUME_TIMEOUT 200
-#define WAIT_SUSPEND_TIMEOUT 1500
 static struct fb_info *prim_fbi;
 static struct delayed_work prim_panel_work;
 static atomic_t prim_panel_is_on;
+#ifdef CONFIG_PM_WAKELOCKS
+struct wakeup_source prim_panel_wakelock;
+#else
+struct wake_lock prim_panel_wakelock;
+#endif
 static void prim_panel_off_delayed_work(struct work_struct *work)
 {
+#ifdef CONFIG_FRAMEBUFFER_CONSOLE
 	console_lock();
+#endif
 	if (!lock_fb_info(prim_fbi)) {
+#ifdef CONFIG_FRAMEBUFFER_CONSOLE
 		console_unlock();
+#endif
 		return;
 	}
 
 	if (atomic_read(&prim_panel_is_on)) {
 		fb_blank(prim_fbi, FB_BLANK_POWERDOWN);
 		atomic_set(&prim_panel_is_on, false);
+#ifdef CONFIG_PM_WAKELOCKS
+		__pm_relax(&prim_panel_wakelock);
+#else
+		wake_unlock(&prim_panel_wakelock);
+#endif
+
 	}
 
 	unlock_fb_info(prim_fbi);
+#ifdef CONFIG_FRAMEBUFFER_CONSOLE
 	console_unlock();
+#endif
 }
+
 
 void mtkfb_log_enable(int enable)
 {
@@ -261,6 +278,56 @@ static int mtkfb_release(struct fb_info *info, int user)
 	return 0;
 }
 
+/* Store a single color palette entry into a pseudo palette or the hardware
+ * palette if one is available. For now we support only 16bpp and thus store
+ * the entry only to the pseudo palette.
+ */
+static int mtkfb_setcolreg(u_int regno, u_int red, u_int green,
+	u_int blue, u_int transp, struct fb_info *info)
+{
+	int r = 0;
+	unsigned int bpp, m;
+
+	NOT_REFERENCED(transp);
+
+	MSG_FUNC_ENTER();
+
+	bpp = info->var.bits_per_pixel;
+	m = 1 << bpp;
+	if (regno >= m) {
+		r = -EINVAL;
+		goto exit;
+	}
+
+	switch (bpp) {
+	case 16:
+		/* RGB 565 */
+		((u32 *) (info->pseudo_palette))[regno] =
+		    ((red & 0xF800) | ((green & 0xFC00) >> 5) |
+		    ((blue & 0xF800) >> 11));
+		break;
+	case 32:
+		/* ARGB8888 */
+		((u32 *) (info->pseudo_palette))[regno] =
+		    (0xff000000) |
+		    ((red & 0xFF00) << 8) | ((green & 0xFF00)) |
+		    ((blue & 0xFF00) >> 8);
+		break;
+
+		/* TODO: RGB888, BGR888, ABGR8888 */
+
+	default:
+		DISPERR("set color info fail,bpp=%d\n", bpp);
+		ASSERT(0);
+		r = -EINVAL;
+	}
+
+exit:
+	MSG_FUNC_LEAVE();
+	return r;
+}
+
+#if defined(CONFIG_PM_AUTOSLEEP)
 #if defined(CONFIG_MTK_DUAL_DISPLAY_SUPPORT) && \
 	(CONFIG_MTK_DUAL_DISPLAY_SUPPORT == 2)
 static int mtkfb1_blank(int blank_mode, struct fb_info *info)
@@ -295,11 +362,16 @@ static int mtkfb_blank(int blank_mode, struct fb_info *info)
 {
 	enum mtkfb_power_mode prev_pm = primary_display_get_power_mode();
 
-	if ((info == prim_fbi) && (blank_mode == FB_BLANK_UNBLANK) &&
+	if ((info == prim_fbi) && (blank_mode == FB_BLANK_UNBLANK || blank_mode ==FB_BLANK_NORMAL) &&
 		atomic_read(&prim_panel_is_on)) {
 		atomic_set(&prim_panel_is_on, false);
+#ifdef CONFIG_PM_WAKELOCKS
+		__pm_relax(&prim_panel_wakelock);
+#else
+		wake_unlock(&prim_panel_wakelock);
+#endif
+
 		cancel_delayed_work_sync(&prim_panel_work);
-		pr_debug("%s cancle delayed work, because the fpc is unlocked suceessfully fp\n", __func__);
 		return 0;
 	}
 
@@ -341,6 +413,7 @@ static int mtkfb_blank(int blank_mode, struct fb_info *info)
 
 	return 0;
 }
+#endif
 
 int mtkfb_set_backlight_level(unsigned int level)
 {
@@ -985,7 +1058,7 @@ unsigned int mtkfb_fm_auto_test(void)
 	struct fb_var_screeninfo var;
 
 	int idle_state_backup =
-		disp_helper_get_option(DISP_OPT_IDLEMGR_ENTER_ULPS);
+		disp_helper_get_option(DISP_OPT_IDLE_MGR);
 
 	if (primary_display_is_sleepd()) {
 		DISPWARN("primary display path is already sleep, skip\n");
@@ -994,7 +1067,7 @@ unsigned int mtkfb_fm_auto_test(void)
 
 	if (idle_state_backup) {
 		primary_display_idlemgr_kick(__func__, 0);
-		disp_helper_set_option(DISP_OPT_IDLEMGR_ENTER_ULPS, 0);
+		disp_helper_set_option(DISP_OPT_IDLE_MGR, 0);
 	}
 	fbVirAddr = (unsigned long)fbdev->fb_va_base;
 	fb_buffer = (unsigned int *)fbVirAddr;
@@ -1027,11 +1100,11 @@ unsigned int mtkfb_fm_auto_test(void)
 
 	mtkfb_pan_display_impl(&mtkfb_fbi->var, mtkfb_fbi);
 	msleep(100);
-	primary_display_idlemgr_kick(__func__, 0);
+
 	result = primary_display_lcm_ATA();
 
 	if (idle_state_backup)
-		disp_helper_set_option(DISP_OPT_IDLEMGR_ENTER_ULPS, 1);
+		disp_helper_set_option(DISP_OPT_IDLE_MGR, idle_state_backup);
 
 	if (result == 0)
 		DISPERR("ATA LCM failed\n");
@@ -1218,11 +1291,18 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd,
 	}
 	case MTKFB_CAPTURE_FRAMEBUFFER:
 	{
-#if 0 /* comment this for iofuzzer security issue */
+		unsigned long dst_pbuf = 0;
 		unsigned long *src_pbuf = 0;
 		unsigned int pixel_bpp = primary_display_get_bpp() / 8;
 		unsigned int fbsize = DISP_GetScreenHeight() *
 			DISP_GetScreenWidth() * pixel_bpp;
+
+		if (copy_from_user(&dst_pbuf, (void __user *)arg,
+				sizeof(dst_pbuf))) {
+			MTKFB_LOG("[FB]: copy_from_user failed! line:%d\n",
+				__LINE__);
+			return -EFAULT;
+		}
 
 		src_pbuf = vmalloc(fbsize);
 		if (!src_pbuf) {
@@ -1239,18 +1319,17 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd,
 			DISPERR(
 			"primary display capture framebuffer failed!\n");
 		dprec_logger_done(DPREC_LOGGER_WDMA_DUMP, 0, 0);
-		if (copy_to_user((void __user *)arg, src_pbuf, fbsize)) {
+		if (copy_to_user((unsigned long *)dst_pbuf,
+				src_pbuf, fbsize)) {
 			MTKFB_LOG("[FB]: copy_to_user failed! line:%d\n",
 				__LINE__);
 			r = -EFAULT;
 		}
 		vfree(src_pbuf);
-#endif
 		return r;
 	}
 	case MTKFB_SLT_AUTO_CAPTURE:
 	{
-#if 0 /* please open this when need SLT */
 		struct fb_slt_catpure capConfig;
 		unsigned long *src_pbuf = 0;
 		unsigned int format;
@@ -1307,7 +1386,6 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd,
 			r = -EFAULT;
 		}
 		vfree(src_pbuf);
-#endif
 		return r;
 	}
 	case MTKFB_GET_OVERLAY_LAYER_INFO:
@@ -1586,6 +1664,36 @@ static int mtkfb_ioctl(struct fb_info *info, unsigned int cmd,
 
 		return 0;
 	}
+
+	case SYSFS_SET_LCM_CABC_MODE:
+	{
+		int lcm_cabc_enable = 0;
+
+		lcm_cabc_enable = *(int*)arg;
+		if(primary_display_set_cabc(lcm_cabc_enable))
+		{
+			MTKFB_LOG("[MTKFB]: set CABC fail! line:%d\n",
+				__LINE__);
+			r = -EFAULT;
+		}
+		return r;
+	}
+
+	case SYSFS_GET_LCM_CABC_MODE:
+	{
+		int lcm_cabc_status = 0;
+
+		if(primary_display_get_cabc(&lcm_cabc_status)){
+			MTKFB_LOG("[MTKFB]: get CABC fail! line:%d\n",
+				__LINE__);
+			r = -EFAULT;
+		}
+
+		memcpy((void*)arg, (void*)&lcm_cabc_status, sizeof(int));
+
+		return r;
+	}
+
 	default:
 		DISPWARN(
 			"mtkfb_ioctl Not support, info=0x%p, cmd=0x%08x, arg=0x%08lx\n",
@@ -1897,6 +2005,7 @@ static struct fb_ops mtkfb_ops = {
 	.owner = THIS_MODULE,
 	.fb_open = mtkfb_open,
 	.fb_release = mtkfb_release,
+	.fb_setcolreg = mtkfb_setcolreg,
 	.fb_pan_display = mtkfb_pan_display_proxy,
 	.fb_fillrect = cfb_fillrect,
 	.fb_copyarea = cfb_copyarea,
@@ -1908,7 +2017,9 @@ static struct fb_ops mtkfb_ops = {
 #ifdef CONFIG_COMPAT
 	.fb_compat_ioctl = mtkfb_compat_ioctl,
 #endif
+#if defined(CONFIG_PM_AUTOSLEEP)
 	.fb_blank = mtkfb_blank,
+#endif
 };
 
 #if defined(CONFIG_MTK_DUAL_DISPLAY_SUPPORT) && \
@@ -1930,7 +2041,9 @@ static struct fb_ops mtkfb1_ops = {
 #ifdef CONFIG_COMPAT
 	.fb_compat_ioctl = NULL,
 #endif
+#if defined(CONFIG_PM_AUTOSLEEP)
 	.fb_blank = mtkfb1_blank,
+#endif
 };
 #endif
 /*
@@ -2505,100 +2618,6 @@ static struct fb_info *allocate_fb_by_index(struct device *dev)
 }
 #endif
 
-static ssize_t backlight_therm_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	int temperature;
-
-	temperature = lcd_thermal_zone_get_temp();
-
-	return sprintf(buf, "%d\n", temperature);
-}
-
-//2020.01.19 longcheer zhaoxiangxiang add for node start
-static ssize_t fb_lcd_name(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-   ssize_t ret = 0;
-	if(islcmconnected){
-		if(mtkfb_lcm_name != NULL){
-			sprintf(buf, "%s panel\n", mtkfb_lcm_name);
-		}else{
-			sprintf(buf, "Unknown panel!\n");
-		}
-	}else{
-			sprintf(buf, "no panel connected!\n");
-	}
-
-   ret = strlen(buf) + 1;
-   return ret;
-}
-
-static int __init lockdown_info(char *str)
-{
-	strcpy(lcd_lockdown_info, str);
-	pr_info("lcd_lockdown_info : %s\n", lcd_lockdown_info);
-	return 1;
-}
-__setup("androidboot.lockdown=", lockdown_info);
-
-static ssize_t lockdown_color_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	ssize_t ret = 0;
-
-	if(0 == strlen(lcd_lockdown_info))
-	sprintf(buf,"%s\n","4231323435050501");
-	else
-	sprintf(buf,"%s\n",lcd_lockdown_info);
-	pr_info("lcd_lockdown_info : %s,buf:%d\n", lcd_lockdown_info,buf);
-	ret = strlen(buf) + 1;
-	return ret;
-}
-
-static DEVICE_ATTR(backlight_therm, 0444, backlight_therm_show, NULL);
-static DEVICE_ATTR(lcd_name, 0664, fb_lcd_name, NULL);
-static DEVICE_ATTR(lcd_lockdown, 0664, lockdown_color_show, NULL);
-
-static struct kobject *backlight_therm;
-static struct kobject *lcd_name;
-static int lcd_ntc_create_sysfs(void)
-{
-   int ret;
-
-   backlight_therm = kobject_create_and_add("thermal", NULL);
-   if(backlight_therm == NULL) {
-     pr_info(" temp_create_sysfs_ failed\n");
-     ret=-ENOMEM;
-     return ret;
-   }
-   ret=sysfs_create_file(backlight_therm, &dev_attr_backlight_therm.attr);
-   if(ret) {
-    pr_info("%s failed \n", __func__);
-    kobject_del(backlight_therm);
-   }
-
-   lcd_name = kobject_create_and_add("android_lcd", NULL);
-   if(lcd_name == NULL) {
-     pr_info(" lcd_name_create_sysfs_ failed\n");
-     ret=-ENOMEM;
-     return ret;
-   }
-   ret=sysfs_create_file(lcd_name, &dev_attr_lcd_name.attr);
-   if(ret) {
-    pr_info("%s failed \n", __func__);
-    kobject_del(lcd_name);
-   }
-
-   ret=sysfs_create_file(lcd_name, &dev_attr_lcd_lockdown.attr);
-   if(ret) {
-    pr_info("%s failed \n", __func__);
-    kobject_del(lcd_name);
-   }
-   return 0;
-}
-//2020.01.19 longcheer zhaoxiangxiang add for node end
-
 static int mtkfb_probe(struct platform_device *pdev)
 {
 	struct mtkfb_device *fbdev = NULL;
@@ -2649,14 +2668,6 @@ static int mtkfb_probe(struct platform_device *pdev)
 	fbdev->fb_info = fbi;
 	fbdev->dev = &(pdev->dev);
 	dev_set_drvdata(&(pdev->dev), fbdev);
-
-	atomic_set(&fbdev->resume_pending, 0);
-	init_waitqueue_head(&fbdev->resume_wait_q);
-
-	fbdev->is_prim_panel = true;
-	prim_fbi = fbi;
-	atomic_set(&prim_panel_is_on, false);
-	INIT_DELAYED_WORK(&prim_panel_work, prim_panel_off_delayed_work);
 
 	DISPMSG("mtkfb_probe: fb_pa = %pa\n", &fb_base);
 
@@ -2725,9 +2736,6 @@ static int mtkfb_probe(struct platform_device *pdev)
 		DISPERR("mtkfb_fbinfo_init fail, r = %d\n", r);
 		goto cleanup;
 	}
-	//2020.01.19 longcheer zhaoxiangxiang add for node start
-	lcd_ntc_create_sysfs();
-	//2020.01.19 longcheer zhaoxiangxiang add for node end
 	init_state++;		/* 4 */
 	DISPMSG("\nmtkfb_fbinfo_init done\n");
 
@@ -2763,6 +2771,23 @@ static int mtkfb_probe(struct platform_device *pdev)
 		goto cleanup;
 	}
 	DISPMSG("register_framebuffer done\n");
+
+	atomic_set(&fbdev->resume_pending, 0);
+	init_waitqueue_head(&fbdev->resume_wait_q);
+
+		if (fbdev == NULL) {
+            return 0;
+        } else {
+		prim_fbi = fbi;
+		atomic_set(&prim_panel_is_on, false);
+		INIT_DELAYED_WORK(&prim_panel_work, prim_panel_off_delayed_work);
+#ifdef CONFIG_PM_WAKELOCKS
+		wakeup_source_init(&prim_panel_wakelock, "prim_panel_wakelock");
+#else
+		wake_lock_init
+		(&prim_panel_wakelock, WAKE_LOCK_SUSPEND, "prim_panel_wakelock");
+#endif
+	}
 
 #if defined(CONFIG_MTK_DUAL_DISPLAY_SUPPORT) && \
 	(CONFIG_MTK_DUAL_DISPLAY_SUPPORT == 2)
@@ -2813,6 +2838,19 @@ static int mtkfb_remove(struct platform_device *pdev)
 {
 	struct mtkfb_device *fbdev = dev_get_drvdata(&pdev->dev);
 	enum mtkfb_state saved_state = fbdev->state;
+
+		if (fbdev == NULL) {
+            return 0;
+        } else {
+			atomic_set(&prim_panel_is_on, false);
+			cancel_delayed_work_sync(&prim_panel_work);
+#ifdef CONFIG_PM_WAKELOCKS
+			wakeup_source_trash(&prim_panel_wakelock);
+#else
+			wake_lock_destroy(&prim_panel_wakelock);
+#endif
+		}
+
 
 	MSG_FUNC_ENTER();
 	/* FIXME: wait till completion of pending events */
@@ -2948,30 +2986,6 @@ static void mtkfb_late_resume(void)
 /*---------------------------------------------------------------------------*/
 #ifdef CONFIG_PM
 /*---------------------------------------------------------------------------*/
-static int mtkfb_pm_prepare(struct device *dev)
-{
-	struct mtkfb_device *fbdev = dev_get_drvdata(dev);
-
-	if (!fbdev)
-		return -ENODEV;
-	if (fbdev->is_prim_panel)
-		atomic_inc(&fbdev->resume_pending);
-	return 0;
-}
-
-static void mtkfb_pm_complete(struct device *dev)
-{
-	struct mtkfb_device *fbdev = dev_get_drvdata(dev);
-
-	if (!fbdev)
-		return;
-	if (fbdev->is_prim_panel) {
-		atomic_set(&fbdev->resume_pending, 0);
-		wake_up_all(&fbdev->resume_wait_q);
-	}
-	return;
-}
-
 int mtkfb_pm_suspend(struct device *device)
 {
 	/* pr_debug("calling %s()\n", __func__); */
@@ -3026,6 +3040,33 @@ int mtkfb_pm_restore_noirq(struct device *device)
 
 }
 
+static int mtkfb_pm_prepare(struct device *device)
+{
+	struct platform_device *pdev = to_platform_device(device);
+	struct mtkfb_device *fbdev = dev_get_drvdata(&pdev->dev);
+
+	if (!fbdev)
+		return -ENODEV;
+	if (fbdev)
+		atomic_inc(&fbdev->resume_pending);
+	return 0;
+}
+
+static void mtkfb_pm_complete(struct device *device)
+{
+	struct platform_device *pdev = to_platform_device(device);
+	struct mtkfb_device *fbdev = dev_get_drvdata(&pdev->dev);
+
+	if (!fbdev)
+		return;
+	if (fbdev) {
+		atomic_set(&fbdev->resume_pending, 0);
+		wake_up_all(&fbdev->resume_wait_q);
+	}
+	return;
+}
+
+
 /*---------------------------------------------------------------------------*/
 #else				/*CONFIG_PM */
 /*---------------------------------------------------------------------------*/
@@ -3042,8 +3083,6 @@ static const struct of_device_id mtkfb_of_ids[] = {
 };
 
 static const struct dev_pm_ops mtkfb_pm_ops = {
-	.prepare = mtkfb_pm_prepare,
-	.complete = mtkfb_pm_complete,
 	.suspend = mtkfb_pm_suspend,
 	.resume = mtkfb_pm_resume,
 	.freeze = mtkfb_pm_freeze,
@@ -3051,6 +3090,9 @@ static const struct dev_pm_ops mtkfb_pm_ops = {
 	.poweroff = mtkfb_pm_suspend,
 	.restore = mtkfb_pm_resume,
 	.restore_noirq = mtkfb_pm_restore_noirq,
+	.prepare = mtkfb_pm_prepare,
+	.complete = mtkfb_pm_complete,
+
 };
 
 static struct platform_driver mtkfb_driver = {
@@ -3160,46 +3202,78 @@ static void __exit mtkfb_cleanup(void)
 	MSG_FUNC_LEAVE();
 }
 
-/*
- * mtkfb_prim_panel_unblank() - Unblank primary panel FB
- * @timeout : >0 blank primary panel FB after timeout (ms)
- */
-int mtkfb_prim_panel_unblank(int timeout)
+
+int mdss_prim_panel_fb_unblank(int timeout)
 {
 	int ret = 0;
-	struct mtkfb_device *fbdev = NULL;
+	struct mtkfb_device *mfd = NULL;
 
 	if (prim_fbi) {
-		fbdev = (struct mtkfb_device *)prim_fbi->par;
-		wait_event_timeout(fbdev->resume_wait_q,
-				!atomic_read(&fbdev->resume_pending),
+		mfd = (struct mtkfb_device *)prim_fbi->par;
+		ret = wait_event_timeout(mfd->resume_wait_q,
+				!atomic_read(&mfd->resume_pending),
 				msecs_to_jiffies(WAIT_RESUME_TIMEOUT));
+		if (!ret) {
+			pr_info("Primary fb resume timeout\n");
+			return -ETIMEDOUT;
+		}
+#ifdef CONFIG_FRAMEBUFFER_CONSOLE
 		console_lock();
+#endif
 		if (!lock_fb_info(prim_fbi)) {
+#ifdef CONFIG_FRAMEBUFFER_CONSOLE
 			console_unlock();
+#endif
 			return -ENODEV;
 		}
-		if (prim_fbi->blank == FB_BLANK_UNBLANK) {
+		if (prim_fbi->blank == FB_BLANK_UNBLANK|| prim_fbi->blank ==FB_BLANK_NORMAL) {
 			unlock_fb_info(prim_fbi);
+#ifdef CONFIG_FRAMEBUFFER_CONSOLE
 			console_unlock();
+#endif
 			return 0;
 		}
+	#ifdef CONFIG_PM_WAKELOCKS
+		__pm_stay_awake(&prim_panel_wakelock);
+	#else
+		wake_lock(&prim_panel_wakelock);
+	#endif
+
 		ret = fb_blank(prim_fbi, FB_BLANK_UNBLANK);
-		if (!ret) {
+		if (!ret)
+		{
 			atomic_set(&prim_panel_is_on, true);
 			if (timeout > 0)
 				schedule_delayed_work(&prim_panel_work, msecs_to_jiffies(timeout));
 			else
-				schedule_delayed_work(&prim_panel_work, msecs_to_jiffies(WAIT_SUSPEND_TIMEOUT));
+			{
+				#ifdef CONFIG_PM_WAKELOCKS
+					__pm_relax(&prim_panel_wakelock);
+				#else
+					wake_unlock(&prim_panel_wakelock);
+				#endif
+			}
 		}
+		else
+		{
+			#ifdef CONFIG_PM_WAKELOCKS
+				__pm_relax(&prim_panel_wakelock);
+			#else
+				wake_unlock(&prim_panel_wakelock);
+			#endif
+		}
+
 		unlock_fb_info(prim_fbi);
+#ifdef CONFIG_FRAMEBUFFER_CONSOLE
 		console_unlock();
+#endif
 		return ret;
 	}
 
 	pr_err("primary panel is not existed\n");
 	return -EINVAL;
 }
+
 
 module_init(mtkfb_init);
 module_exit(mtkfb_cleanup);

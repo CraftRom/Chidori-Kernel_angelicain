@@ -668,12 +668,11 @@ void arch_reset(char mode, const char *cmd)
 	res = get_wd_api(&wd_api);
 	pr_info("arch_reset: cmd = %s\n", cmd ? : "NULL");
 	dump_stack();
-	if (console_trylock()) {
+	if (console_trylock())
 		pr_notice("we can get console_sem\n");
-		console_unlock();
-	} else {
+	else
 		pr_notice("we cannot get console_sem\n");
-	}
+	console_unlock();
 
 	if (cmd && !strcmp(cmd, "charger")) {
 		/* do nothing */
@@ -695,14 +694,10 @@ void arch_reset(char mode, const char *cmd)
 	if (cmd && !strcmp(cmd, "ddr-reserve"))
 		reboot |= WD_SW_RESET_KEEP_DDR_RESERVE;
 
-	if (res) {
+	if (res)
 		pr_notice("arch_reset, get wd api error %d\n", res);
-	} else {
-		/* disable dfd count in normal reboot */
-		if (!(reboot & WD_SW_RESET_KEEP_DDR_RESERVE))
-			wd_api->wd_dfd_count_en(0);
+	else
 		wd_api->wd_sw_reset(reboot);
-	}
  #endif
 }
 static struct notifier_block mtk_restart_handler;

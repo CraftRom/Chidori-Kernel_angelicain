@@ -499,7 +499,8 @@ static void lcm_init_power(void)
 
 		_lcm_i2c_write_bytes(0x0, 0xf);
 		_lcm_i2c_write_bytes(0x1, 0xf);
-	} else
+	}
+	else
 		LCM_LOGI("set_gpio_lcd_enp_bias not defined...\n");
 }
 

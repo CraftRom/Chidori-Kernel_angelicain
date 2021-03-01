@@ -32,7 +32,6 @@ static DEFINE_MUTEX(adsp_wakelock_lock);
 #define IPIMSG_SHARE_MEM (1024)
 static int adsp_wakelock_count;
 static struct wakeup_source adsp_audio_wakelock;
-static int ktv_status;
 
 //#define DEBUG_VERBOSE
 //#define DEBUG_VERBOSE_IRQ
@@ -183,41 +182,6 @@ static int dsp_dataprovider_default_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static int dsp_call_final_default_set(struct snd_kcontrol *kcontrol,
-					 struct snd_ctl_elem_value *ucontrol)
-{
-	int val = ucontrol->value.integer.value[0];
-
-	set_task_attr(AUDIO_TASK_CALL_FINAL_ID, ADSP_TASK_ATTR_DEFAULT, val);
-	return 0;
-}
-
-static int dsp_call_final_default_get(struct snd_kcontrol *kcontrol,
-					   struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] =
-		get_task_attr(AUDIO_TASK_CALL_FINAL_ID,
-			      ADSP_TASK_ATTR_DEFAULT);
-	return 0;
-}
-
-static int dsp_ktv_default_set(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
-{
-	int val = ucontrol->value.integer.value[0];
-
-	set_task_attr(AUDIO_TASK_KTV_ID, ADSP_TASK_ATTR_DEFAULT, val);
-	return 0;
-}
-
-static int dsp_ktv_default_get(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] =
-		get_task_attr(AUDIO_TASK_KTV_ID, ADSP_TASK_ATTR_DEFAULT);
-	return 0;
-}
-
 static int dsp_primary_runtime_set(struct snd_kcontrol *kcontrol,
 					  struct snd_ctl_elem_value *ucontrol)
 {
@@ -363,23 +327,6 @@ static int dsp_dataprovider_runtime_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static int dsp_ktv_runtime_set(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
-{
-	int val = ucontrol->value.integer.value[0];
-
-	set_task_attr(AUDIO_TASK_KTV_ID, ADSP_TASK_ATTR_RUMTIME, val);
-	return 0;
-}
-
-static int dsp_ktv_runtime_get(struct snd_kcontrol *kcontrol,
-				struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] =
-		get_task_attr(AUDIO_TASK_KTV_ID, ADSP_TASK_ATTR_RUMTIME);
-	return 0;
-}
-
 static int dsp_wakelock_set(struct snd_kcontrol *kcontrol,
 					 struct snd_ctl_elem_value *ucontrol)
 {
@@ -410,61 +357,6 @@ static int dsp_wakelock_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-static int dsp_call_final_runtime_set(struct snd_kcontrol *kcontrol,
-					 struct snd_ctl_elem_value *ucontrol)
-{
-	int val = ucontrol->value.integer.value[0];
-
-	set_task_attr(AUDIO_TASK_CALL_FINAL_ID, ADSP_TASK_ATTR_RUMTIME, val);
-	return 0;
-}
-
-static int dsp_call_final_runtime_get(struct snd_kcontrol *kcontrol,
-					   struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] =
-		get_task_attr(AUDIO_TASK_CALL_FINAL_ID,
-			      ADSP_TASK_ATTR_RUMTIME);
-	return 0;
-}
-
-static int smartpa_swdsp_process_enable_set(struct snd_kcontrol *kcontrol,
-					    struct snd_ctl_elem_value *ucontrol)
-{
-	unsigned int val = ucontrol->value.integer.value[0];
-
-	pr_debug("%s() enable = %d\n", __func__, val);
-	set_task_attr(AUDIO_TASK_PLAYBACK_ID, ADSP_TASK_ATTR_SMARTPA, val);
-	return 0;
-}
-
-static int smartpa_swdsp_process_enable_get(struct snd_kcontrol *kcontrol,
-					    struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] =
-		get_task_attr(AUDIO_TASK_PLAYBACK_ID,
-			      ADSP_TASK_ATTR_SMARTPA);
-	pr_debug("%s() enable = %d\n", __func__,
-		ucontrol->value.integer.value[0]);
-	return 0;
-}
-
-static int ktv_status_set(struct snd_kcontrol *kcontrol,
-					    struct snd_ctl_elem_value *ucontrol)
-{
-	ktv_status = ucontrol->value.integer.value[0];
-	pr_debug("%s() ktv_status = %d\n", __func__, ktv_status);
-	return 0;
-}
-
-static int ktv_status_get(struct snd_kcontrol *kcontrol,
-					    struct snd_ctl_elem_value *ucontrol)
-{
-	ucontrol->value.integer.value[0] = ktv_status;
-	pr_debug("%s() ktv_status = %ld\n", __func__, ktv_status);
-	return 0;
-}
-
 static const struct snd_kcontrol_new dsp_platform_kcontrols[] = {
 	SOC_SINGLE_EXT("dsp_primary_default_en", SND_SOC_NOPM, 0, 0x1, 0,
 		       dsp_primary_default_get, dsp_primary_default_set),
@@ -483,10 +375,6 @@ static const struct snd_kcontrol_new dsp_platform_kcontrols[] = {
 	SOC_SINGLE_EXT("dsp_dataprovider_default_en", SND_SOC_NOPM, 0, 0x1, 0,
 		       dsp_dataprovider_default_get,
 		       dsp_dataprovider_default_set),
-	SOC_SINGLE_EXT("dsp_call_final_default_en", SND_SOC_NOPM, 0, 0x1, 0,
-		       dsp_call_final_default_get, dsp_call_final_default_set),
-	SOC_SINGLE_EXT("dsp_ktv_default_en", SND_SOC_NOPM, 0, 0x1, 0,
-		       dsp_ktv_default_get, dsp_ktv_default_set),
 	SOC_SINGLE_EXT("dsp_primary_runtime_en", SND_SOC_NOPM, 0, 0x1, 0,
 		       dsp_primary_runtime_get, dsp_primary_runtime_set),
 	SOC_SINGLE_EXT("dsp_deepbuf_runtime_en", SND_SOC_NOPM, 0, 0x1, 0,
@@ -506,15 +394,6 @@ static const struct snd_kcontrol_new dsp_platform_kcontrols[] = {
 		       dsp_dataprovider_runtime_set),
 	SOC_SINGLE_EXT("audio_dsp_wakelock", SND_SOC_NOPM, 0, 0x1, 0,
 		       dsp_wakelock_get, dsp_wakelock_set),
-	SOC_SINGLE_EXT("dsp_call_final_runtime_en", SND_SOC_NOPM, 0, 0x1, 0,
-		       dsp_call_final_runtime_get, dsp_call_final_runtime_set),
-	SOC_SINGLE_EXT("dsp_ktv_runtime_en", SND_SOC_NOPM, 0, 0x1, 0,
-		       dsp_ktv_runtime_get, dsp_ktv_runtime_set),
-	SOC_SINGLE_EXT("swdsp_smartpa_process_enable", SND_SOC_NOPM, 0, 0x1, 0,
-		       smartpa_swdsp_process_enable_get,
-		       smartpa_swdsp_process_enable_set),
-	SOC_SINGLE_EXT("ktv_status", SND_SOC_NOPM, 0, 0x1, 0,
-		       ktv_status_get, ktv_status_set),
 };
 
 static unsigned int dsp_word_size_align(unsigned int in_size)
@@ -646,11 +525,6 @@ static snd_pcm_uframes_t mtk_dsphw_pcm_pointer
 static void mtk_dsp_dl_handler(struct mtk_base_dsp *dsp,
 			       struct ipi_msg_t *ipi_msg, int id)
 {
-	if (dsp->dsp_mem[id].substream == NULL) {
-		pr_info("%s = substream == NULL\n", __func__);
-		goto DSP_IRQ_HANDLER_ERR;
-	}
-
 	if (dsp->dsp_mem[id].substream->runtime->status->state
 	    != SNDRV_PCM_STATE_RUNNING) {
 		pr_info("%s = state[%d]\n", __func__,
@@ -771,6 +645,24 @@ mtk_dsp_pcm_pointer(struct snd_pcm_substream *substream)
 }
 #endif
 
+static int pcmenable(int id)
+{
+	switch (id) {
+	case AUDIO_TASK_PRIMARY_ID:
+	case AUDIO_TASK_PLAYBACK_ID:
+	case AUDIO_TASK_DEEPBUFFER_ID:
+	case AUDIO_TASK_VOIP_ID:
+	case AUDIO_TASK_CAPTURE_UL1_ID:
+	case AUDIO_TASK_A2DP_ID:
+	case AUDIO_TASK_DATAPROVIDER_ID:
+		return 0;
+	default:
+		pr_warn("%s err id = %d\n", __func__, id);
+		return -1;
+	}
+	return -1;
+}
+
 static int mtk_dsp_pcm_open(struct snd_pcm_substream *substream)
 {
 	int ret = 0;
@@ -780,8 +672,11 @@ static int mtk_dsp_pcm_open(struct snd_pcm_substream *substream)
 	int id = rtd->cpu_dai->id;
 	int dsp_feature_id = get_featureid_by_dsp_daiid(id);
 
+	if (pcmenable(id) != 0)
+		return 0;
 	memcpy((void *)(&(runtime->hw)), (void *)dsp->mtk_dsp_hardware,
 	       sizeof(struct snd_pcm_hardware));
+
 
 	ret = mtk_dsp_register_feature(dsp_feature_id);
 	if (ret) {
@@ -806,7 +701,10 @@ static int mtk_dsp_pcm_close(struct snd_pcm_substream *substream)
 	int id = rtd->cpu_dai->id;
 	int dsp_feature_id = get_featureid_by_dsp_daiid(id);
 
-	pr_info("%s id[%d]\n", __func__, id);
+	pr_info("%s\n", __func__);
+
+	if (pcmenable(id) != 0)
+		return 0;
 
 	/* send to task with close information */
 	mtk_scp_ipi_send(get_dspscene_by_dspdaiid(id), AUDIO_IPI_MSG_ONLY,
@@ -1101,9 +999,9 @@ static int mtk_dsp_pcm_copy_ul(struct snd_pcm_substream *substream,
 			&dsp_mem->adsp_buf.aud_buffer.buf_bridge);
 
 	spin_lock_irqsave(&dsp_ringbuf_lock, flags);
-	availsize = RingBuf_getDataCount(ringbuf);
+	availsize = RingBuf_getFreeSpace(ringbuf);
 
-	if (availsize < copy_size) {
+	if (availsize <= copy_size) {
 		pr_info("%s fail copy_size = %d availsize = %d\n", __func__,
 			copy_size, RingBuf_getFreeSpace(ringbuf));
 		spin_unlock_irqrestore(&dsp_ringbuf_lock, flags);
@@ -1159,7 +1057,7 @@ static int mtk_dsp_pcm_copy(struct snd_pcm_substream *substream, int channel,
 		return -1;
 	}
 
-	if (is_audio_task_dsp_ready(get_dspscene_by_dspdaiid(id)) == false) {
+	if (audio_opendsp_ready(get_dspscene_by_dspdaiid(id)) == false) {
 		pr_info("%s(), dsp not ready", __func__);
 		return -1;
 	}

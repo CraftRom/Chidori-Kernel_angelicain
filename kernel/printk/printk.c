@@ -1250,12 +1250,7 @@ static void __init log_buf_len_update(unsigned size)
 /* save requested log_buf_len since it's too early to process it */
 static int __init log_buf_len_setup(char *str)
 {
-	unsigned int size;
-
-	if (!str)
-		return -EINVAL;
-
-	size = memparse(str, &str);
+	unsigned size = memparse(str, &str);
 
 	log_buf_len_update(size);
 
@@ -2279,7 +2274,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 	local_irq_restore(flags);
 
 	/* If called from the scheduler, we can not call up(). */
-	if (!in_sched && cpu_online(raw_smp_processor_id())) {
+	if (!in_sched) {
 		lockdep_off();
 		/*
 		 * Try to acquire and then immediately release the console
@@ -2443,7 +2438,6 @@ static int parse_log_file(void)
 		return -ENOMEM;
 
 	log_count = 0;
-	memset(buff, 0, sizeof(buff));
 	while (log_seq < log_next_seq) {
 		msg = log_from_idx(log_index);
 		count = msg_print_text(msg, prev, true, buff, sizeof(buff));
@@ -2910,11 +2904,7 @@ skip:
 				(unsigned long)len_con_write_pstore,
 				(unsigned long)time_con_write_pstore,
 				rem_nsec_con_write_pstore/1000,
-#if !defined(CONFIG_MACH_MT6757)
 				mtk8250_uart_dump());
-#else
-				"NA");
-#endif
 			break;
 		}
 		/* print the uart status next time enter the console_unlock */

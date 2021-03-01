@@ -51,7 +51,6 @@
 #if (MD_GENERATION >= 6293)
 #include "hif/ccci_hif_ccif.h"
 #endif
-#include "ccci_aee_handle.h"
 
 #define TAG "mcd"
 
@@ -365,7 +364,7 @@ static int ccci_md_hif_start(struct ccci_modem *md, int stage)
 	case 1:
 		/*enable clk: cldma & ccif */
 		ccci_set_clk_cg(md, 1);
-		/* if (md->hif_flag & (1 << CCIF_HIF_ID)) { */
+		if (md->hif_flag & (1 << CCIF_HIF_ID)) {
 #if (MD_GENERATION >= 6293)
 			md_ccif_sram_reset(CCIF_HIF_ID);
 			md_ccif_switch_ringbuf(CCIF_HIF_ID, RB_EXP);
@@ -379,7 +378,7 @@ static int ccci_md_hif_start(struct ccci_modem *md, int stage)
 			/* clear all ccif irq before enable it.*/
 			ccci_reset_ccif_hw(md->index, AP_MD1_CCIF,
 				md_info->ap_ccif_base, md_info->md_ccif_base);
-		/* } */
+		}
 		if (md->hif_flag & (1 << CLDMA_HIF_ID)) {
 			/* 2. clearring buffer, just in case */
 			md_cd_clear_all_queue(CLDMA_HIF_ID, OUT);
@@ -388,9 +387,8 @@ static int ccci_md_hif_start(struct ccci_modem *md, int stage)
 		}
 		break;
 	case 2:
-		/* if (md->hif_flag & (1 << CCIF_HIF_ID)) */
-		ccif_enable_irq(md);
-
+		if (md->hif_flag & (1 << CCIF_HIF_ID))
+			ccif_enable_irq(md);
 		if (md->hif_flag & (1 << CLDMA_HIF_ID)) {
 			/* 8. start CLDMA */
 			cldma_reset(CLDMA_HIF_ID);
@@ -581,7 +579,7 @@ static int md_cd_pre_stop(struct ccci_modem *md, unsigned int stop_type)
 					md_cd_dump_debug_register(md);
 					/* cldma_dump_register(CLDMA_HIF_ID);*/
 #if defined(CONFIG_MTK_AEE_FEATURE)
-					ccci_aed_md_exception_api(
+					aed_md_exception_api(
 					mdss_dbg->base_ap_view_vir,
 					mdss_dbg->size, NULL, 0,
 					"After AP send EPOF, MD didn't go to sleep in 4 seconds.",
@@ -614,7 +612,7 @@ static int md_cd_pre_stop(struct ccci_modem *md, unsigned int stop_type)
 			md_cd_dump_debug_register(md);
 			/* cldma_dump_register(CLDMA_HIF_ID);*/
 #if defined(CONFIG_MTK_AEE_FEATURE)
-			ccci_aed_md_exception_api(NULL, 0, NULL, 0,
+			aed_md_exception_api(NULL, 0, NULL, 0,
 				"WDT IRQ occur.", DB_OPT_DEFAULT);
 #endif
 		}

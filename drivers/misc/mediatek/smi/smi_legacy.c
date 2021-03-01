@@ -27,13 +27,6 @@
 #include "mmdvfs_mgr.h"
 #include "mmdvfs_pmqos.h"
 
-#if defined(CONFIG_MACH_MT6757)
-#if defined(SMI_D1) || defined(SMI_D2) || defined(SMI_D3) \
-	|| defined(SMI_J) ||  defined(SMI_EV) || defined(SMI_OLY)
-#define MMDVFS_HOOK
-#endif
-#endif
-
 #if IS_ENABLED(CONFIG_COMPAT)
 #include <linux/compat.h>
 #endif
@@ -41,12 +34,6 @@
 #if IS_ENABLED(CONFIG_MACH_MT6758)
 #include <clk-mt6758-pg.h>
 #include "smi_config_default.h"
-#elif IS_ENABLED(CONFIG_MACH_MT6763)
-#include <clk-mt6763-pg.h>
-#include "smi_config_mt6763.h"
-#elif IS_ENABLED(CONFIG_MACH_MT6757)
-#include <clk-mt6757-pg.h>
-#include "smi_config_mt6757.h"
 #elif IS_ENABLED(CONFIG_MACH_MT6765)
 #include <clk-mt6765-pg.h>
 #include "smi_config_mt6765.h"
@@ -98,7 +85,7 @@ static struct smi_mmp_event_t smi_mmp_event;
 
 #define SMIDBG(string, args...) pr_debug(string, ##args)
 
-#if IS_ENABLED(CONFIG_MTK_CMDQ) && !defined(CONFIG_MACH_MT6757)
+#if IS_ENABLED(CONFIG_MTK_CMDQ)
 #include <cmdq_core.h>
 #define SMIWRN(cmdq, string, args...) \
 	do { \
@@ -280,8 +267,8 @@ static void smi_clk_record(const u32 id, const bool en, const char *user)
 		strncpy(record->user, user, NAME_MAX);
 		record->user[sizeof(record->user) - 1] = '\0';
 	} else {
-	record->sec = sched_clock();
-	record->nsec = do_div(record->sec, 1000000000) / 1000;
+		record->sec = sched_clock();
+		record->nsec = do_div(record->sec, 1000000000) / 1000;
 	}
 }
 
@@ -339,7 +326,7 @@ static s32 smi_bus_disable_unprepare_k414(const u32 id, const char *user)
 		smi_clk_record(id, false, user);
 		if (readl(larbs[id]->base + SMI_LARB_STAT))
 			SMIWRN(1, "LARB%u OFF by%16s but busy\n", id, user);
-		}
+	}
 
 	smi_unit_disable_unprepare(id);
 	smi_unit_disable_unprepare(SMI_LARB_NUM);
@@ -420,19 +407,6 @@ static unsigned int smi_clk_subsys_larbs(enum subsys_id sys)
 	default:
 		return 0x0;
 	}
-#elif IS_ENABLED(CONFIG_MACH_MT6763)
-	switch (sys) {
-	case SYS_DIS:
-		return 0x1; /* larb 0 */
-	case SYS_CAM:
-		return 0x4; /* larb 2 */
-	case SYS_ISP:
-		return 0x2; /* larb 1 */
-	case SYS_VEN:
-		return 0x8; /* larb 3 */
-	default:
-		return 0x0;
-	}
 #elif IS_ENABLED(CONFIG_MACH_MT6765)
 	switch (sys) {
 	case SYS_DIS:
@@ -488,21 +462,6 @@ static unsigned int smi_clk_subsys_larbs(enum subsys_id sys)
 		return ((1 << 9) | (1 << 10) | (1 << 11));
 	default:
 		return 0;
-	}
-#elif IS_ENABLED(CONFIG_MACH_MT6757)
-	switch (sys) {
-	case SYS_DIS:
-		return (1 << 0) | (1 << 4) | (1 << SMI_LARB_NUM);
-	case SYS_VDE:
-		return (1 << 1);
-	case SYS_CAM:
-		return (1 << 2);
-	case SYS_VEN:
-		return (1 << 3);
-	case SYS_ISP:
-		return (1 << 5);
-	default:
-		return 0x0;
 	}
 #endif
 	return 0;
@@ -920,7 +879,7 @@ static s32 smi_debug_bus_hang_detect_k414(const bool gce)
 		SMIWRN(gce, "%s:SMI MM bus NOT hang\n", __func__);
 		smi_debug_dump_status(gce);
 		return 0;
-		}
+	}
 
 	SMIWRN(gce, "%s:SMI MM bus may hang by M4U/EMI/DVFS\n", __func__);
 	for (i = 0; i < time; i++)
@@ -928,7 +887,7 @@ static s32 smi_debug_bus_hang_detect_k414(const bool gce)
 			if (!i && j && j < SMI_LARB_NUM) /* offset */
 				continue;
 			smi_debug_dumper(gce, !i, j);
-	}
+		}
 	smi_debug_dump_status(gce);
 
 	for (i = 0; i < SMI_LARB_NUM; i++)
@@ -1064,13 +1023,8 @@ static long smi_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		else {
 			switch (config.type) {
 			case MTK_MMDVFS_QOS_CMD_TYPE_SET:
-#if !defined(CONFIG_MACH_MT6757)
 				mmdvfs_set_max_camera_hrt_bw(config.max_cam_bw);
 				config.ret = 0;
-#else
-				SMIWRN(0, "Not Support mmdvfs QOS cmd\n");
-				return -EINVAL;
-#endif
 				break;
 			default:
 				SMIWRN(0, "invalid mmdvfs QOS cmd\n");
@@ -1750,12 +1704,9 @@ module_param(disable_freq_hopping, uint, 0644);
 module_param(force_max_mmsys_clk, uint, 0644);
 module_param(clk_mux_mask, uint, 0644);
 
-#ifdef MMDVFS_QOS_SUPPORT
 static struct kernel_param_ops qos_scenario_ops = {
 	.set = set_qos_scenario,
 	.get = get_qos_scenario,
 };
 module_param_cb(qos_scenario, &qos_scenario_ops, NULL, 0644);
-#endif
-
 #endif /* MMDVFS_HOOK */

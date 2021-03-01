@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2017 MediaTek Inc.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (C) 2019 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -26,13 +26,11 @@
 #include "usb20.h"
 #include <linux/of_irq.h>
 #include <linux/of_address.h>
-#include <linux/of_gpio.h>
-#include <linux/workqueue.h>
-#include <linux/mutex.h>
-
 #ifdef CONFIG_MTK_USB_TYPEC
 #ifdef CONFIG_TCPC_CLASS
 #include "tcpm.h"
+#include <linux/workqueue.h>
+#include <linux/mutex.h>
 static struct notifier_block otg_nb;
 static struct tcpc_device *otg_tcpc_dev;
 static struct delayed_work register_otg_work;
@@ -84,7 +82,6 @@ static struct charger_device *primary_charger;
 struct device_node		*usb_node;
 static int iddig_eint_num;
 static ktime_t ktime_start, ktime_end;
-static struct delayed_work register_iddig_work;
 
 static struct musb_fifo_cfg fifo_cfg_host[] = {
 { .hw_ep_num = 1, .style = MUSB_FIFO_TX,
@@ -120,15 +117,6 @@ static struct musb_fifo_cfg fifo_cfg_host[] = {
 { .hw_ep_num = 8, .style = MUSB_FIFO_RX,
 		.maxpacket = 64,  .mode = MUSB_BUF_SINGLE},
 };
-
-/*2020.04.14 longcheer xugui set usb_type start*/
-#if defined(CONFIG_TCPC_CLASS)
-u32 typec_on = 1;
-#else
-u32 typec_on = 0;
-#endif
-module_param(typec_on, int, 0644);
-/*2020.04.14 longcheer xugui set usb_type end*/
 
 u32 delay_time = 15;
 module_param(delay_time, int, 0644);
@@ -173,11 +161,10 @@ static void _set_vbus(int is_on)
 #ifdef CONFIG_MTK_CHARGER
 #if CONFIG_MTK_GAUGE_VERSION == 30
 		charger_dev_enable_otg(primary_charger, true);
-    DBG(0, "lct _setvbus charger_dev_enable_otg\n");
-		charger_dev_set_boost_current_limit(primary_charger, 1200000);
+		charger_dev_set_boost_current_limit(primary_charger, 1500000);
 #else
 		set_chr_enable_otg(0x1);
-		set_chr_boost_current_limit(1200);
+		set_chr_boost_current_limit(1500);
 #endif
 #endif
 	} else if (!is_on && vbus_on) {
@@ -189,104 +176,12 @@ static void _set_vbus(int is_on)
 #ifdef CONFIG_MTK_CHARGER
 #if CONFIG_MTK_GAUGE_VERSION == 30
 		charger_dev_enable_otg(primary_charger, false);
-    DBG(0, "lct _setvbus charger_dev_disable_otg\n");
 #else
 		set_chr_enable_otg(0x0);
 #endif
 #endif
 	}
 }
-
-void mt_usb_set_vbus(struct musb *musb, int is_on)
-{
-#ifndef FPGA_PLATFORM
-
-	DBG(0, "is_on<%d>, control<%d>\n", is_on, vbus_control);
-
-	if (!vbus_control)
-		return;
-
-	if (is_on)
-		_set_vbus(1);
-	else
-		_set_vbus(0);
-#endif
-}
-
-int mt_usb_get_vbus_status(struct musb *musb)
-{
-#if 1
-	return true;
-#else
-	int	ret = 0;
-
-	if ((musb_readb(musb->mregs, MUSB_DEVCTL) &
-		MUSB_DEVCTL_VBUS) != MUSB_DEVCTL_VBUS)
-		ret = 1;
-	else
-		DBG(0, "VBUS error, devctl=%x, power=%d\n",
-			musb_readb(musb->mregs, MUSB_DEVCTL),
-			musb->power);
-	pr_debug("vbus ready = %d\n", ret);
-	return ret;
-#endif
-}
-
-#if defined(CONFIG_USBIF_COMPLIANCE)
-u32 sw_deboun_time = 1;
-#else
-u32 sw_deboun_time = 400;
-#endif
-module_param(sw_deboun_time, int, 0644);
-
-u32 typec_control;
-module_param(typec_control, int, 0644);
-static bool typec_req_host;
-static bool iddig_req_host;
-
-static void do_host_work(struct work_struct *data);
-static void issue_host_work(int ops, int delay, bool on_st)
-{
-	struct mt_usb_work *work;
-
-	if (!mtk_musb) {
-		DBG(0, "mtk_musb = NULL\n");
-		return;
-	}
-
-	/* create and prepare worker */
-	work = kzalloc(sizeof(struct mt_usb_work), GFP_ATOMIC);
-	if (!work) {
-		DBG(0, "work is NULL, directly return\n");
-		return;
-	}
-	work->ops = ops;
-	INIT_DELAYED_WORK(&work->dwork, do_host_work);
-
-	/* issue connection work */
-	DBG(0, "issue work, ops<%d>, delay<%d>, on_st<%d>\n",
-		ops, delay, on_st);
-
-	if (on_st)
-		queue_delayed_work(mtk_musb->st_wq,
-					&work->dwork, msecs_to_jiffies(delay));
-	else
-		schedule_delayed_work(&work->dwork,
-					msecs_to_jiffies(delay));
-}
-void mt_usb_host_connect(int delay)
-{
-	typec_req_host = true;
-	DBG(0, "%s\n", typec_req_host ? "connect" : "disconnect");
-	issue_host_work(CONNECTION_OPS_CONN, delay, true);
-}
-void mt_usb_host_disconnect(int delay)
-{
-	typec_req_host = false;
-	DBG(0, "%s\n", typec_req_host ? "connect" : "disconnect");
-	issue_host_work(CONNECTION_OPS_DISC, delay, true);
-}
-#ifdef CONFIG_MTK_USB_TYPEC
 #ifdef CONFIG_TCPC_CLASS
 static void do_vbus_work(struct work_struct *data)
 {
@@ -335,7 +230,99 @@ static void mt_usb_vbus_off(int delay)
 	DBG(0, "vbus_off\n");
 	issue_vbus_work(VBUS_OPS_OFF, delay);
 }
+#endif
+void mt_usb_set_vbus(struct musb *musb, int is_on)
+{
+#ifndef FPGA_PLATFORM
 
+	DBG(0, "is_on<%d>, control<%d>\n", is_on, vbus_control);
+
+	if (!vbus_control)
+		return;
+
+	if (is_on)
+		_set_vbus(1);
+	else
+		_set_vbus(0);
+#endif
+}
+
+int mt_usb_get_vbus_status(struct musb *musb)
+{
+#if 1
+	return true;
+#else
+	int	ret = 0;
+
+	if ((musb_readb(musb->mregs, MUSB_DEVCTL) &
+		MUSB_DEVCTL_VBUS) != MUSB_DEVCTL_VBUS)
+		ret = 1;
+	else
+		DBG(0, "VBUS error, devctl=%x, power=%d\n",
+			musb_readb(musb->mregs, MUSB_DEVCTL),
+			musb->power);
+	pr_debug("vbus ready = %d\n", ret);
+	return ret;
+#endif
+}
+
+#if defined(CONFIG_USBIF_COMPLIANCE)
+u32 sw_deboun_time = 1;
+#else
+u32 sw_deboun_time = 400;
+#endif
+module_param(sw_deboun_time, int, 0644);
+
+u32 typec_control;
+module_param(typec_control, int, 0644);
+static bool typec_req_host;
+static bool iddig_req_host;
+int usb_host_id = 0;  
+
+static void do_host_work(struct work_struct *data);
+static void issue_host_work(int ops, int delay, bool on_st)
+{
+	struct mt_usb_work *work;
+
+	if (!mtk_musb) {
+		DBG(0, "mtk_musb = NULL\n");
+		return;
+	}
+
+	/* create and prepare worker */
+	work = kzalloc(sizeof(struct mt_usb_work), GFP_ATOMIC);
+	if (!work) {
+		DBG(0, "work is NULL, directly return\n");
+		return;
+	}
+	work->ops = ops;
+	INIT_DELAYED_WORK(&work->dwork, do_host_work);
+
+	/* issue connection work */
+	DBG(0, "issue work, ops<%d>, delay<%d>, on_st<%d>\n",
+		ops, delay, on_st);
+
+	if (on_st)
+		queue_delayed_work(mtk_musb->st_wq,
+					&work->dwork, msecs_to_jiffies(delay));
+	else
+		schedule_delayed_work(&work->dwork,
+					msecs_to_jiffies(delay));
+}
+void mt_usb_host_connect(int delay)
+{
+	typec_req_host = true;
+	DBG(0, "%s\n", typec_req_host ? "connect" : "disconnect");
+	issue_host_work(CONNECTION_OPS_CONN, delay, true);
+}
+void mt_usb_host_disconnect(int delay)
+{
+	typec_req_host = false;
+	DBG(0, "%s\n", typec_req_host ? "connect" : "disconnect");
+	issue_host_work(CONNECTION_OPS_DISC, delay, true);
+}
+#ifdef CONFIG_MTK_USB_TYPEC
+#ifdef CONFIG_TCPC_CLASS
 static int otg_tcp_notifier_call(struct notifier_block *nb,
 		unsigned long event, void *data)
 {
@@ -358,9 +345,7 @@ static int otg_tcp_notifier_call(struct notifier_block *nb,
 			DBG(0, "OTG Plug in\n");
 			mt_usb_host_connect(0);
 		} else if ((noti->typec_state.old_state == TYPEC_ATTACHED_SRC ||
-			noti->typec_state.old_state == TYPEC_ATTACHED_SNK ||
-			noti->typec_state.old_state ==
-					TYPEC_ATTACHED_NORP_SRC) &&
+			noti->typec_state.old_state == TYPEC_ATTACHED_SNK) &&
 			noti->typec_state.new_state == TYPEC_UNATTACHED) {
 			if (is_host_active(mtk_musb)) {
 				DBG(0, "OTG Plug out\n");
@@ -702,10 +687,13 @@ static irqreturn_t mt_usb_ext_iddig_int(int irq, void *dev_id)
 	DBG(0, "id pin assert, %s\n", iddig_req_host ?
 			"connect" : "disconnect");
 
-	if (iddig_req_host)
+	if (iddig_req_host) {
 		mt_usb_host_connect(0);
-	else
+		usb_host_id = 1;
+	}else {
 		mt_usb_host_disconnect(0);
+		usb_host_id = 0;
+	}
 	disable_irq_nosync(iddig_eint_num);
 	return IRQ_HANDLED;
 }
@@ -735,9 +723,6 @@ static int otg_iddig_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	//2020.02.18 longcheer xugui sleep wake up for otg
-	enable_irq_wake(iddig_eint_num);
-
 	return 0;
 }
 
@@ -753,13 +738,15 @@ static struct platform_driver otg_iddig_driver = {
 };
 
 
-static void iddig_int_init_work(struct work_struct *data)
+static int iddig_int_init(void)
 {
 	int	ret = 0;
 
 	ret = platform_driver_register(&otg_iddig_driver);
 	if (ret)
 		DBG(0, "ret:%d\n", ret);
+
+	return 0;
 }
 
 void mt_usb_otg_init(struct musb *musb)
@@ -796,9 +783,7 @@ void mt_usb_otg_init(struct musb *musb)
 #endif
 #else
 	DBG(0, "host controlled by IDDIG\n");
-	INIT_DELAYED_WORK(&register_iddig_work, iddig_int_init_work);
-	queue_delayed_work(mtk_musb->st_wq, &register_iddig_work,
-					   msecs_to_jiffies(1000));
+	iddig_int_init();
 	vbus_control = 1;
 #endif
 
@@ -885,9 +870,7 @@ static int set_option(const char *val, const struct kernel_param *kp)
 	switch (local_option) {
 	case 0:
 		DBG(0, "case %d\n", local_option);
-		INIT_DELAYED_WORK(&register_iddig_work, iddig_int_init_work);
-		queue_delayed_work(mtk_musb->st_wq,
-				&register_iddig_work, 0);
+		iddig_int_init();
 		break;
 	case 1:
 		DBG(0, "case %d\n", local_option);

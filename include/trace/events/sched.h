@@ -7,7 +7,6 @@
 #include <linux/sched.h>
 #include <linux/tracepoint.h>
 #include <linux/binfmts.h>
-#include <linux/cgroup-defs.h>
 
 #ifdef CONFIG_MTK_SCHED_TRACERS
 /* M: states for tracking I/O & mutex events
@@ -515,8 +514,7 @@ TRACE_EVENT(sched_update_lb_sg,
 		__entry->group_type = group_type;
 	),
 
-	TP_printk(
-		"avg_load=%lu group_load=%lu group_capacity=%lu group_no_capacity=%d group_type=%d",
+	TP_printk("avg_load=%lu group_load=%lu group_capacity=%lu group_no_capacity=%d group_type=%d",
 		__entry->avg_load, __entry->group_load, __entry->group_capacity,
 		__entry->group_no_capacity, __entry->group_type)
 );
@@ -615,8 +613,7 @@ TRACE_EVENT(sched_busy_power,
 		__entry->energy_cost    = energy_cost;
 	),
 
-	TP_printk(
-		"lv=%d tlb[%d].pwr=%ld volt_f=%ld buck.pwr=%ld tlb[%d].leak=(%ld) total=%d",
+	TP_printk("lv=%d tlb[%d].pwr=%ld volt_f=%ld buck.pwr=%ld tlb[%d].leak=(%ld) total=%d",
 		__entry->sd_level, __entry->cap_idx,  __entry->dyn_pwr,
 		__entry->volt_f, __entry->buck_pwr,  __entry->co_cap_idx,
 		__entry->leak_pwr, __entry->energy_cost)
@@ -733,8 +730,7 @@ TRACE_EVENT(sched_select_task_rq,
 		__entry->wake_flags	= wake_flags;
 		),
 
-	TP_printk(
-		"pid=%4d policy=0x%08x pre-cpu=%d target=%d util=%d boost=%d mask=0x%lx prefer=%d cpu_prefer=%d flags=%d",
+	TP_printk("pid=%4d policy=0x%08x pre-cpu=%d target=%d util=%d boost=%d mask=0x%lx prefer=%d cpu_prefer=%d flags=%d",
 		__entry->pid,
 		__entry->policy,
 		__entry->prev_cpu,
@@ -1096,8 +1092,7 @@ TRACE_EVENT(sched_cluster_stats,
 			__entry->threshold = threshold;
 			),
 
-		TP_printk(
-			"cpu[%d]:load=%lu len=%u, cluster[%lx]: nr_task=%d load_avg=%d capacity=%d acap=%d scaled_atask=%d threshold=%d",
+		TP_printk("cpu[%d]:load=%lu len=%u, cluster[%lx]: nr_task=%d load_avg=%d capacity=%d acap=%d scaled_atask=%d threshold=%d",
 			__entry->target,
 			__entry->loadwop_avg,
 			__entry->h_nr_running,
@@ -2330,8 +2325,7 @@ TRACE_EVENT(sched_dvfs,
 			__entry->thro_type	= thro_type;
 			__entry->thro_time	= thro_time;
 			),
-		TP_printk(
-			"cpu=%d cid=%d type=%d cur=%d new=%d min=%d max=%d thro_type=%d thro_time=%lld",
+		TP_printk("cpu=%d cid=%d type=%d cur=%d new=%d min=%d max=%d thro_type=%d thro_time=%lld",
 			__entry->cpu,
 			__entry->cid,
 			__entry->type,

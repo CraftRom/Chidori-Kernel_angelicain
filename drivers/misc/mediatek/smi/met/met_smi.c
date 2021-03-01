@@ -593,8 +593,6 @@ int SMI_MET_config(struct met_smi_conf *met_smi_config, unsigned int conf_num,
 		smi_met_ipi(true, parallel_mode, met_smi_conf_array[master]);
 #endif
 	}
-
-
 	for (larbno = 0; larbno < MET_SMI_LARB_NUM; larbno++) {
 		smi_bus_prepare_enable(larbno, "MET_SMI", true);
 		snprintf(debug_msg, SMI_MET_DEBUGBUF_SIZE,

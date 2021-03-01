@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2017 MediaTek Inc.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (C) 2019 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -27,13 +27,13 @@
 #define IMGSENSOR_I2C_BURST_WRITE_LENGTH MAX_DMA_TRANS_SIZE
 #define IMGSENSOR_I2C_CMD_LENGTH_MAX     255
 
-#define IMGSENSOR_I2C_BUFF_MODE_DEV      IMGSENSOR_I2C_DEV_3
+#define IMGSENSOR_I2C_BUFF_MODE_DEV      IMGSENSOR_I2C_DEV_2
 
-#ifdef IMGSENSOR_I2C_1000K
-#define IMGSENSOR_I2C_SPEED              1000
-#else
+//#ifdef IMGSENSOR_I2C_1000K
+//#define IMGSENSOR_I2C_SPEED              1000
+//#else
 #define IMGSENSOR_I2C_SPEED              400
-#endif
+//#endif
 
 struct IMGSENSOR_I2C_STATUS {
 	u8 reserved:7;

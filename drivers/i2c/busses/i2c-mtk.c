@@ -51,7 +51,6 @@ static struct mt_i2c *g_mt_i2c[I2C_MAX_CHANNEL];
 static struct mtk_i2c_compatible i2c_common_compat;
 
 
-
 static inline void _i2c_writew(u16 value, struct mt_i2c *i2c, u16 offset)
 {
 	writew(value, i2c->base + offset);
@@ -64,8 +63,7 @@ static inline u16 _i2c_readw(struct mt_i2c *i2c, u16 offset)
 
 #define raw_i2c_writew(val, i2c, ch_ofs, ofs) \
 	do { \
-		if (((i2c)->dev_comp->ver != 0x2 && (ofs != 0xfff)) || \
-		    (((i2c)->dev_comp->ver == 0x2) && (V2_##ofs != 0xfff))) \
+		if (((i2c)->dev_comp->ver != 0x2) || (V2_##ofs != 0xfff)) \
 			_i2c_writew(val, i2c, ch_ofs + \
 				    (((i2c)->dev_comp->ver == 0x2) ? \
 				    (V2_##ofs) : ofs)); \
@@ -74,8 +72,7 @@ static inline u16 _i2c_readw(struct mt_i2c *i2c, u16 offset)
 #define raw_i2c_readw(i2c, ch_ofs, ofs) \
 	({ \
 		u16 value = 0; \
-		if (((i2c)->dev_comp->ver != 0x2 && (ofs != 0xfff)) || \
-		    (((i2c)->dev_comp->ver == 0x2) && (V2_##ofs != 0xfff))) \
+		if (((i2c)->dev_comp->ver != 0x2) || (V2_##ofs != 0xfff)) \
 			value = _i2c_readw(i2c, ch_ofs + \
 					   (((i2c)->dev_comp->ver == 0x2) ? \
 					   (V2_##ofs) : ofs)); \
@@ -569,10 +566,10 @@ static int mtk_i2c_calculate_speed(struct mt_i2c *i2c,
 static int i2c_set_speed(struct mt_i2c *i2c, unsigned int clk_src_in_hz)
 {
 	int ret;
-	unsigned int step_cnt = 0;
-	unsigned int sample_cnt = 0;
-	unsigned int l_step_cnt = 0;
-	unsigned int l_sample_cnt = 0;
+	unsigned int step_cnt;
+	unsigned int sample_cnt;
+	unsigned int l_step_cnt;
+	unsigned int l_sample_cnt;
 	unsigned int speed_hz;
 	unsigned int duty = HALF_DUTY_CYCLE;
 
@@ -593,7 +590,7 @@ static int i2c_set_speed(struct mt_i2c *i2c, unsigned int clk_src_in_hz)
 		if (ret < 0)
 			return ret;
 
-		i2c->high_speed_reg = I2C_TIME_DEFAULT_VALUE |
+		i2c->high_speed_reg = I2C_TIME_DEFAULT_VALUE | I2C_HS_SPEED |
 			(sample_cnt & I2C_TIMING_SAMPLE_COUNT_MASK) << 12 |
 			(step_cnt & I2C_TIMING_SAMPLE_COUNT_MASK) << 8;
 
@@ -924,7 +921,11 @@ static int mt_i2c_do_transfer(struct mt_i2c *i2c)
 	/* If use i2c pin from PMIC mt6397 side, need set PATH_DIR first */
 	if (i2c->have_pmic)
 		i2c_writew(I2C_CONTROL_WRAPPER, i2c, OFFSET_PATH_DIR);
-	control_reg = I2C_CONTROL_ACKERR_DET_EN | I2C_CONTROL_CLK_EXT_EN;
+	if (speed_hz > 400000)
+		control_reg = I2C_CONTROL_ACKERR_DET_EN;
+	else
+		control_reg = I2C_CONTROL_ACKERR_DET_EN |
+			I2C_CONTROL_CLK_EXT_EN;
 	if (isDMA == true) /* DMA */
 		control_reg |=
 			I2C_CONTROL_DMA_EN |
@@ -1024,7 +1025,6 @@ static int mt_i2c_do_transfer(struct mt_i2c *i2c)
 			i2c_writel_dma(I2C_DMA_WARM_RST, i2c, OFFSET_RST);
 			udelay(5);
 		}
-
 #ifdef CONFIG_MTK_LM_MODE
 		if ((i2c->dev_comp->dma_support == 1) && (enable_4G())) {
 			i2c_writel_dma(0x1, i2c, OFFSET_TX_MEM_ADDR2);
@@ -1585,6 +1585,7 @@ static irqreturn_t mt_i2c_irq(int irqno, void *dev_id)
 			if ((i2c->irq_stat & (I2C_IBI | I2C_BUS_ERR))) {
 				dev_info(i2c->dev, "[bxx]cg_cnt:%d,irq_stat:0x%x\n",
 					i2c->cg_cnt, i2c->irq_stat);
+#if 0
 				dev_info(i2c->dev, "0x84=0x%x\n",
 					i2c_readw(i2c, OFFSET_ERROR));
 
@@ -1614,6 +1615,7 @@ static irqreturn_t mt_i2c_irq(int irqno, void *dev_id)
 					_i2c_readw(i2c, 0x154),
 					_i2c_readw(i2c, 0x254));
 				/* for bxx debug end */
+#endif
 			}
 		}
 	} else {/* dump regs info for hw trig i2c if ACK err */
@@ -1742,7 +1744,6 @@ MODULE_DEVICE_TABLE(of, mtk_i2c_of_match);
 static int mt_i2c_probe(struct platform_device *pdev)
 {
 	int ret = 0;
-	//int cnt = 0;
 	struct mt_i2c *i2c;
 	unsigned int clk_src_in_hz;
 	struct resource *res;
@@ -1771,17 +1772,12 @@ static int mt_i2c_probe(struct platform_device *pdev)
 	if (IS_ERR(i2c->pdmabase))
 		return PTR_ERR(i2c->pdmabase);
 
-	if (i2c->gpio_start == 0) {
+	i2c->gpiobase = devm_ioremap(&pdev->dev, i2c->gpio_start, i2c->mem_len);
+	if (IS_ERR(i2c->gpiobase)) {
 		i2c->gpiobase = NULL;
 		dev_info(&pdev->dev, "do not have gpio baseaddress node\n");
-	} else {
-		i2c->gpiobase = devm_ioremap(&pdev->dev, i2c->gpio_start,
-			i2c->mem_len);
-		if (IS_ERR(i2c->gpiobase)) {
-			i2c->gpiobase = NULL;
-			dev_info(&pdev->dev, "gpio baseaddress remap fail\n");
-		}
 	}
+
 	i2c->irqnr = platform_get_irq(pdev, 0);
 	if (i2c->irqnr <= 0)
 		return -EINVAL;

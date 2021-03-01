@@ -82,8 +82,6 @@ bool mtk_dvfs_margin_value(int i32MarginValue);
 bool mtk_get_dvfs_margin_value(int *pi32MaginValue);
 bool mtk_loading_base_dvfs_step(int i32StepValue);
 bool mtk_get_loading_base_dvfs_step(int *pi32StepValue);
-bool mtk_timer_base_dvfs_margin(int i32MarginValue);
-bool mtk_get_timer_base_dvfs_margin(int *pi32MaginValue);
 
 /* CAP */
 bool mtk_get_gpu_dvfs_cal_freq(unsigned long *pulGpu_tar_freq);
@@ -91,12 +89,6 @@ bool mtk_get_gpu_dvfs_cal_freq(unsigned long *pulGpu_tar_freq);
 /* MET */
 bool mtk_enable_gpu_perf_monitor(bool enable);
 
-/* Quality Tuner */
-bool mtk_gpu_tuner_hint_set(char *packagename,
-	enum GPU_TUNER_FEATURE eFeature);
-bool mtk_gpu_tuner_hint_restore(char *packagename,
-	enum GPU_TUNER_FEATURE eFeature);
-bool mtk_gpu_tuner_get_stauts_by_packagename(char *packagename, int *feature);
 #ifdef __cplusplus
 }
 #endif

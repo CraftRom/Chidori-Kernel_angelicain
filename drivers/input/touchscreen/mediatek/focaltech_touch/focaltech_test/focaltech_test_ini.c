@@ -1,6 +1,6 @@
 /************************************************************************
 * Copyright (C) 2012-2015, Focaltech Systems (R)£¬All Rights Reserved.
-* Copyright (C) 2021 XiaoMi, Inc.
+* Copyright (C) 2019 XiaoMi, Inc.
 *
 * File Name: focaltech_test_ini.c
 *
@@ -455,7 +455,7 @@ unsigned int fts_ic_table_get_ic_code_from_ic_name(char *strIcName)
 
     if (strncmp(strIcName, "FT8006U", 7) == 0) return IC_FT8006U;
 
-    pr_info("%s.  can NOT get ic code.  ERROR  !!!  \n", __func__);
+    printk("%s.  can NOT get ic code.  ERROR  !!!  \n", __func__);
 
     return 0xff;
 }
@@ -602,8 +602,8 @@ int fts_test_get_ini_size(char *config_name)
         FTS_TEST_ERROR("error occured while opening file %s.",  filepath);
         return -EIO;
     }
-
-    inode = pfile->f_dentry->d_inode;
+	
+    inode = pfile->f_inode; // inode = pfile->f_dentry->d_inode;
     fsize = inode->i_size;
     filp_close(pfile, NULL);
 
@@ -633,8 +633,7 @@ int fts_test_read_ini_data(char *config_name, char *config_buf)
         FTS_TEST_ERROR("error occured while opening file %s.",  filepath);
         return -EIO;
     }
-
-    inode = pfile->f_dentry->d_inode;
+    inode = pfile->f_inode; // inode = pfile->f_dentry->d_inode;
     fsize = inode->i_size;
     old_fs = get_fs();
     set_fs(KERNEL_DS);

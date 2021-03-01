@@ -23,6 +23,5 @@ struct mtk_chip_config {
 	u32 cs_setuptime;
 	u32 cs_holdtime;
 	u32 cs_idletime;
-	u32 deassert_mode;
 };
 #endif

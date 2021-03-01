@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2017 MediaTek Inc.
- * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -339,7 +338,6 @@ extern void tscpu_workqueue_start_timer(void);
 
 extern void __iomem  *therm_clk_infracfg_ao_base;
 extern int Num_of_GPU_OPP;
-extern int gpu_max_opp;
 extern struct mt_gpufreq_power_table_info *mtk_gpu_power;
 extern int tscpu_read_curr_temp;
 #if MTKTSCPU_FAST_POLLING
@@ -745,6 +743,6 @@ extern void __iomem *INFRACFG_AO_base;
 #define THERMAL_MSRCTL2_MASK    0x000001C0
 
 /*cpu core nums*/
-#define TZCPU_NO_CPU_CORES             CONFIG_NR_CPUS
+#define TZCPU_NO_CPU_CORES              (8)
 
 #endif	/* __TSCPU_SETTINGS_H__ */

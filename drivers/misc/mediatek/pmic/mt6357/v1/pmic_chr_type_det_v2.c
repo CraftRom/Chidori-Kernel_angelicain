@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2016 MediaTek Inc.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (C) 2019 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -173,7 +173,6 @@ static unsigned int hw_bc11_DCD(void)
 	return wChargerAvail;
 }
 
-#if 0 /* If need to detect apple adapter, please enable this code section */
 static unsigned int hw_bc11_stepA1(void)
 {
 	unsigned int wChargerAvail = 0;
@@ -193,7 +192,6 @@ static unsigned int hw_bc11_stepA1(void)
 	bc11_set_register_value(PMIC_RG_BC11_CMP_EN, 0x0);
 	return wChargerAvail;
 }
-#endif
 
 static unsigned int hw_bc11_stepA2(void)
 {
@@ -309,14 +307,10 @@ int hw_charging_get_charger_type(void)
 	hw_bc11_init();
 
 	if (hw_bc11_DCD()) {
-#if 0 /* If need to detect apple adapter, please enable this code section */
 		if (hw_bc11_stepA1())
 			CHR_Type_num = APPLE_2_1A_CHARGER;
 		else
 			CHR_Type_num = NONSTANDARD_CHARGER;
-#else
-		CHR_Type_num = NONSTANDARD_CHARGER;
-#endif
 	} else {
 		if (hw_bc11_stepA2()) {
 			if (hw_bc11_stepB2())
@@ -343,22 +337,6 @@ int hw_charging_get_charger_type(void)
 	return CHR_Type_num;
 }
 
-void nostandard_detect_retry(void)
-{
-	int loop;
-
-	if (g_chr_type == NONSTANDARD_CHARGER) {
-		for (loop = 0; loop < 2; loop ++) {
-			msleep(800);
-			g_chr_type = hw_charging_get_charger_type();
-			pr_info("charger type: NONSTANDARD,LOOP = %d\n", loop);
-			if (g_chr_type != NONSTANDARD_CHARGER)
-				break;
-		}
-	}
-	pr_info("[nostand_detect_retry] charger type = %d\n", g_chr_type);
-}
-
 void mtk_pmic_enable_chr_type_det(bool en)
 {
 #ifndef CONFIG_TCPC_CLASS
@@ -380,7 +358,6 @@ void mtk_pmic_enable_chr_type_det(bool en)
 		} else {
 			pr_info("charger type: charger IN\n");
 			g_chr_type = hw_charging_get_charger_type();
-			nostandard_detect_retry();
 			chrdet_inform_psy_changed(g_chr_type, 1);
 		}
 	} else {
@@ -402,7 +379,6 @@ void do_charger_detect(void)
 }
 
 /* PMIC Int Handler */
-extern void kpd_pwrkey_pmic_handler(unsigned long pressed);	//add for power off charging Unplug Charger/USB show battery
 void chrdet_int_handler(void)
 {
 	/*
@@ -418,22 +394,13 @@ void chrdet_int_handler(void)
 		if (boot_mode == KERNEL_POWER_OFF_CHARGING_BOOT
 		    || boot_mode == LOW_POWER_OFF_CHARGING_BOOT) {
 			pr_info("[chrdet_int_handler] Unplug Charger/USB\n");
-
-//add for power off charging Unplug Charger/USB show battery logo begin
-			kpd_pwrkey_pmic_handler(0x1);
-			mdelay(200);
-			kpd_pwrkey_pmic_handler(0x0);
-			mdelay(1500);
-//add for power off charging Unplug Charger/USB show battery logo end
-
+/*
 #ifndef CONFIG_TCPC_CLASS
-			pr_info("%s: system_state=%d\n", __func__,
-				system_state);
-			if (system_state != SYSTEM_POWER_OFF)
-				kernel_power_off();
+			orderly_poweroff(true);
 #else
 			return;
 #endif
+*/
 		}
 	}
 	do_charger_detect();

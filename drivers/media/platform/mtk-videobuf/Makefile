@@ -1,4 +1,5 @@
 subdir-ccflags-y += -Werror
+ccflags-y += -Wno-maybe-uninitialized
 
 mtk-videobuf-y += mtk-dma-contig.o
 

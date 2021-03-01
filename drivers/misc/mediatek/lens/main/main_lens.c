@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2015 MediaTek Inc.
- * Copyright (C) 2021 XiaoMi, Inc.
+ * Copyright (C) 2019 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -91,7 +91,17 @@ static struct stAF_OisPosInfo OisPosInfo;
 /* ------------------------- */
 
 static struct stAF_DrvList g_stAF_DrvList[MAX_NUM_OF_LENS] = {
-#if 0
+	/* cereus lens */
+	{1, AFDRV_CEREUS_DW9714AF_OFILM, CEREUS_DW9714AF_OFILM_SetI2Cclient, CEREUS_DW9714AF_OFILM_Ioctl,
+	 CEREUS_DW9714AF_OFILM_Release, CEREUS_DW9714AF_OFILM_GetFileName, NULL},
+	{1, AFDRV_CEREUS_DW9714AF_SUNNY, CEREUS_DW9714AF_SUNNY_SetI2Cclient, CEREUS_DW9714AF_SUNNY_Ioctl,
+	 CEREUS_DW9714AF_SUNNY_Release, CEREUS_DW9714AF_SUNNY_GetFileName, NULL},
+	/* cactus lens */
+	{1, AFDRV_CACTUS_DW9714AF_OFILM, CACTUS_DW9714AF_OFILM_SetI2Cclient, CACTUS_DW9714AF_OFILM_Ioctl,
+	 CACTUS_DW9714AF_OFILM_Release, CACTUS_DW9714AF_OFILM_GetFileName, NULL},
+	 {1, AFDRV_CACTUS_FP5510E2AF_SUNNY, CACTUS_FP5510E2AF_SUNNY_SetI2Cclient, CACTUS_FP5510E2AF_SUNNY_Ioctl,
+	 CACTUS_FP5510E2AF_SUNNY_Release, CACTUS_FP5510E2AF_SUNNY_GetFileName, NULL},
+	/* others */
 	{1, AFDRV_AK7371AF, AK7371AF_SetI2Cclient, AK7371AF_Ioctl,
 	 AK7371AF_Release, AK7371AF_GetFileName, NULL},
 	{1, AFDRV_BU6424AF, BU6424AF_SetI2Cclient, BU6424AF_Ioctl,
@@ -115,8 +125,6 @@ static struct stAF_DrvList g_stAF_DrvList[MAX_NUM_OF_LENS] = {
 	 DW9718SAF_Release, DW9718SAF_GetFileName, NULL},
 	{1, AFDRV_DW9719TAF, DW9719TAF_SetI2Cclient, DW9719TAF_Ioctl,
 	 DW9719TAF_Release, DW9719TAF_GetFileName, NULL},
-	{1, AFDRV_DW9763AF, DW9763AF_SetI2Cclient, DW9763AF_Ioctl,
-	 DW9763AF_Release, DW9763AF_GetFileName, NULL},
 	{1, AFDRV_LC898212XDAF, LC898212XDAF_SetI2Cclient, LC898212XDAF_Ioctl,
 	 LC898212XDAF_Release, LC898212XDAF_GetFileName, NULL},
 	{1, AFDRV_DW9814AF, DW9814AF_SetI2Cclient, DW9814AF_Ioctl,
@@ -137,19 +145,12 @@ static struct stAF_DrvList g_stAF_DrvList[MAX_NUM_OF_LENS] = {
 	 LC898217AFB_Release, LC898217AFB_GetFileName, NULL},
 	{1, AFDRV_LC898217AFC, LC898217AFC_SetI2Cclient, LC898217AFC_Ioctl,
 	 LC898217AFC_Release, LC898217AFC_GetFileName, NULL},
+	{1, AFDRV_LC898229AF, LC898229AF_SetI2Cclient, LC898229AF_Ioctl,
+	 LC898229AF_Release, LC898229AF_GetFileName, NULL},
 	{1, AFDRV_LC898122AF, LC898122AF_SetI2Cclient, LC898122AF_Ioctl,
 	 LC898122AF_Release, LC898122AF_GetFileName, NULL},
 	{1, AFDRV_WV511AAF, WV511AAF_SetI2Cclient, WV511AAF_Ioctl,
 	 WV511AAF_Release, WV511AAF_GetFileName, NULL},
-#endif
-#ifdef CONFIG_MTK_LENS_CN3927AF_SUPPORT
-	{1, AFDRV_CN3927AF, CN3927AF_SetI2Cclient, CN3927AF_Ioctl,
-	 CN3927AF_Release, CN3927AF_GetFileName, NULL},
-#endif
-#ifdef CONFIG_MTK_LENS_GT9769AF_SUPPORT
-	{1, AFDRV_GT9769AF, GT9769AF_SetI2Cclient, GT9769AF_Ioctl,
-	 GT9769AF_Release, GT9769AF_GetFileName, NULL},
-#endif
 };
 
 static struct stAF_DrvList *g_pstAF_CurDrv;
@@ -186,24 +187,13 @@ void AFRegulatorCtrl(int Stage)
 				kd_node = lens_device->of_node;
 				lens_device->of_node = node;
 
-				if (strncmp(CONFIG_ARCH_MTK_PROJECT,
-					    "tb8766", 6) == 0)
-					regVCAMAF = regulator_get(lens_device,
-								  "vldo28");
-				else if (strncmp(CONFIG_ARCH_MTK_PROJECT,
-					    "tb8768", 6) == 0)
-					regVCAMAF = regulator_get(lens_device,
-								  "vldo28");
-				else {
-					#if 1//defined(CONFIG_MACH_MT6761) || defined(CONFIG_MACH_MT6765) || defined(CONFIG_MACH_MT6762)
-					regVCAMAF = regulator_get(lens_device,
-								  "vldo28");
-				    LOG_INF("[Init] regulator_get vldo28 %p\n", regVCAMAF);
-					#else
-					regVCAMAF = regulator_get(lens_device,
-								  "vcamaf");
-					#endif
-				}
+				#if defined(CONFIG_MACH_MT6765)
+				regVCAMAF =
+					regulator_get(lens_device, "vldo28");
+				#else
+				regVCAMAF =
+					regulator_get(lens_device, "vcamaf");
+				#endif
 
 				LOG_INF("[Init] regulator_get %p\n", regVCAMAF);
 
@@ -338,7 +328,7 @@ static long AF_SetMotorName(__user struct stAF_MotorName *pstMotorName)
 		if (g_stAF_DrvList[i].uEnable != 1)
 			break;
 
-		LOG_INF("Search Motor Name : %s\n", g_stAF_DrvList[i].uDrvName);
+		/* LOG_INF("Search : %s\n", g_stAF_DrvList[i].uDrvName); */
 		if (strcmp(stMotorName.uMotorName,
 			   g_stAF_DrvList[i].uDrvName) == 0) {
 			LOG_INF("Motor Name : %s\n", stMotorName.uMotorName);
@@ -371,12 +361,12 @@ static long AF_ControlParam(unsigned long a_u4Param)
 
 		hwTickCnt     = CtrlCmd.i8Param[0];
 		monotonicTime = archcounter_timesync_to_monotonic(hwTickCnt);
-		/* do_div(monotonicTime, 1000); */ /* ns to us */
+		/* ns */
 		CtrlCmd.i8Param[0] = monotonicTime;
 
 		hwTickCnt     = CtrlCmd.i8Param[1];
 		monotonicTime = archcounter_timesync_to_monotonic(hwTickCnt);
-		/* do_div(monotonicTime, 1000); */ /* ns to us */
+		/* ns */
 		CtrlCmd.i8Param[1] = monotonicTime;
 
 		#if 0
@@ -421,14 +411,13 @@ static void ois_pos_polling(struct work_struct *data)
 	if (g_pstAF_CurDrv) {
 		if (g_pstAF_CurDrv->pAF_OisGetHallPos) {
 			int PosX = 0, PosY = 0;
+
 			g_pstAF_CurDrv->pAF_OisGetHallPos(&PosX, &PosY);
-			if (g_OisPosIdx >= 0) {
-				OisPosInfo.TimeStamp[g_OisPosIdx] = getCurNS();
-				OisPosInfo.i4OISHallPosX[g_OisPosIdx] = PosX;
-				OisPosInfo.i4OISHallPosY[g_OisPosIdx] = PosY;
-				g_OisPosIdx++;
-				g_OisPosIdx &= OIS_DATA_MASK;
-			}
+			OisPosInfo.TimeStamp[g_OisPosIdx] = getCurNS();
+			OisPosInfo.i4OISHallPosX[g_OisPosIdx] = PosX;
+			OisPosInfo.i4OISHallPosY[g_OisPosIdx] = PosY;
+			g_OisPosIdx++;
+			g_OisPosIdx &= OIS_DATA_MASK;
 		}
 	}
 	mutex_unlock(&ois_mutex);
@@ -476,7 +465,7 @@ static long AF_Ioctl(struct file *a_pstFile, unsigned int a_u4Command,
 			   sizeof(struct stAF_MotorName)))
 		LOG_INF("copy to user failed when getting motor information\n");
 
-	LOG_INF("GETDRVNAME : set driver name(%s)\n", stMotorName.uMotorName);
+	/* LOG_INF("GETDRVNAME : driver name(%s)\n", stMotorName.uMotorName); */
 
 	for (i = 0; i < MAX_NUM_OF_LENS; i++) {
 		if (g_stAF_DrvList[i].uEnable != 1)

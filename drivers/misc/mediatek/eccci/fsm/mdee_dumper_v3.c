@@ -20,7 +20,6 @@
 #include "mdee_dumper_v3.h"
 #include "ccci_config.h"
 #include "ccci_fsm_sys.h"
-#include "ccci_aee_handle.h"
 
 
 #ifndef DB_OPT_DEFAULT
@@ -98,20 +97,20 @@ static void ccci_aed_v3(struct ccci_fsm_ee *mdee, unsigned int dump_flag,
 		fsm_sys_mdee_info_notify(aed_str);
 #if defined(CONFIG_MTK_AEE_FEATURE)
 		if (md_dbg_dump_flag & (1 << MD_DBG_DUMP_SMEM))
-			ccci_aed_md_exception_api(ex_log_addr, ex_log_len,
+			aed_md_exception_api(ex_log_addr, ex_log_len,
 				md_img_addr, md_img_len, buf_fail, db_opt);
 		else
-			ccci_aed_md_exception_api(NULL, 0, md_img_addr,
+			aed_md_exception_api(NULL, 0, md_img_addr,
 				md_img_len, buf_fail, db_opt);
 #endif
 	} else {
 		fsm_sys_mdee_info_notify(aed_str);
 #if defined(CONFIG_MTK_AEE_FEATURE)
 		if (md_dbg_dump_flag & (1 << MD_DBG_DUMP_SMEM))
-			ccci_aed_md_exception_api(ex_log_addr, ex_log_len,
+			aed_md_exception_api(ex_log_addr, ex_log_len,
 				md_img_addr, md_img_len, buff, db_opt);
 		else
-			ccci_aed_md_exception_api(NULL, 0, md_img_addr,
+			aed_md_exception_api(NULL, 0, md_img_addr,
 				md_img_len, buff, db_opt);
 #endif
 		kfree(buff);

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 MediaTek Inc.
+ * Copyright (C) 2019 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -43,7 +44,6 @@
 #define MT6370_CHANNEL_NUM 2
 #define MT6370_CHANNEL_CH1 0
 #define MT6370_CHANNEL_CH2 1
-#define MT6370_CHANNEL_ALL 2
 
 #define MT6370_NONE (-1)
 #define MT6370_DISABLE 0
@@ -173,34 +173,19 @@ static int mt6370_enable(void)
 			|| (mt6370_en_ch2 == MT6370_ENABLE_FLASH))
 		mode = FLASHLIGHT_MODE_FLASH;
 
-	pr_debug("enable(%d,%d), mode:%d.\n",
-		mt6370_en_ch1, mt6370_en_ch2, mode);
-
 	/* enable channel 1 and channel 2 */
-	if (mt6370_decouple_mode == FLASHLIGHT_SCENARIO_COUPLE &&
-			mt6370_en_ch1 != MT6370_DISABLE &&
-			mt6370_en_ch2 != MT6370_DISABLE) {
-		pr_info("dual flash mode\n");
-		if (mode == FLASHLIGHT_MODE_TORCH)
-			ret |= flashlight_set_mode(
-				flashlight_dev_ch1, FLASHLIGHT_MODE_DUAL_TORCH);
-		else
-			ret |= flashlight_set_mode(
-				flashlight_dev_ch1, FLASHLIGHT_MODE_DUAL_FLASH);
-	} else {
-		if (mt6370_en_ch1)
-			ret |= flashlight_set_mode(
+	if (mt6370_en_ch1)
+		ret |= flashlight_set_mode(
 				flashlight_dev_ch1, mode);
-		else if (mt6370_decouple_mode == FLASHLIGHT_SCENARIO_COUPLE)
-			ret |= flashlight_set_mode(
+	else
+		ret |= flashlight_set_mode(
 				flashlight_dev_ch1, FLASHLIGHT_MODE_OFF);
-		if (mt6370_en_ch2)
-			ret |= flashlight_set_mode(
+	if (mt6370_en_ch2)
+		ret |= flashlight_set_mode(
 				flashlight_dev_ch2, mode);
-		else if (mt6370_decouple_mode == FLASHLIGHT_SCENARIO_COUPLE)
-			ret |= flashlight_set_mode(
+	else
+		ret |= flashlight_set_mode(
 				flashlight_dev_ch2, FLASHLIGHT_MODE_OFF);
-	}
 
 	if (ret < 0)
 		pr_err("Failed to enable.\n");
@@ -209,78 +194,21 @@ static int mt6370_enable(void)
 }
 
 /* flashlight disable function */
-static int mt6370_disable_ch1(void)
+static int mt6370_disable(void)
 {
 	int ret = 0;
 
-	pr_debug("disable_ch1.\n");
-
-	if (!flashlight_dev_ch1) {
-		pr_info("Failed to disable since no flashlight device.\n");
+	if (!flashlight_dev_ch1 || !flashlight_dev_ch2) {
+		pr_err("Failed to disable since no flashlight device.\n");
 		return -1;
 	}
 
+	/* disable channel 1 and channel 2 */
 	ret |= flashlight_set_mode(flashlight_dev_ch1, FLASHLIGHT_MODE_OFF);
-
-	if (ret < 0)
-		pr_info("Failed to disable.\n");
-
-	return ret;
-}
-
-static int mt6370_disable_ch2(void)
-{
-	int ret = 0;
-
-	pr_debug("disable_ch2.\n");
-
-	if (!flashlight_dev_ch2) {
-		pr_info("Failed to disable since no flashlight device.\n");
-		return -1;
-	}
-
 	ret |= flashlight_set_mode(flashlight_dev_ch2, FLASHLIGHT_MODE_OFF);
 
 	if (ret < 0)
-		pr_info("Failed to disable.\n");
-
-	return ret;
-}
-
-static int mt6370_disable_all(void)
-{
-	int ret = 0;
-
-	pr_debug("disable_ch1.\n");
-
-	if (!flashlight_dev_ch1) {
-		pr_info("Failed to disable since no flashlight device.\n");
-		return -1;
-	}
-
-	ret |= flashlight_set_mode(flashlight_dev_ch1,
-				   FLASHLIGHT_MODE_DUAL_OFF);
-
-	if (ret < 0)
-		pr_info("Failed to disable.\n");
-
-	return ret;
-}
-
-static int mt6370_disable(int channel)
-{
-	int ret = 0;
-
-	if (channel == MT6370_CHANNEL_CH1)
-		ret = mt6370_disable_ch1();
-	else if (channel == MT6370_CHANNEL_CH2)
-		ret = mt6370_disable_ch2();
-	else if (channel == MT6370_CHANNEL_ALL)
-		ret = mt6370_disable_all();
-	else {
-		pr_info("Error channel\n");
-		return -1;
-	}
+		pr_err("Failed to disable.\n");
 
 	return ret;
 }
@@ -340,6 +268,32 @@ static int mt6370_set_level(int channel, int level)
 	return 0;
 }
 
+/* set flashlight node */
+int mt6370_flashlight_strobe_node(int level)
+{
+	int ret = 0;
+
+	if (!flashlight_dev_ch1 || !flashlight_dev_ch2) {
+		pr_err("Failed to enable since no flashlight device.\n");
+		return -1;
+	}
+
+	if (level > 0) {
+		/* enable channel 1*/
+		mt6370_set_level_ch1(6);
+		ret |= flashlight_set_mode(flashlight_dev_ch1, FLASHLIGHT_MODE_TORCH);
+	} else {
+		/* disable channel 1*/
+		ret |= flashlight_set_mode(flashlight_dev_ch1, FLASHLIGHT_MODE_OFF);
+	}
+
+	if (ret < 0)
+		pr_err("Failed to enable.\n");
+
+	return ret;
+}
+EXPORT_SYMBOL(mt6370_flashlight_strobe_node);
+
 static int mt6370_set_scenario(int scenario)
 {
 	/* set decouple mode */
@@ -391,8 +345,6 @@ static int mt6370_init(void)
 /* flashlight uninit */
 static int mt6370_uninit(void)
 {
-	int ret;
-
 	/* clear flashlight state */
 	mt6370_en_ch1 = MT6370_NONE;
 	mt6370_en_ch2 = MT6370_NONE;
@@ -403,9 +355,7 @@ static int mt6370_uninit(void)
 	/* clear charger status */
 	is_decrease_voltage = 0;
 
-	ret = mt6370_disable(MT6370_CHANNEL_ALL);
-
-	return ret;
+	return mt6370_disable();
 }
 
 
@@ -415,13 +365,13 @@ static int mt6370_uninit(void)
 static void mt6370_work_disable_ch1(struct work_struct *data)
 {
 	pr_debug("ht work queue callback\n");
-	mt6370_disable(MT6370_CHANNEL_CH1);
+	mt6370_disable();
 }
 
 static void mt6370_work_disable_ch2(struct work_struct *data)
 {
 	pr_debug("lt work queue callback\n");
-	mt6370_disable(MT6370_CHANNEL_CH2);
+	mt6370_disable();
 }
 
 static enum hrtimer_restart mt6370_timer_func_ch1(struct hrtimer *timer)
@@ -500,26 +450,13 @@ static int mt6370_operate(int channel, int enable)
 		}
 	}
 
-	pr_debug("en_ch(%d,%d), decouple:%d\n",
-		mt6370_en_ch1, mt6370_en_ch2, mt6370_decouple_mode);
-
 	/* operate flashlight and setup timer */
 	if ((mt6370_en_ch1 != MT6370_NONE) && (mt6370_en_ch2 != MT6370_NONE)) {
 		if ((mt6370_en_ch1 == MT6370_DISABLE) &&
 				(mt6370_en_ch2 == MT6370_DISABLE)) {
-			if (mt6370_decouple_mode) {
-				if (channel == MT6370_CHANNEL_CH1) {
-					mt6370_disable(MT6370_CHANNEL_CH1);
-					mt6370_timer_cancel(MT6370_CHANNEL_CH1);
-				} else if (channel == MT6370_CHANNEL_CH2) {
-					mt6370_disable(MT6370_CHANNEL_CH2);
-					mt6370_timer_cancel(MT6370_CHANNEL_CH2);
-				}
-			} else {
-				mt6370_disable(MT6370_CHANNEL_ALL);
-				mt6370_timer_cancel(MT6370_CHANNEL_CH1);
-				mt6370_timer_cancel(MT6370_CHANNEL_CH2);
-			}
+			mt6370_disable();
+			mt6370_timer_cancel(MT6370_CHANNEL_CH1);
+			mt6370_timer_cancel(MT6370_CHANNEL_CH2);
 		} else {
 			if (mt6370_timeout_ms[MT6370_CHANNEL_CH1] &&
 				mt6370_en_ch1 != MT6370_DISABLE) {

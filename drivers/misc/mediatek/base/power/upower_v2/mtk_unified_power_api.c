@@ -35,7 +35,8 @@ void upower_update_volt_by_eem(enum upower_bank bank,
 				index = opp_num - j - 1;
 				upower_tbl_ref[i].row[index].volt = volt[j];
 			}
-			upower_tbl_ref[i].lkg_idx = 0; /* default as 85 */
+			if (upower_tbl_ref[i].lkg_idx >= NR_UPOWER_DEGREE)
+				upower_tbl_ref[i].lkg_idx = 0; /* default 85 */
 			upower_debug("(bk %d)volt = %u, (eem bk %d)volt = %u\n",
 				i, upower_tbl_ref[i].row[0].volt,
 				bank, volt[0]);
@@ -109,16 +110,12 @@ EXPORT_SYMBOL(upower_get_tbl);
 
 int upower_get_turn_point(void)
 {
-#ifndef DISABLE_TP
 	struct upower_tbl *L_tbl;
 	int turn_point;
 
 	L_tbl = &upower_tbl_ref[UPOWER_BANK_L];
 	turn_point = L_tbl->turn_point;
 	return turn_point;
-#else
-	return -1;
-#endif
 
 }
 EXPORT_SYMBOL(upower_get_turn_point);

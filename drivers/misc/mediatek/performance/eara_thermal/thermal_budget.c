@@ -38,25 +38,14 @@
 #include "thermal_budget_platform.h"
 #include "thermal_budget.h"
 
-#ifdef MAX
-#undef MAX
-#endif
-#ifdef MIN
-#undef MIN
-#endif
-
-#include <tscpu_settings.h>
 
 #if defined(CONFIG_MTK_VPU_SUPPORT) && defined(THERMAL_VPU_SUPPORT)
 #define EARA_THERMAL_VPU_SUPPORT
 #endif
 
+
 #if defined(CONFIG_MTK_MDLA_SUPPORT) && defined(THERMAL_MDLA_SUPPORT)
 #define EARA_THERMAL_MDLA_SUPPORT
-#endif
-
-#if defined(EARA_THERMAL_VPU_SUPPORT) || defined(EARA_THERMAL_MDLA_SUPPORT)
-#define EARA_THERMAL_AI_SUPPORT
 #endif
 
 
@@ -74,6 +63,7 @@
 #define TOO_LONG_TIME 200000000
 #define TOO_SHORT_TIME 0
 #define REPLACE_FRAME_COUNT 3
+#define LONG_ENQUEUE 4000000
 #define STABLE_TH 5
 #define BYPASS_TH 3
 
@@ -132,14 +122,6 @@ enum RENDER_AI_TYPE {
 	AI_CROSS_MDLA = 4,
 };
 
-enum THRM_MODULE {
-	THRM_GPU,
-	THRM_VPU,
-	THRM_MDLA,
-	THRM_CPU_OFFSET,
-	THRM_CPU,
-};
-
 #ifdef CPU_OPP_NUM
 struct cpu_dvfs_info {
 	unsigned int power[CPU_OPP_NUM];
@@ -194,6 +176,12 @@ struct thrm_pb_realloc {
 	int frame_time;
 };
 
+struct thrm_pb_ratio {
+	int ratio;
+	int vpu_power;
+	int mdla_power;
+};
+
 struct dentry *eara_thrm_debugfs_dir;
 
 static struct apthermolmt_user ap_eara;
@@ -205,7 +193,6 @@ static struct mt_gpufreq_power_table_info *thr_gpu_tbl;
 static int g_cluster_num;
 static int g_modules_num;
 static int g_gpu_opp_num;
-static int g_max_gpu_opp_idx;
 
 static int is_enable;
 static int is_throttling;
@@ -247,6 +234,7 @@ static int *g_mdla_opp;
 static int mdla_num;
 static int min_mdla_power;
 #endif
+
 
 static struct workqueue_struct *wq;
 static DECLARE_WORK(eara_thrm_work, (void *) wq_func);
@@ -387,6 +375,50 @@ static void get_cobra_tbl(void)
 	memcpy(thr_cobra_tbl, cobra_tbl, sizeof(*cobra_tbl));
 }
 
+static void __alloc_gpu_tbl(void)
+{
+	/*
+	 * Bind @thr_gpu_tbl, @g_opp_ratio and @g_gpu_opp_num together.
+	 * JUST check one of them to know if initialized or not.
+	 */
+
+	if (thr_gpu_tbl)
+		return;
+
+	g_gpu_opp_num = mt_gpufreq_get_dvfs_table_num();
+	if (!g_gpu_opp_num)
+		return;
+
+	thr_gpu_tbl = kcalloc(g_gpu_opp_num, sizeof(*thr_gpu_tbl), GFP_KERNEL);
+	g_opp_ratio = kcalloc(g_gpu_opp_num,
+			sizeof(struct thrm_pb_ratio), GFP_KERNEL);
+
+	if (!thr_gpu_tbl || !g_opp_ratio) {
+		kfree(thr_gpu_tbl);
+		thr_gpu_tbl = NULL;
+		kfree(g_opp_ratio);
+		g_opp_ratio = NULL;
+		g_gpu_opp_num = 0;
+	}
+}
+
+static void __update_gpu_tbl(void)
+{
+	/* should be locked unless init */
+
+	struct mt_gpufreq_power_table_info *tbl;
+
+	__alloc_gpu_tbl();
+	if (!thr_gpu_tbl)
+		return;
+
+	tbl = pass_gpu_table_to_eara();
+	if (!tbl)
+		return;
+
+	memcpy(thr_gpu_tbl, tbl, g_gpu_opp_num * sizeof(*tbl));
+}
+
 static void activate_timer_locked(void)
 {
 	unsigned long expire;
@@ -416,8 +448,7 @@ static void wq_func(unsigned long data)
 	if (cur_ts < TIME_1S)
 		goto next;
 
-	eara_thrm_update_gpu_info(&g_gpu_opp_num, &g_max_gpu_opp_idx,
-			&thr_gpu_tbl, &g_opp_ratio);
+	__update_gpu_tbl();
 
 	for (n = rb_first(&render_list); n; n = next) {
 		next = rb_next(n);
@@ -768,8 +799,7 @@ static void thrm_pb_turn_record_locked(int input)
 	has_record = input;
 
 	if (input) {
-		eara_thrm_update_gpu_info(&g_gpu_opp_num, &g_max_gpu_opp_idx,
-			&thr_gpu_tbl, &g_opp_ratio);
+		__update_gpu_tbl();
 		if (!is_timer_active)
 			activate_timer_locked();
 	} else {
@@ -796,7 +826,7 @@ static void thrm_pb_turn_throttling_locked(int throttling)
 }
 
 #if defined(EARA_THERMAL_VPU_SUPPORT) || defined(EARA_THERMAL_MDLA_SUPPORT)
-void check_AI_onoff_locked(int module)
+static void check_AI_onoff_locked(int module)
 {
 	int AI_onoff;
 
@@ -848,7 +878,7 @@ static int eara_thrm_xpufreq_notifier_cb(struct notifier_block *nb,
 		{
 			struct pob_xpufreq_info *pxi =
 				(struct pob_xpufreq_info *) data;
-			if (pxi->id >= eara_thrm_get_vpu_core_num())
+			if (pxi->id >= rs_get_vpu_core_num())
 				break;
 			if (g_vpu_opp)
 				g_vpu_opp[pxi->id] = pxi->opp;
@@ -862,7 +892,7 @@ static int eara_thrm_xpufreq_notifier_cb(struct notifier_block *nb,
 		{
 			struct pob_xpufreq_info *pxi =
 				(struct pob_xpufreq_info *) data;
-			if (pxi->id >= eara_thrm_get_mdla_core_num())
+			if (pxi->id >= rs_get_mdla_core_num())
 				break;
 			if (g_mdla_opp)
 				g_mdla_opp[pxi->id] = pxi->opp;
@@ -1186,12 +1216,7 @@ static int reallocate_perf_first(int remain_budget,
 			int ChoosenCl = -1, MaxPerf = 0, ChoosenPwr = 0;
 			int target_delta_pwr, target_perf;
 			int ChoosenModule = -1;
-#ifdef EARA_THERMAL_VPU_SUPPORT
-			int new_vpu_time = 0;
-#endif
-#ifdef EARA_THERMAL_MDLA_SUPPORT
-			int new_mdla_time = 0;
-#endif
+			int new_vpu_time = 0, new_mdla_time = 0;
 
 			if (opp[THRM_CPU_OFFSET + CLUSTER_L] == 0
 				&& ACT_CORE(B) == 0) {
@@ -1320,29 +1345,20 @@ static int reallocate_perf_first(int remain_budget,
 				cur_sys_cap = cal_system_capacity(out_cl_cap,
 						core_limit);
 				goto prepare_next_round;
-			}
-#ifdef EARA_THERMAL_AI_SUPPORT
-			else if (ChoosenModule != -1) {
+			} else if (ChoosenModule != -1) {
 				opp[ChoosenModule] -= 1;
-				if (ChoosenModule != THRM_VPU
-					&& ChoosenModule != THRM_MDLA)
-					EARA_THRM_LOGE("unknown module %d\n",
-							ChoosenModule);
-#ifdef EARA_THERMAL_VPU_SUPPORT
-				else if (ChoosenModule == THRM_VPU) {
+				if (ChoosenModule == THRM_VPU) {
 					vpu_time = new_vpu_time;
 					vpu_opp = opp[ChoosenModule];
-				}
-#endif
-#ifdef EARA_THERMAL_MDLA_SUPPORT
-				else if (ChoosenModule == THRM_MDLA) {
+				} else if (ChoosenModule == THRM_MDLA) {
 					mdla_time = new_mdla_time;
 					mdla_opp = opp[ChoosenModule];
-				}
-#endif
+				} else
+					EARA_THRM_LOGE("unknown module %d\n",
+							ChoosenModule);
 				goto prepare_next_round;
 			}
-#endif
+
 			/* give budget to B */
 			while (CORE_LIMIT(B) <
 				get_cluster_max_cpu_core(CLUSTER_B)) {
@@ -1402,12 +1418,7 @@ prepare_next_round:
 			int MinPerf = INT_MAX;
 			int ChoosenPwr = 0;
 			int target_perf;
-#ifdef EARA_THERMAL_VPU_SUPPORT
-			int new_vpu_time = 0;
-#endif
-#ifdef EARA_THERMAL_MDLA_SUPPORT
-			int new_mdla_time = 0;
-#endif
+			int new_vpu_time = 0, new_mdla_time = 0;
 
 			/* B-cluster */
 			if (IS_ABLE_DOWN_GEAR(CORE_LIMIT(B),
@@ -1518,29 +1529,20 @@ prepare_next_round:
 				cur_sys_cap = cal_system_capacity(out_cl_cap,
 						core_limit);
 				goto prepare_next_round_down;
-			}
-#ifdef EARA_THERMAL_AI_SUPPORT
-			else if (ChoosenModule != -1) {
+			} else if (ChoosenModule != -1) {
 				opp[ChoosenModule] += 1;
-				if (ChoosenModule != THRM_VPU
-					&& ChoosenModule != THRM_MDLA)
-					EARA_THRM_LOGE("unknown module %d\n",
-							ChoosenModule);
-#ifdef EARA_THERMAL_VPU_SUPPORT
-				else if (ChoosenModule == THRM_VPU) {
+				if (ChoosenModule == THRM_VPU) {
 					vpu_time = new_vpu_time;
 					vpu_opp = opp[ChoosenModule];
-				}
-#endif
-#ifdef EARA_THERMAL_MDLA_SUPPORT
-				else if (ChoosenModule == THRM_MDLA) {
+				} else if (ChoosenModule == THRM_MDLA) {
 					mdla_time = new_mdla_time;
 					mdla_opp = opp[ChoosenModule];
-				}
-#endif
+				} else
+					EARA_THRM_LOGE("unknown module %d\n",
+							ChoosenModule);
 				goto prepare_next_round_down;
 			}
-#endif
+
 			EARA_THRM_LOGI("No lower OPP!\n");
 			EARA_THRM_LOGI("(bgt/delta/cur)=(%d/%d/%d)\n",
 				remain_budget, delta_power, curr_power);
@@ -1780,59 +1782,6 @@ static int gpu_opp_cand_low(int init_opp, int gpu_time, int cpu_time)
 	return __scale_gpu_opp(init_opp, gpu_time, cpu_time);
 }
 
-static int is_limit_in_range(int cpu_limit, int gpu_limit,
-			int vpu_limit, int mdla_limit)
-{
-	int min_cpu, min_gpu;
-#ifdef EARA_THERMAL_VPU_SUPPORT
-	int min_vpu;
-#endif
-#ifdef EARA_THERMAL_MDLA_SUPPORT
-	int min_mdla;
-#endif
-
-	min_cpu = apthermolmt_get_cpu_min_power();
-	min_gpu = apthermolmt_get_gpu_min_power();
-
-	if (cpu_limit <=
-		thr_cobra_tbl->basic_pwr_tbl[0][CPU_OPP_NUM - 1].power_idx
-		|| cpu_limit <= min_cpu) {
-		EARA_THRM_LOGE("CPU limit too low (%d, %d)\n",
-			cpu_limit, min_cpu);
-		return 0;
-	}
-
-	if (gpu_limit <= min_gpu) {
-		EARA_THRM_LOGE("GPU limit too low (%d, %d)\n",
-			gpu_limit, min_gpu);
-		return 0;
-	}
-
-#ifdef EARA_THERMAL_VPU_SUPPORT
-	/* when vpu is not on, limit is always equal to min power */
-	min_vpu = apthermolmt_get_vpu_min_power();
-
-	if (vpu_limit < min_vpu) {
-		EARA_THRM_LOGE("VPU limit too low (%d, %d)\n",
-			vpu_limit, min_vpu);
-		return 0;
-	}
-#endif
-
-#ifdef EARA_THERMAL_MDLA_SUPPORT
-	min_mdla = apthermolmt_get_mdla_min_power();
-
-	if (mdla_limit < min_mdla) {
-		EARA_THRM_LOGE("MDLA limit too low (%d, %d)\n",
-			mdla_limit, min_mdla);
-		return 0;
-	}
-#endif
-
-	return 1;
-
-}
-
 void eara_thrm_pb_enqueue_end(int pid, int gpu_time,
 			int gpu_freq, unsigned long long enq)
 {
@@ -1973,22 +1922,22 @@ void eara_thrm_pb_enqueue_end(int pid, int gpu_time,
 #ifdef EARA_THERMAL_VPU_SUPPORT
 			if (is_VPU_on) {
 				temp_vpu_power =
-					vpu_dvfs_tbl.power[VPU_OPP_NUM - 1];
+				vpu_dvfs_tbl.power[VPU_OPP_NUM - 1];
 			}
 #endif
 #ifdef EARA_THERMAL_MDLA_SUPPORT
 			if (is_MDLA_on) {
 				temp_mdla_power =
-					mdla_dvfs_tbl.power[MDLA_OPP_NUM - 1];
+				mdla_dvfs_tbl.power[MDLA_OPP_NUM - 1];
 			}
 #endif
 		}
 	} else {
 #ifdef EARA_THERMAL_VPU_SUPPORT
-		temp_vpu_power = min_vpu_power;
+			temp_vpu_power = min_vpu_power;
 #endif
 #ifdef EARA_THERMAL_MDLA_SUPPORT
-		temp_mdla_power = min_mdla_power;
+			temp_mdla_power = min_mdla_power;
 #endif
 	}
 
@@ -2076,16 +2025,27 @@ void eara_thrm_pb_enqueue_end(int pid, int gpu_time,
 	if (best_gpu_opp != INIT_UNSET
 		&& best_gpu_opp >= 0
 		&& best_gpu_opp < g_gpu_opp_num) {
+#if 0
+		if (enq > LONG_ENQUEUE) {
+			int temp_opp = best_gpu_opp;
 
+			EARA_THRM_LOGI("enlarge GPU from %d\n", best_gpu_opp);
+			temp_opp -= ENLARGE_GPU_OPP;
+			temp_opp = clamp(temp_opp, 0, gpu_opp_num - 1);
+
+			if (g_total_pb > thr_gpu_tbl[temp_opp].gpufreq_power)
+				best_gpu_opp = temp_opp;
+		}
+#endif
 		int new_gpu_power = thr_gpu_tbl[best_gpu_opp].gpufreq_power + 1;
 		int new_cpu_power = g_total_pb
 				- new_gpu_power
 				- g_opp_ratio[best_gpu_opp].vpu_power
 				- g_opp_ratio[best_gpu_opp].mdla_power;
 
-		if (!is_limit_in_range(new_cpu_power, new_gpu_power,
-					g_opp_ratio[best_gpu_opp].vpu_power,
-					g_opp_ratio[best_gpu_opp].mdla_power))
+		if (new_cpu_power <=
+			thr_cobra_tbl->basic_pwr_tbl
+				[0][CPU_OPP_NUM - 1].power_idx)
 			goto CAN_NOT_CONTROL;
 
 		if (stable_count < STABLE_TH) {
@@ -2335,12 +2295,9 @@ static int eara_thrm_table_show(struct seq_file *m, void *unused)
 	seq_printf(m, "#CPU cluster: %d\n", g_cluster_num);
 	seq_printf(m, "#module: %d\n", g_modules_num);
 	seq_printf(m, "CPU_OFFSET: %d\n", THRM_CPU_OFFSET);
-	seq_printf(m, "GPU max_opp %d\n", g_max_gpu_opp_idx);
-	seq_printf(m, "GPU num_opp %d\n", mt_gpufreq_get_dvfs_table_num());
 
 	get_cobra_tbl();
-	eara_thrm_update_gpu_info(&g_gpu_opp_num, &g_max_gpu_opp_idx,
-			&thr_gpu_tbl, &g_opp_ratio);
+	__update_gpu_tbl();
 	if (!thr_cobra_tbl || !thr_gpu_tbl) {
 		mutex_unlock(&thrm_lock);
 		return 0;
@@ -2551,8 +2508,7 @@ static ssize_t eara_thrm_test_write(struct file *flip, const char *ubuf,
 	ut_opp[THRM_MDLA] = -1;
 
 	get_cobra_tbl();
-	eara_thrm_update_gpu_info(&g_gpu_opp_num, &g_max_gpu_opp_idx,
-			&thr_gpu_tbl, &g_opp_ratio);
+	__update_gpu_tbl();
 	if (!thr_cobra_tbl || !thr_gpu_tbl)
 		return -EAGAIN;
 
@@ -2610,7 +2566,7 @@ static void update_cpu_info(void)
 	g_cluster_num = arch_get_nr_clusters();
 
 	cpu_dvfs_tbl =
-		kcalloc(g_cluster_num, sizeof(struct cpu_dvfs_info),
+		kzalloc(g_cluster_num * sizeof(struct cpu_dvfs_info),
 			GFP_KERNEL);
 	if (!cpu_dvfs_tbl)
 		return;
@@ -2636,8 +2592,8 @@ static void update_cpu_info(void)
 			do_div(temp, 1024);
 			temp2 = (unsigned int)temp;
 			temp2 = clamp(temp2, 1U, 100U);
-			cpu_dvfs_tbl[cluster].capacity_ratio[
-				CPU_OPP_NUM - 1 - opp] = temp2;
+			cpu_dvfs_tbl[cluster].
+				capacity_ratio[CPU_OPP_NUM - 1 - opp] = temp2;
 		}
 	}
 
@@ -2657,7 +2613,7 @@ static void update_vpu_info(void)
 			get_vpu_opp_to_freq(0);
 	}
 #ifdef CONFIG_MTK_PERF_OBSERVER
-	vpu_num = eara_thrm_get_vpu_core_num();
+	vpu_num = rs_get_vpu_core_num();
 #endif
 	if (vpu_num) {
 		g_vpu_opp = kcalloc(vpu_num, sizeof(int), GFP_KERNEL);
@@ -2681,7 +2637,7 @@ static void update_mdla_info(void)
 			get_mdla_opp_to_freq(0);
 	}
 #ifdef CONFIG_MTK_PERF_OBSERVER
-	mdla_num = eara_thrm_get_mdla_core_num();
+	mdla_num = rs_get_mdla_core_num();
 #endif
 	if (mdla_num) {
 		g_mdla_opp = kcalloc(mdla_num, sizeof(int), GFP_KERNEL);
@@ -2695,8 +2651,7 @@ static void update_mdla_info(void)
 static void get_power_tbl(void)
 {
 	update_cpu_info();
-	eara_thrm_update_gpu_info(&g_gpu_opp_num, &g_max_gpu_opp_idx,
-			&thr_gpu_tbl, &g_opp_ratio);
+	__update_gpu_tbl();
 	update_vpu_info();
 	update_mdla_info();
 

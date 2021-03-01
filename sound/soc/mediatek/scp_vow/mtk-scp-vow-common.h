@@ -1,7 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0
+/* SPDX-License-Identifier: GPL-2.0 */
 /*
- * Copyright (c) 2019 MediaTek Inc.
- * Author Che-Jui Chang <Che-Jui.Chang@mediatek.com>
+ * mtk-scp-vow-common.h  --
+ *
+ * Copyright (c) 2017 MediaTek Inc.
+ * Author: Poyen <Poyne.wu@mediatek.com>
  */
 
 #ifndef _MTK_SCP_VOW_COMMON_H_

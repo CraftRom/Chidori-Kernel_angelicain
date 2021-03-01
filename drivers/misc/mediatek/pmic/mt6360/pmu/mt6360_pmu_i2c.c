@@ -212,17 +212,16 @@ static int mt6360_pmu_parse_dt_data(struct device *dev,
 	mt6360_dt_parser_helper(np, (void *)pdata,
 				mt6360_val_props, ARRAY_SIZE(mt6360_val_props));
 #if (!defined(CONFIG_MTK_GPIO) || defined(CONFIG_MTK_GPIOLIB_STAND))
-	ret = of_get_named_gpio(np, "mt6360,intr_gpio", 0);
+	ret = of_get_named_gpio(np, "mt6360,irq_gpio", 0);
 	if (ret < 0) {
-		dev_notice(dev, "%s of get named gpio fail\n", __func__);
+		dev_err(dev, "%s of get named gpio fail\n", __func__);
 		goto out_parse_dt;
 	}
 	pdata->irq_gpio = ret;
 #else
-	ret = of_property_read_u32(np, "mt6360,intr_gpio_num",
-				   &pdata->irq_gpio);
+	ret = of_property_read_u32(np, "mt6360,irq_gpio_num", &pdata->irq_gpio);
 	if (ret < 0) {
-		dev_notice(dev, "%s of gpio num fail\n", __func__);
+		dev_err(dev, "%s of gpio num fail\n", __func__);
 		goto out_parse_dt;
 	}
 #endif /* (!defined(CONFIG_MTK_GPIO) || defined(CONFIG_MTK_GPIOLIB_STAND)) */

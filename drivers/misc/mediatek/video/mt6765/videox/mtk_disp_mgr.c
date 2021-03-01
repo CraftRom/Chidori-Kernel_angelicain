@@ -102,6 +102,12 @@ static DEFINE_MUTEX(disp_session_lock);
 static dev_t mtk_disp_mgr_devno;
 static struct cdev *mtk_disp_mgr_cdev;
 static struct class *mtk_disp_mgr_class;
+#ifdef CONFIG_MTK_VIDEOX_LIVEDISPLAY
+static struct mtk_rgb_work_queue {
+	struct work_struct work;
+	struct mutex lock;
+} mtk_rgb_work_queue;
+#endif
 
 static int mtk_disp_mgr_open(struct inode *inode, struct file *file)
 {
@@ -121,6 +127,34 @@ static int mtk_disp_mgr_release(struct inode *inode, struct file *file)
 
 static int mtk_disp_mgr_flush(struct file *a_pstFile, fl_owner_t a_id)
 {
+	return 0;
+}
+
+static int mtk_disp_mgr_mmap(struct file *file, struct vm_area_struct *vma)
+{
+	static const unsigned long addr_min = 0x14000000;
+	static const unsigned long addr_max = 0x14025000;
+	static const unsigned long size = addr_max - addr_min;
+	const unsigned long require_size = vma->vm_end - vma->vm_start;
+	unsigned long pa_start = vma->vm_pgoff << PAGE_SHIFT;
+	unsigned long pa_end = pa_start + require_size;
+
+	DISPDBG("mmap size %ld, vmpg0ff 0x%lx, pastart 0x%lx, paend 0x%lx\n",
+		require_size, vma->vm_pgoff, pa_start, pa_end);
+
+	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+
+	if (require_size > size || (pa_start < addr_min ||
+		pa_end > addr_max)) {
+		DISPERR("mmap size range over flow!!\n");
+		return -EAGAIN;
+	}
+	if (remap_pfn_range(vma, vma->vm_start, vma->vm_pgoff,
+		(vma->vm_end - vma->vm_start), vma->vm_page_prot)) {
+		DISPERR("display mmap failed!!\n");
+		return -EAGAIN;
+	}
+
 	return 0;
 }
 
@@ -691,7 +725,7 @@ static int input_config_preprocess(struct disp_frame_cfg_t *cfg)
 			"set_%s_buffer, conf_layer_num invalid=%d, max_layer_num=%d!\n",
 			disp_session_mode_spy(session_id), cfg->input_layer_num,
 			_get_max_layer(session_id));
-		return -1;
+		return 0;
 	}
 
 	disp_input_get_dirty_roi(cfg);
@@ -733,7 +767,7 @@ static int input_config_preprocess(struct disp_frame_cfg_t *cfg)
 			dst_mva =
 				(unsigned long)(cfg->input_cfg[i].src_phy_addr);
 			if (!dst_mva) {
-				disp_sync_query_buf_info(
+				disp_sync_query_buf_info_nosync(
 				session_id, layer_id,
 				(unsigned int)cfg->input_cfg[i].next_buff_idx,
 				&dst_mva, &dst_size);
@@ -1005,10 +1039,7 @@ long _frame_config(unsigned long arg)
 	DISPDBG("%s\n", __func__);
 	frame_cfg->setter = SESSION_USER_HWC;
 
-	if (input_config_preprocess(frame_cfg) != 0) {
-		kfree(frame_cfg);
-		return -EINVAL;
-	}
+	input_config_preprocess(frame_cfg);
 	if (frame_cfg->output_en)
 		output_config_preprocess(frame_cfg);
 
@@ -1366,7 +1397,6 @@ int set_session_mode(struct disp_session_config *config_info, int force)
 
 int _ioctl_set_session_mode(unsigned long arg)
 {
-	int ret = -1;
 	void __user *argp = (void __user *)arg;
 	struct disp_session_config config_info;
 
@@ -1376,15 +1406,7 @@ int _ioctl_set_session_mode(unsigned long arg)
 			__LINE__);
 		return -EFAULT;
 	}
-
-	if (config_info.mode > DISP_INVALID_SESSION_MODE &&
-		config_info.mode < DISP_SESSION_MODE_NUM) {
-		ret = set_session_mode(&config_info, 0);
-	} else {
-		DISPERR("[FB]: session mode is invalid: %d\n",
-			config_info.mode);
-	}
-	return ret;
+	return set_session_mode(&config_info, 0);
 }
 
 const char *_session_ioctl_spy(unsigned int cmd)
@@ -1434,8 +1456,6 @@ const char *_session_ioctl_spy(unsigned int cmd)
 		return "DISP_IOCTL_CCORR_EVENTCTL";
 	case DISP_IOCTL_CCORR_GET_IRQ:
 		return "DISP_IOCTL_CCORR_GET_IRQ";
-	case DISP_IOCTL_SUPPORT_COLOR_TRANSFORM:
-		return "DISP_IOCTL_SUPPORT_COLOR_TRANSFORM";
 	case DISP_IOCTL_SET_PQPARAM:
 		return "DISP_IOCTL_SET_PQPARAM";
 	case DISP_IOCTL_GET_PQPARAM:
@@ -1552,7 +1572,6 @@ long mtk_disp_mgr_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case DISP_IOCTL_SET_CCORR:
 	case DISP_IOCTL_CCORR_EVENTCTL:
 	case DISP_IOCTL_CCORR_GET_IRQ:
-	case DISP_IOCTL_SUPPORT_COLOR_TRANSFORM:
 	case DISP_IOCTL_SET_PQPARAM:
 	case DISP_IOCTL_GET_PQPARAM:
 	case DISP_IOCTL_SET_PQINDEX:
@@ -1763,7 +1782,6 @@ static long mtk_disp_mgr_compat_ioctl(struct file *file, unsigned int cmd,
 	case DISP_IOCTL_SET_CCORR:
 	case DISP_IOCTL_CCORR_EVENTCTL:
 	case DISP_IOCTL_CCORR_GET_IRQ:
-	case DISP_IOCTL_SUPPORT_COLOR_TRANSFORM:
 	case DISP_IOCTL_SET_PQPARAM:
 	case DISP_IOCTL_GET_PQPARAM:
 	case DISP_IOCTL_SET_PQINDEX:
@@ -1818,6 +1836,7 @@ static long mtk_disp_mgr_compat_ioctl(struct file *file, unsigned int cmd,
 
 static const struct file_operations mtk_disp_mgr_fops = {
 	.owner = THIS_MODULE,
+	.mmap = mtk_disp_mgr_mmap,
 	.unlocked_ioctl = mtk_disp_mgr_ioctl,
 #ifdef CONFIG_COMPAT
 	.compat_ioctl = mtk_disp_mgr_compat_ioctl,
@@ -1914,8 +1933,84 @@ static struct platform_device mtk_disp_mgr_device = {
 	.num_resources = 0,
 };
 
+#ifdef CONFIG_MTK_VIDEOX_LIVEDISPLAY
+#define MAX_LUT_SCALE 2000
+#define PROGRESSION_SCALE 1000
+static u32 mtk_disp_ld_r = MAX_LUT_SCALE;
+static u32 mtk_disp_ld_g = MAX_LUT_SCALE;
+static u32 mtk_disp_ld_b = MAX_LUT_SCALE;
+
+static ssize_t mtk_disp_ld_get_rgb(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d %d %d\n", mtk_disp_ld_r, mtk_disp_ld_g, mtk_disp_ld_b);
+}
+
+/**
+ * The default gamma array is an arithmetic progression with alpha=2 and n0=0 and
+ * n = 512.
+ *
+ * We scale it linearly with the color passed to this RGB interface. The display
+ * subsystem has a color precision of 10 bits which means that values from [0-1024[
+ * are acceptable.
+ *
+ * In order to avoid floating point computations in kernel space we scale the alpha
+ * value by 1000 and then scale back the result using integer division.
+ */
+static ssize_t mtk_disp_ld_set_rgb(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	int r = MAX_LUT_SCALE, g = MAX_LUT_SCALE, b = MAX_LUT_SCALE;
+
+	if (count > 19)
+		return -EINVAL;
+
+	sscanf(buf, "%d %d %d", &r, &g, &b);
+
+	if (r < 0 || r > MAX_LUT_SCALE) return -EINVAL;
+	if (g < 0 || g > MAX_LUT_SCALE) return -EINVAL;
+	if (b < 0 || b > MAX_LUT_SCALE) return -EINVAL;
+
+	cancel_work_sync(&mtk_rgb_work_queue.work);
+	mtk_disp_ld_r = r;
+	mtk_disp_ld_g = g;
+	mtk_disp_ld_b = b;
+	schedule_work(&mtk_rgb_work_queue.work);
+
+	return count;
+}
+
+static DEVICE_ATTR(rgb, S_IRUGO | S_IWUSR | S_IWGRP, mtk_disp_ld_get_rgb, mtk_disp_ld_set_rgb);
+
+static void mtk_disp_rgb_work(struct work_struct *work) {
+        struct mtk_rgb_work_queue *rgb_wq = container_of(work, struct mtk_rgb_work_queue, work);
+	int r = mtk_disp_ld_r, g = mtk_disp_ld_g, b = mtk_disp_ld_b;
+	int i, gammutR, gammutG, gammutB, ret;
+	struct DISP_GAMMA_LUT_T *gamma;
+
+	mutex_lock(&rgb_wq->lock);
+
+	gamma = kzalloc(sizeof(struct DISP_GAMMA_LUT_T), GFP_KERNEL);
+	gamma->hw_id = 0;
+	for (i = 0; i < 512; i++) {
+		gammutR = i * r / PROGRESSION_SCALE;
+		gammutG = i * g / PROGRESSION_SCALE;
+		gammutB = i * b / PROGRESSION_SCALE;
+
+		gamma->lut[i] = GAMMA_ENTRY(gammutR, gammutG, gammutB);
+	}
+
+	ret = primary_display_user_cmd(DISP_IOCTL_SET_GAMMALUT, (unsigned long)gamma);
+
+	kfree(gamma);
+	mutex_unlock(&rgb_wq->lock);
+}
+#endif
+
 static int __init mtk_disp_mgr_init(void)
 {
+	int rc = 0;
+
 	pr_debug("mtk_disp_mgr_init\n");
 	if (platform_device_register(&mtk_disp_mgr_device))
 		return -ENODEV;
@@ -1925,11 +2020,21 @@ static int __init mtk_disp_mgr_init(void)
 		return -ENODEV;
 	}
 
-	return 0;
+#ifdef CONFIG_MTK_VIDEOX_LIVEDISPLAY
+	rc = sysfs_create_file(&(mtk_disp_mgr_device.dev.kobj), &dev_attr_rgb.attr);
+	mutex_init(&mtk_rgb_work_queue.lock);
+	INIT_WORK(&mtk_rgb_work_queue.work, mtk_disp_rgb_work);
+#endif
+
+	return rc;
 }
 
 static void __exit mtk_disp_mgr_exit(void)
 {
+#ifdef CONFIG_MTK_VIDEOX_LIVEDISPLAY
+	mutex_destroy(&mtk_rgb_work_queue.lock);
+	sysfs_remove_file(&(mtk_disp_mgr_device.dev.kobj), &dev_attr_rgb.attr);
+#endif
 	cdev_del(mtk_disp_mgr_cdev);
 	unregister_chrdev_region(mtk_disp_mgr_devno, 1);
 

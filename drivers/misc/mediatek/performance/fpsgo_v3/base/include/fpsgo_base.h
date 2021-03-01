@@ -36,7 +36,6 @@ enum HW_EVENT4RENDER {
 struct fbt_jerk {
 	int id;
 	int jerking;
-	int postpone;
 	struct hrtimer timer;
 	struct work_struct work;
 };
@@ -56,7 +55,6 @@ struct fbt_frame_info {
 struct fbt_thread_loading {
 	int pid;
 	atomic_t loading;
-	atomic_t *loading_cl;
 	atomic_t last_cb_ts;
 	struct list_head entry;
 };
@@ -71,12 +69,6 @@ struct fbt_thread_blc {
 struct fbt_boost_info {
 	unsigned long long target_time;
 	unsigned int last_blc;
-
-	/* adjust loading */
-	int loading_weight;
-	int weight_cnt;
-	int hit_cnt;
-	int deb_cnt;
 
 	/* rescue*/
 	struct fbt_proc proc;
@@ -133,7 +125,6 @@ struct BQ_id {
 	unsigned long long buffer_id;
 	int queue_SF;
 	int pid;
-	int queue_pid;
 	struct rb_node entry;
 };
 
@@ -168,9 +159,9 @@ int fpsgo_has_bypass(void);
 void fpsgo_check_thread_status(void);
 void fpsgo_clear(void);
 struct BQ_id *fpsgo_find_BQ_id(int pid, int tgid, long long identifier,
-		int action);
+		int action, unsigned long long buffer_id);
 int fpsgo_get_BQid_pair(int pid, int tgid, long long identifier,
-		unsigned long long *buffer_id, int *queue_SF, int enqueue);
+		unsigned long long *buffer_id, int *queue_SF);
 void fpsgo_main_trace(const char *fmt, ...);
 void fpsgo_clear_uclamp_boost(int check);
 

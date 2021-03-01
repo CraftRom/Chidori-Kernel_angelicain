@@ -594,7 +594,9 @@ int mmc_run_queue_thread(void *data)
 					__func__, task_id, host->task_id_index,
 					atomic_read(&host->areq_cnt),
 					atomic_read(&host->cq_wait_rdy));
-					WARN_ON(1);
+					/* mmc_cmd_dump(host); */
+					while (1)
+						;
 				}
 				set_bit(task_id, &host->task_id_index);
 
@@ -670,9 +672,6 @@ int mmc_run_queue_thread(void *data)
 		if (atomic_read(&host->areq_cnt) == 0)
 			schedule();
 		set_current_state(TASK_RUNNING);
-
-		if (kthread_should_stop())
-			break;
 	}
 	mt_bio_queue_free(current);
 	return 0;
@@ -874,11 +873,11 @@ int mmc_blk_cmdq_switch(struct mmc_card *card, int enable)
 	}
 
 	card->ext_csd.cmdq_en = enable;
-
+#if 0
 	pr_notice("%s: device cq %s\n",
 		mmc_hostname(host),
 		card->ext_csd.cmdq_en ? "on":"off");
-
+#endif
 	if (enable) {
 		mmc_card_set_cmdq(card);
 #ifdef CONFIG_MTK_EMMC_HW_CQ
@@ -1174,7 +1173,7 @@ static int mmc_start_request(struct mmc_host *host, struct mmc_request *mrq)
 	}
 
 #ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
-	if (host->card && mmc_card_cmdq(host->card) &&
+	if (mmc_card_cmdq(host->card) &&
 			mrq->done == mmc_wait_cmdq_done) {
 		mmc_enqueue_queue(host, mrq);
 		wake_up_process(host->cmdq_thread);
@@ -1356,7 +1355,7 @@ static int __mmc_start_data_req(struct mmc_host *host, struct mmc_request *mrq)
 	mmc_wait_ongoing_tfr_cmd(host);
 
 #ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
-	if (host->card && mmc_card_cmdq(host->card))
+	if (mmc_card_cmdq(host->card))
 		mrq->done = mmc_wait_cmdq_done;
 	else
 #endif
@@ -2142,43 +2141,6 @@ int __mmc_claim_host(struct mmc_host *host, atomic_t *abort)
 	return stop;
 }
 EXPORT_SYMBOL(__mmc_claim_host);
-
-/**
- *     mmc_try_claim_host - try exclusively to claim a host
- *        and keep trying for given time, with a gap of 10ms
- *     @host: mmc host to claim
- *     @dealy_ms: delay in ms
- *
- *     Returns %1 if the host is claimed, %0 otherwise.
- */
-int mmc_try_claim_host(struct mmc_host *host, unsigned int delay_ms)
-{
-	int claimed_host = 0;
-	unsigned long flags;
-	int retry_cnt = delay_ms/10;
-	bool pm = false;
-
-	do {
-		spin_lock_irqsave(&host->lock, flags);
-		if (!host->claimed || host->claimer == current) {
-			host->claimed = 1;
-			host->claimer = current;
-			host->claim_cnt += 1;
-			claimed_host = 1;
-			if (host->claim_cnt == 1)
-				pm = true;
-		}
-		spin_unlock_irqrestore(&host->lock, flags);
-		if (!claimed_host)
-			mmc_delay(10);
-	} while (!claimed_host && retry_cnt--);
-
-	if (pm)
-		pm_runtime_get_sync(mmc_dev(host));
-
-	return claimed_host;
-}
-EXPORT_SYMBOL(mmc_try_claim_host);
 
 /**
  *	mmc_release_host - release a host
@@ -3146,8 +3108,6 @@ void mmc_init_erase(struct mmc_card *card)
 	if (mmc_card_sd(card) && card->ssr.au) {
 		card->pref_erase = card->ssr.au;
 		card->erase_shift = ffs(card->ssr.au) - 1;
-	} else if (card->ext_csd.hc_erase_size) {
-		card->pref_erase = card->ext_csd.hc_erase_size;
 	} else if (card->erase_size) {
 		sz = (card->csd.capacity << (card->csd.read_blkbits - 9)) >> 11;
 		if (sz < 128)
@@ -3157,7 +3117,8 @@ void mmc_init_erase(struct mmc_card *card)
 		else if (sz < 1024)
 			card->pref_erase = 2 * 1024 * 1024 / 512;
 		else
-			card->pref_erase = 4 * 1024 * 1024 / 512;
+		/* workaround: enlarge 'pref_erase' to  speed up discard */
+			card->pref_erase = 128 * 1024 * 1024 / 512;
 
 		if (card->pref_erase < card->erase_size)
 			card->pref_erase = card->erase_size;
@@ -3863,9 +3824,6 @@ unsigned int mmc_calc_max_discard(struct mmc_card *card)
 	struct mmc_host *host = card->host;
 	unsigned int max_discard, max_trim;
 
-	if (!host->max_busy_timeout)
-		return UINT_MAX;
-
 	/*
 	 * Without erase_group_def set, MMC erase timeout depends on clock
 	 * frequence which can change.  In that case, the best choice is
@@ -4000,7 +3958,6 @@ static int mmc_rescan_try_freq(struct mmc_host *host, unsigned freq)
 		mmc_hostname(host), __func__, host->f_init);
 #endif
 	mmc_power_up(host, host->ocr_avail);
-	mdelay(100); //2020.06.13 longcheer xugui add mmc_hw_reset_for_init 100ms
 
 	/*
 	 * Some eMMCs (with VCCQ always on) may not be reset after power up, so

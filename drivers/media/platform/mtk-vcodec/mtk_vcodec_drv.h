@@ -86,7 +86,6 @@ enum mtk_encode_param {
 	MTK_ENCODE_PARAM_PREPEND_SPSPPS_TO_IDR = (1 << 9),
 	MTK_ENCODE_PARAM_OPERATION_RATE = (1 << 10),
 	MTK_ENCODE_PARAM_BITRATE_MODE = (1 << 11),
-	MTK_ENCODE_PARAM_GRID_SIZE = (1 << 13),
 };
 
 /*
@@ -201,9 +200,6 @@ struct mtk_enc_params {
 	unsigned int    prependheader;
 	unsigned int    operationrate;
 	unsigned int    bitratemode;
-	unsigned int    heif_grid_size;
-	unsigned int    max_w;
-	unsigned int    max_h;
 };
 
 /*
@@ -241,10 +237,7 @@ struct venc_enc_param {
 	unsigned int prependheader;
 	unsigned int operationrate;
 	unsigned int bitratemode;
-	unsigned int heif_grid_size;
 	unsigned int sizeimage[MTK_VCODEC_MAX_PLANES];
-	unsigned int max_w;
-	unsigned int max_h;
 };
 
 /*
@@ -324,8 +317,6 @@ struct mtk_vcodec_ctx {
 	struct vdec_pic_info picinfo;
 	int dpb_size;
 	int last_dpb_size;
-	int is_hdr;
-	int last_is_hdr;
 	unsigned int errormap_info[VB2_MAX_FRAME];
 	u64 input_max_ts;
 
@@ -350,8 +341,7 @@ struct mtk_vcodec_ctx {
 	enum v4l2_xfer_func xfer_func;
 
 	int decoded_frame_cnt;
-	struct mutex buf_lock;
-	struct mutex worker_lock;
+	struct mutex lock;
 };
 
 /**
