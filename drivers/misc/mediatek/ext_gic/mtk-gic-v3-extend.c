@@ -54,6 +54,11 @@ static void __iomem *GIC_REDIST_BASE;
 void __iomem *MCUSYS_BASE;
 static u32 reg_len_pol0;
 
+__weak unsigned int irq_mask_mode_support(void)
+{
+	return 1;
+}
+
 #ifndef readq
 /* for some kernel config, readq might not be defined, ex aarch32 */
 static inline u64 readq(const void __iomem *addr)
@@ -259,6 +264,7 @@ int mt_irq_mask_restore(struct mtk_irq_mask *mask)
 	writel(mask->mask11, (dist_base + GIC_DIST_ENABLE_SET + 0x2c));
 	writel(mask->mask12, (dist_base + GIC_DIST_ENABLE_SET + 0x30));
 
+
 	/* make the writes prior to the writes behind */
 	mb();
 
@@ -362,11 +368,40 @@ void mt_irq_set_pending(unsigned int irq)
 
 void mt_irq_unmask_for_sleep_ex(unsigned int virq)
 {
-	struct irq_desc *desc = irq_to_desc(virq);
-	struct irq_data irq_data = desc->irq_data;
+	void __iomem *dist_base;
+	u32 mask;
+	unsigned int hwirq;
+#ifdef CONFIG_MTK_INDIRECT_ACCESS
+	unsigned int value;
+#endif
 
-	if (irq_data.chip)
-		irq_data.chip->irq_unmask(&irq_data);
+	hwirq = virq_to_hwirq(virq);
+	dist_base = GIC_DIST_BASE;
+	mask = 1 << (hwirq % 32);
+
+	if (hwirq < 16) {
+		pr_notice("Fail to enable interrupt %d\n", hwirq);
+		return;
+	}
+
+	writel(mask, dist_base + GIC_DIST_ENABLE_SET + hwirq / 32 * 4);
+
+
+#ifndef CONFIG_MTK_INDIRECT_ACCESS
+	if (irq_mask_mode_support())
+		if (INT_MSK_CTL0 && hwirq >= 32)
+			writel(~mask, INT_MSK_CTL0 + hwirq / 32 * 4);
+#else
+	if (INDIRECT_ACCESS_BASE && hwirq >= 32) {
+		/* set unmask */
+		value = 0;
+		/* select spi id */
+		value |= (hwirq << 16);
+		/* select mask control */
+		value |= (1 << 30);
+		writel(value, INDIRECT_ACCESS_BASE);
+	}
+#endif
 
 	/* make the writes prior to the writes behind */
 	mb();
@@ -391,23 +426,24 @@ void mt_irq_unmask_for_sleep(unsigned int hwirq)
 	}
 
 	writel(mask, dist_base + GIC_DIST_ENABLE_SET + hwirq / 32 * 4);
-#if 1
+
 #ifndef CONFIG_MTK_INDIRECT_ACCESS
-	if (INT_MSK_CTL0 && hwirq >= 32) {
-		value = ~mask & readl(INT_MSK_CTL0 + (hwirq - 32) / 32 * 4);
-		writel(value, INT_MSK_CTL0 + (hwirq - 32) / 32 * 4);
+	if (irq_mask_mode_support()) {
+		if (INT_MSK_CTL0 && hwirq >= 32) {
+			value = ~mask & readl(INT_MSK_CTL0 + hwirq / 32 * 4);
+			writel(value, INT_MSK_CTL0 + hwirq / 32 * 4);
+		}
 	}
 #else
 	if (INDIRECT_ACCESS_BASE && hwirq >= 32) {
 		/* set unmask */
 		value = 0;
 		/* select spi id */
-		value |= ((hwirq - 32) << 16);
+		value |= (hwirq << 16);
 		/* select mask control */
 		value |= (1 << 30);
 		writel(value, INDIRECT_ACCESS_BASE);
 	}
-#endif
 #endif
 	/* make the writes prior to the writes behind */
 	mb();
@@ -415,17 +451,43 @@ void mt_irq_unmask_for_sleep(unsigned int hwirq)
 
 /*
  * mt_irq_mask_for_sleep: disable an interrupt for the sleep manager's use
- * @virq: interrupt id
+ * @irq: interrupt id
  * (THIS IS ONLY FOR SLEEP FUNCTION USE. DO NOT USE IT YOURSELF!)
  */
-void mt_irq_mask_for_sleep(unsigned int virq)
+void mt_irq_mask_for_sleep(unsigned int irq)
 {
-	struct irq_desc *desc = irq_to_desc(virq);
-	struct irq_data irq_data = desc->irq_data;
+	void __iomem *dist_base;
+	u32 mask, value;
 
-	if (irq_data.chip)
-		irq_data.chip->irq_mask(&irq_data);
+	irq = virq_to_hwirq(irq);
+	mask = 1 << (irq % 32);
+	dist_base = GIC_DIST_BASE;
 
+	if (irq < 16) {
+		pr_notice("Fail to enable interrupt %d\n", irq);
+		return;
+	}
+
+	writel(mask, dist_base + GIC_DIST_ENABLE_CLEAR + irq / 32 * 4);
+
+#ifndef CONFIG_MTK_INDIRECT_ACCESS
+	if (irq_mask_mode_support()) {
+		if (INT_MSK_CTL0 && irq >= 32) {
+			value = mask | readl(INT_MSK_CTL0 + irq / 32 * 4);
+			writel(value, INT_MSK_CTL0 + irq / 32 * 4);
+		}
+	}
+#else
+	if (INDIRECT_ACCESS_BASE && irq >= 32) {
+		/* set unmask */
+		value = 1;
+		/* select spi id */
+		value |= (irq << 16);
+		/* select mask control */
+		value |= (1 << 30);
+		writel(value, INDIRECT_ACCESS_BASE);
+	}
+#endif
 	/* make the writes prior to the writes behind */
 	mb();
 }
@@ -575,19 +637,11 @@ void _mt_irq_set_polarity(unsigned int hwirq, unsigned int polarity)
 }
 #endif
 
-#ifdef CONFIG_MACH_MT6779
-#define GIC_INT_MASK (MCUSYS_BASE + 0xa6f0)
-#define GIC500_ACTIVE_SEL_SHIFT 16
-#define GIC500_ACTIVE_SEL_MASK (0x7 << GIC500_ACTIVE_SEL_SHIFT)
-#define GIC500_ACTIVE_CPU_SHIFT 0
-#define GIC500_ACTIVE_CPU_MASK (0xff << GIC500_ACTIVE_CPU_SHIFT)
-#else
 #define GIC_INT_MASK (MCUSYS_BASE + 0x5e8)
 #define GIC500_ACTIVE_SEL_SHIFT 3
 #define GIC500_ACTIVE_SEL_MASK (0x7 << GIC500_ACTIVE_SEL_SHIFT)
 #define GIC500_ACTIVE_CPU_SHIFT 16
 #define GIC500_ACTIVE_CPU_MASK (0xff << GIC500_ACTIVE_CPU_SHIFT)
-#endif
 static spinlock_t domain_lock;
 
 int add_cpu_to_prefer_schedule_domain(unsigned long cpu)
@@ -600,7 +654,6 @@ int add_cpu_to_prefer_schedule_domain(unsigned long cpu)
 	domain = domain | (1 << (cpu + GIC500_ACTIVE_CPU_SHIFT));
 	iowrite32(domain, GIC_INT_MASK);
 	spin_unlock_irqrestore(&domain_lock, flag);
-
 	return 0;
 }
 
@@ -614,7 +667,6 @@ int remove_cpu_from_prefer_schedule_domain(unsigned long cpu)
 	domain = domain & ~(1 << (cpu + GIC500_ACTIVE_CPU_SHIFT));
 	iowrite32(domain, GIC_INT_MASK);
 	spin_unlock_irqrestore(&domain_lock, flag);
-
 	return 0;
 }
 
@@ -625,9 +677,9 @@ static int gic_sched_pm_notifier(struct notifier_block *self,
 	unsigned int cur_cpu = smp_processor_id();
 
 	if (cmd == CPU_PM_EXIT)
-		add_cpu_to_prefer_schedule_domain(cur_cpu);
-	else if (cmd == CPU_PM_ENTER)
 		remove_cpu_from_prefer_schedule_domain(cur_cpu);
+	else if (cmd == CPU_PM_ENTER)
+		add_cpu_to_prefer_schedule_domain(cur_cpu);
 
 	return NOTIFY_OK;
 }
@@ -714,6 +766,11 @@ int __init mt_gic_ext_init(void)
 	node = of_find_compatible_node(NULL, NULL, "mediatek,mcucfg");
 	MCUSYS_BASE = of_iomap(node, 0);
 
+
+	spin_lock_init(&domain_lock);
+	gic_sched_pm_init();
+	gic_sched_hoplug_init();
+
 	/* XXX */
 	node = of_find_compatible_node(NULL, NULL, "mediatek,mt6577-sysirq");
 	if (!node)
@@ -769,11 +826,6 @@ int __init mt_gic_ext_init(void)
 	}
 
 #endif
-
-	spin_lock_init(&domain_lock);
-	gic_sched_pm_init();
-	gic_sched_hoplug_init();
-
 	pr_notice("### gic-v3 init done. ###\n");
 
 	return 0;

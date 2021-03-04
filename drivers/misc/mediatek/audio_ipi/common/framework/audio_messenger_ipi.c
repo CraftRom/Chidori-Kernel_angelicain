@@ -13,9 +13,11 @@
 
 #include "audio_messenger_ipi.h"
 
+#include <linux/string.h>
 #include <linux/spinlock.h>
+#include <linux/errno.h>
 
-#ifdef CONFIG_MTK_TINYSYS_SCP_SUPPORT
+#ifdef CONFIG_MTK_AUDIO_CM4_SUPPORT
 #include <scp_ipi.h>
 #endif
 
@@ -263,7 +265,7 @@ static void audio_ipi_msg_dispatcher(int id, void *data, unsigned int len)
 void audio_messenger_ipi_init(void)
 {
 	int i = 0;
-#ifdef CONFIG_MTK_TINYSYS_SCP_SUPPORT
+#ifdef CONFIG_MTK_AUDIO_CM4_SUPPORT
 	int ret_scp = 0;
 #endif
 #ifdef CONFIG_MTK_AUDIODSP_SUPPORT
@@ -272,7 +274,7 @@ void audio_messenger_ipi_init(void)
 
 	current_idx = 0;
 
-#ifdef CONFIG_MTK_TINYSYS_SCP_SUPPORT
+#ifdef CONFIG_MTK_AUDIO_CM4_SUPPORT
 	ret_scp = scp_ipi_registration(
 			  IPI_AUDIO,
 			  audio_ipi_msg_dispatcher,
@@ -429,7 +431,7 @@ int send_message_to_scp(const struct ipi_msg_t *p_ipi_msg)
 	int send_status = 0;
 	uint32_t wait_ms = 0;
 
-	uint32_t opendsp_id = 0;
+	uint32_t dsp_id = 0;
 	uint32_t ipi_id = 0;
 
 
@@ -444,11 +446,11 @@ int send_message_to_scp(const struct ipi_msg_t *p_ipi_msg)
 		  ? 0
 		  : ADSP_IPI_QUEUE_DEFAULT_WAIT_MS;
 
-	opendsp_id = audio_get_opendsp_id(p_ipi_msg->task_scene);
+	dsp_id = audio_get_dsp_id(p_ipi_msg->task_scene);
 	ipi_id = audio_get_ipi_id(p_ipi_msg->task_scene);
 
 	send_status = scp_send_msg_to_queue(
-			      opendsp_id,
+			      dsp_id,
 			      ipi_id,
 			      (void *)p_ipi_msg,
 			      get_message_buf_size(p_ipi_msg),
@@ -461,5 +463,125 @@ int send_message_to_scp(const struct ipi_msg_t *p_ipi_msg)
 
 	return send_status;
 }
+
+
+int audio_send_ipi_buf_to_dsp(
+	struct ipi_msg_t *p_ipi_msg,
+	uint8_t task_scene, /* task_scene_t */
+	uint16_t msg_id,
+	void    *data_buffer,
+	uint32_t data_size)
+{
+	return audio_send_ipi_msg(
+		       p_ipi_msg,
+		       task_scene,
+		       AUDIO_IPI_LAYER_TO_DSP,
+		       AUDIO_IPI_DMA,
+		       AUDIO_IPI_MSG_NEED_ACK,
+		       msg_id,
+		       data_size,
+		       0,
+		       data_buffer);
+}
+
+
+int audio_recv_ipi_buf_from_dsp(
+	struct ipi_msg_t *p_ipi_msg,
+	uint8_t task_scene,
+	uint16_t msg_id,
+	void    *data_buffer,
+	uint32_t max_data_size,
+	uint32_t *data_size)
+{
+	phys_addr_t share_buf_phy = 0;
+	void *share_buf_virt = NULL;
+
+	struct aud_data_t *share_buf_info = NULL;
+
+	int ret = 0;
+
+	if (task_scene >= TASK_SCENE_SIZE) {
+		pr_notice("task_scene %u err!!", task_scene);
+		return -EINVAL;
+	}
+	if (p_ipi_msg == NULL) {
+		pr_notice("p_ipi_msg = NULL!!");
+		return -EINVAL;
+	}
+	if (data_buffer == NULL || max_data_size == 0) {
+		pr_notice("ptr %p size %u err!!", data_buffer, max_data_size);
+		return -EINVAL;
+	}
+	if (data_size == NULL) {
+		pr_notice("data_size = NULL!!");
+		return -EINVAL;
+	}
+
+	memset(p_ipi_msg, 0, MAX_IPI_MSG_BUF_SIZE);
+
+	p_ipi_msg->magic        = IPI_MSG_MAGIC_NUMBER;
+	p_ipi_msg->task_scene   = task_scene;
+	p_ipi_msg->source_layer = AUDIO_IPI_LAYER_FROM_KERNEL;
+	p_ipi_msg->target_layer = AUDIO_IPI_LAYER_TO_DSP;
+	p_ipi_msg->data_type    = AUDIO_IPI_PAYLOAD;
+	p_ipi_msg->ack_type     = AUDIO_IPI_MSG_NEED_ACK;
+	p_ipi_msg->msg_id       = msg_id;
+	p_ipi_msg->payload_size = sizeof(struct aud_data_t);
+
+	/* alloc shared DRAM & put the addr info into payload */
+	if (p_ipi_msg->payload_size > MAX_IPI_MSG_PAYLOAD_SIZE) {
+		pr_notice("payload_size %u, max sz %u not enough",
+			  p_ipi_msg->payload_size, MAX_IPI_MSG_PAYLOAD_SIZE);
+		goto RECV_BUF_EXIT;
+	}
+
+	ret = audio_ipi_dma_alloc(
+		      task_scene,
+		      &share_buf_phy,
+		      &share_buf_virt,
+		      max_data_size);
+	if (ret != 0 || share_buf_phy == 0 || share_buf_virt == NULL) {
+		pr_notice("dma_alloc fail!!");
+		goto RECV_BUF_EXIT;
+	}
+
+	share_buf_info = (struct aud_data_t *)p_ipi_msg->payload;
+	share_buf_info->memory_size = max_data_size;
+	share_buf_info->data_size = 0;
+	share_buf_info->addr_val = share_buf_phy;
+
+
+	/* sent message to dsp */
+	ret = audio_send_ipi_filled_msg(p_ipi_msg);
+	if (ret != 0) {
+		pr_notice("audio_send_ipi_filled_msg error!!");
+		goto RECV_BUF_EXIT;
+	}
+
+
+	/* copy shared data to user buffer */
+	if (share_buf_info->data_size > max_data_size) {
+		pr_notice("share_buf_info->data_size %u > max_data_size %u!!",
+			  share_buf_info->data_size,
+			  max_data_size);
+		ret = -1;
+		goto RECV_BUF_EXIT;
+	}
+	if (share_buf_info->data_size == 0) {
+		pr_notice("share_buf_info->data_size = 0!! check adsp write");
+		*data_size = 0;
+		goto RECV_BUF_EXIT;
+	}
+
+	memcpy(data_buffer, share_buf_virt, share_buf_info->data_size);
+	*data_size = share_buf_info->data_size;
+
+
+RECV_BUF_EXIT:
+	audio_ipi_dma_free(task_scene, share_buf_phy, max_data_size);
+
+	return ret;
+}
+
 
 

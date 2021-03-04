@@ -1103,7 +1103,9 @@ out:
 			", t: ");
 		for_each_possible_cpu(i) {
 			struct tick_device *td;
-
+			/* to avoid unexpected overrun */
+			if (i >= num_possible_cpus())
+				break;
 			td = &per_cpu(tick_cpu_device, i);
 			if (!td || !td->evtdev) {
 				if (!td)

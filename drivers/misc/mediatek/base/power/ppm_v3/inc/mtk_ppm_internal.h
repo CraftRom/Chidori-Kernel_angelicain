@@ -220,13 +220,10 @@ struct ppm_cluster_info {
 	unsigned int dvfs_opp_num;
 	unsigned int max_freq_except_userlimit;
 	struct cpufreq_frequency_table *dvfs_tbl;	/* from DVFS driver */
-	int	doe_max;
-	int	doe_min;
 };
 
 struct ppm_data {
 	bool is_enabled;
-	bool is_doe_enabled;
 	bool is_in_suspend;
 	unsigned int min_power_budget;
 	cpumask_var_t exclusive_core;

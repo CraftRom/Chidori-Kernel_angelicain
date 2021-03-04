@@ -48,8 +48,8 @@ static kgid_t gid = KGIDT_INIT(1000);
 static DEFINE_SEMAPHORE(sem_mutex);
 static int isTimerCancelled;
 
-static unsigned int interval;	/* seconds, 0 : no auto polling */
-static unsigned int trip_temp[10] = { 85000, 80000, 70000, 60000, 50000,
+static unsigned int interval = 2;/* seconds, 0 : no auto polling */
+static unsigned int trip_temp[10] = { 120000, 80000, 70000, 60000, 50000,
 					40000, 30000, 20000, 10000, 5000 };
 
 static int g_THERMAL_TRIP[10] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
@@ -60,7 +60,7 @@ static struct thermal_cooling_device *cl_dev_sysrst;
 static int mtktspa_debug_log;
 static int kernelmode;
 
-static int num_trip;
+static int num_trip = 1;
 static char g_bind0[20] = "mtktspa-sysrst";
 static char g_bind1[20] = { 0 };
 static char g_bind2[20] = { 0 };
@@ -133,7 +133,7 @@ int tspa_get_MD_tx_tput(void)
 	return tx_throughput;
 }
 
-static int pa_cal_stats(unsigned long data)
+static void pa_cal_stats(unsigned long data)
 {
 	struct pa_stats *stats_info = (struct pa_stats *) data;
 	struct timeval cur_time;
@@ -185,7 +185,6 @@ static int pa_cal_stats(unsigned long data)
 
 	pa_stats_timer.expires = jiffies + 1 * HZ;
 	add_timer(&pa_stats_timer);
-	return 0;
 }
 #endif
 
@@ -805,7 +804,7 @@ static int __init mtktspa_init(void)
 	pa_stats_info.pre_tx_bytes = 0;
 
 	init_timer_deferrable(&pa_stats_timer);
-	pa_stats_timer.function = (void *)&pa_cal_stats;
+	pa_stats_timer.function = &pa_cal_stats;
 	pa_stats_timer.data = (unsigned long) &pa_stats_info;
 	pa_stats_timer.expires = jiffies + 1 * HZ;
 	add_timer(&pa_stats_timer);

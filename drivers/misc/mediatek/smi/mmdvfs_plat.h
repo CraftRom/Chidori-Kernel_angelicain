@@ -29,6 +29,7 @@ struct mm_larb_request {
 	u32 comm_port;
 	u32 channel;
 };
+const char *mmdvfs_get_plat_name(void);
 
 void mmdvfs_update_qos_sram(struct mm_larb_request larb_req[], u32 larb_update);
 
@@ -36,6 +37,8 @@ void mmdvfs_update_limit_config(enum mmdvfs_limit_source source,
 	u32 source_value, u32 *limit_value, u32 *limit_level);
 
 void mmdvfs_update_plat_ostd(u32 larb, u32 hrt_port, u32 *ostd);
+
+bool is_disp_larb(u32 larb);
 
 bool mmdvfs_log_larb_mmp(s32 common_port_id, s32 larb_id);
 

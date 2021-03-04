@@ -53,15 +53,11 @@ static struct trusted_mem_configs mchunk_general_configs = {
 #ifdef MTEE_MCHUNKS_SESSION_KEEP_ALIVE
 	.session_keep_alive_enable = true,
 #endif
-	.minimal_chunk_size = MTEE_MCHUNKS_MIN_ALLOC_CHUNK_SIZE,
+	.minimal_chunk_size = SIZE_2M,
 	.phys_mem_shift_bits = MTEE_64BIT_PHYS_SHIFT,
 	.phys_limit_min_alloc_size = (1 << MTEE_64BIT_PHYS_SHIFT),
-#if defined(MTEE_MCHUNKS_MIN_SIZE_CHECK)
 	.min_size_check_enable = true,
-#endif
-#if defined(MTEE_MCHUNKS_ALIGNMENT_CHECK)
 	.alignment_check_enable = true,
-#endif
 	.caps = 0,
 };
 
@@ -91,7 +87,9 @@ static struct mtee_chunk_memory_configs mtee_mchunks[] = {
 		.dev_name = "SDSP",
 	},
 #endif
-#ifdef CONFIG_MTK_SDSP_SHARED_MEM_SUPPORT
+#if defined(CONFIG_MTK_SDSP_SHARED_MEM_SUPPORT)                                \
+	&& (defined(CONFIG_MTK_SDSP_SHARED_PERM_MTEE_TEE)                      \
+	    || defined(CONFIG_MTK_SDSP_SHARED_PERM_VPU_MTEE_TEE))
 	{
 		.mem_type = TRUSTED_MEM_SDSP_SHARED,
 		.ssmr_feature_id = SSMR_FEAT_SDSP_TEE_SHAREDMEM,
@@ -144,7 +142,8 @@ static int __init mtee_mchunks_init(void)
 	struct trusted_mem_device *t_device;
 	int idx = 0;
 
-	pr_info("%s:%d (%d)\n", __func__, __LINE__, MTEE_MCHUNKS_DEVICE_COUNT);
+	pr_info("%s:%d (%d)\n", __func__, __LINE__,
+		(int)MTEE_MCHUNKS_DEVICE_COUNT);
 
 	for (idx = 0; idx < MTEE_MCHUNKS_DEVICE_COUNT; idx++) {
 		t_device = create_mtee_mchunk_device(

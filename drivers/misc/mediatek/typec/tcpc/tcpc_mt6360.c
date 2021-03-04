@@ -93,6 +93,9 @@ struct mt6360_chip {
 #endif /* CONFIG_WATER_DETECTION */
 
 #ifdef CONFIG_WD_SBU_POLLING
+#ifdef CONFIG_WD_POLLING_ONLY
+	struct delayed_work usbid_poll_work;
+#endif /* CONFIG_WD_POLLING_ONLY */
 	struct work_struct wd_work;
 	struct mutex usbid_irq_lock;
 	bool usbid_irqen;
@@ -386,7 +389,7 @@ static int mt6360_reg_read(struct i2c_client *i2c, u8 reg, u8 *data)
 	ret = mt6360_read_device(chip->client, reg, 1, data);
 #endif /* CONFIG_RT_REGMAP */
 	if (ret < 0) {
-		dev_err(chip->dev, "%s fail(%d)\n", __func__, ret);
+		dev_notice(chip->dev, "%s fail(%d)\n", __func__, ret);
 		return ret;
 	}
 	return 0;
@@ -403,7 +406,7 @@ static int mt6360_reg_write(struct i2c_client *i2c, u8 reg, const u8 data)
 	ret = mt6360_write_device(chip->client, reg, 1, &data);
 #endif /* CONFIG_RT_REGMAP */
 	if (ret < 0)
-		dev_err(chip->dev, "%s fail(%d)\n", __func__, ret);
+		dev_notice(chip->dev, "%s fail(%d)\n", __func__, ret);
 	return 0;
 }
 
@@ -418,7 +421,7 @@ static int mt6360_block_read(struct i2c_client *i2c, u8 reg, int len, void *dst)
 	ret = mt6360_read_device(chip->client, reg, len, dst);
 #endif /* CONFIG_RT_REGMAP */
 	if (ret < 0)
-		dev_err(chip->dev, "%s fail(%d)\n", __func__, ret);
+		dev_notice(chip->dev, "%s fail(%d)\n", __func__, ret);
 	return 0;
 }
 
@@ -434,7 +437,7 @@ static int mt6360_block_write(struct i2c_client *i2c, u8 reg, int len,
 	ret = mt6360_write_device(chip->client, reg, len, src);
 #endif /* CONFIG_RT_REGMAP */
 	if (ret < 0)
-		dev_err(chip->dev, "%s fail(%d)\n", __func__, ret);
+		dev_notice(chip->dev, "%s fail(%d)\n", __func__, ret);
 	return 0;
 }
 
@@ -590,7 +593,7 @@ static int mt6360_regmap_init(struct mt6360_chip *chip)
 	chip->m_dev = rt_regmap_device_register(props, &mt6360_regmap_fops,
 						chip->dev, chip->client, chip);
 	if (!chip->m_dev) {
-		dev_err(chip->dev, "%s register fail\n", __func__);
+		dev_notice(chip->dev, "%s register fail\n", __func__);
 		return -EINVAL;
 	}
 	return 0;
@@ -819,14 +822,15 @@ static int mt6360_enable_usbid_polling(struct mt6360_chip *chip, bool en)
 	if (en) {
 		ret = charger_dev_set_usbid_src_ton(chip->chgdev, 100000);
 		if (ret < 0) {
-			dev_err(chip->dev, "%s usbid src on 100ms fail\n",
+			dev_notice(chip->dev, "%s usbid src on 100ms fail\n",
 					__func__);
 			return ret;
 		}
 
 		ret = charger_dev_set_usbid_rup(chip->chgdev, 75000);
 		if (ret < 0) {
-			dev_err(chip->dev, "%s usbid rup75k fail\n", __func__);
+			dev_notice(chip->dev, "%s usbid rup75k fail\n",
+				__func__);
 			return ret;
 		}
 	}
@@ -965,8 +969,8 @@ static int mt6360_pmu_tcpc_irq_register(struct tcpc_device *tcpc)
 						irq_desc->name,
 						chip);
 		if (ret < 0)
-			dev_err(chip->dev, "%s request %s irq fail\n", __func__,
-				irq_desc->name);
+			dev_notice(chip->dev, "%s request %s irq fail\n",
+				__func__, irq_desc->name);
 	}
 	return ret;
 }
@@ -997,21 +1001,21 @@ static int mt6360_init_alert(struct tcpc_device *tcpc)
 	gpio_direction_output(DEBUG_GPIO, 1);
 #endif /* DEBUG_GPIO */
 	if (ret < 0) {
-		dev_err(chip->dev, "%s fail to request GPIO%d(%d)\n", __func__,
-			chip->irq_gpio, ret);
+		dev_notice(chip->dev, "%s fail to request GPIO%d(%d)\n",
+			__func__, chip->irq_gpio, ret);
 		goto init_alert_err;
 	}
 
 	ret = gpio_direction_input(chip->irq_gpio);
 	if (ret < 0) {
-		dev_err(chip->dev, "%s fail to set GPIO%d as input pin(%d)\n",
+		dev_notice(chip->dev, "%s fail to set GPIO%d as input pin(%d)\n",
 			__func__, chip->irq_gpio, ret);
 		goto init_alert_err;
 	}
 
 	chip->irq = gpio_to_irq(chip->irq_gpio);
 	if (chip->irq <= 0) {
-		dev_err(chip->dev, "%s gpio to irq fail, chip->irq(%d)\n",
+		dev_notice(chip->dev, "%s gpio to irq fail, chip->irq(%d)\n",
 			__func__, chip->irq);
 		goto init_alert_err;
 	}
@@ -1027,7 +1031,8 @@ static int mt6360_init_alert(struct tcpc_device *tcpc)
 					    &chip->irq_worker,
 					    chip->tcpc_desc->name);
 	if (IS_ERR(chip->irq_worker_task)) {
-		dev_err(chip->dev, "%s could not create tcpc task\n", __func__);
+		dev_notice(chip->dev, "%s could not create tcpc task\n",
+			__func__);
 		goto init_alert_err;
 	}
 
@@ -1041,7 +1046,7 @@ static int mt6360_init_alert(struct tcpc_device *tcpc)
 	ret = request_irq(chip->irq, mt6360_intr_handler, IRQF_TRIGGER_FALLING |
 			  IRQF_NO_THREAD | IRQF_NO_SUSPEND, name, chip);
 	if (ret < 0) {
-		dev_err(chip->dev, "%s fail to request irq%d, gpio%d (%d)\n",
+		dev_notice(chip->dev, "%s fail to request irq%d, gpio%d (%d)\n",
 			__func__, chip->irq, chip->irq_gpio, ret);
 		goto init_alert_err;
 	}
@@ -1308,14 +1313,23 @@ static int mt6360_set_cc(struct tcpc_device *tcpc, int pull)
 		mt6360_enable_auto_rpconnect(tcpc, true);
 		mt6360_enable_oneshot_rpconnect(tcpc, true);
 
-#ifdef CONFIG_WD_SBU_POLLING
-		mt6360_enable_usbid_polling(chip, true);
-#endif /* CONFIG_WD_SBU_POLLING */
 #ifdef CONFIG_TCPC_LOW_POWER_MODE
 		tcpci_set_low_power_mode(tcpc, true, pull);
 #endif /* CONFIG_TCPC_LOW_POWER_MODE */
 		ret = mt6360_command(tcpc, TCPM_CMD_LOOK_CONNECTION);
+#ifdef CONFIG_WD_SBU_POLLING
+#ifdef CONFIG_WD_POLLING_ONLY
+		schedule_delayed_work(&chip->usbid_poll_work,
+					msecs_to_jiffies(500));
+#else
+		mt6360_enable_usbid_polling(chip, true);
+#endif /* CONFIG_WD_POLLING_ONLY */
+#endif /* CONFIG_WD_SBU_POLLING */
 	} else {
+#ifdef CONFIG_WD_POLLING_ONLY
+		cancel_delayed_work(&chip->usbid_poll_work);
+		mt6360_enable_usbid_polling(chip, false);
+#endif /* CONFIG_WD_POLLING_ONLY */
 		data = TCPC_V10_REG_ROLE_CTRL_RES_SET(0, rp_lvl, pull, pull);
 		ret = mt6360_i2c_write8(tcpc, TCPC_V10_REG_ROLE_CTRL, data);
 		mt6360_enable_auto_rpconnect(tcpc, false);
@@ -1509,6 +1523,28 @@ retry:
 	tcpci_set_water_protection(tcpc, true);
 	return 0;
 }
+
+#ifdef CONFIG_WD_POLLING_ONLY
+static void mt6360_usbid_poll_work(struct work_struct *work)
+{
+	int ret, cc1, cc2;
+	struct mt6360_chip *chip = container_of(work, struct mt6360_chip,
+						usbid_poll_work.work);
+
+	tcpci_lock_typec(chip->tcpc);
+
+	ret = mt6360_get_cc(chip->tcpc, &cc1, &cc2);
+	if (ret < 0)
+		goto out;
+
+	if (cc1 != TYPEC_CC_DRP_TOGGLING || cc2 != TYPEC_CC_DRP_TOGGLING)
+		goto out;
+
+	mt6360_enable_usbid_polling(chip, true);
+out:
+	tcpci_unlock_typec(chip->tcpc);
+}
+#endif /* CONFIG_WD_POLLING_ONLY */
 #endif /* CONFIG_WATER_DETECTION */
 
 #ifdef CONFIG_CABLE_TYPE_DETECTION
@@ -1645,6 +1681,7 @@ static int mt6360_alert_vendor_defined_handler(struct tcpc_device *tcpc)
 		if (!alert[i])
 			continue;
 		MT6360_INFO("Vend INT%d:0x%02X\n", i + 1, alert[i]);
+		alert[i] &= mask[i];
 	}
 
 	mt6360_vend_alert_status_clear(tcpc, alert);
@@ -1697,7 +1734,7 @@ static inline int mt6360_get_usbid_adc(struct tcpc_device *tcpc, int *usbid)
 	ret = charger_dev_get_adc(chip->chgdev, ADC_CHANNEL_USBID,
 				  usbid, usbid);
 	if (ret < 0) {
-		dev_err(chip->dev, "%s fail(%d)\n", __func__, ret);
+		dev_notice(chip->dev, "%s fail(%d)\n", __func__, ret);
 		return ret;
 	}
 	/* To mV */
@@ -1717,13 +1754,13 @@ static inline bool mt6360_is_audio_device(struct tcpc_device *tcpc, int usbid)
 	/* Pull high with 1K resistor */
 	ret = charger_dev_set_usbid_rup(chip->chgdev, 1000);
 	if (ret < 0) {
-		dev_err(chip->dev, "%s usbid rup1k fail\n", __func__);
+		dev_notice(chip->dev, "%s usbid rup1k fail\n", __func__);
 		goto not_auddev;
 	}
 
 	ret = mt6360_get_usbid_adc(tcpc, &usbid);
 	if (ret < 0) {
-		dev_err(chip->dev, "%s get usbid adc fail\n", __func__);
+		dev_notice(chip->dev, "%s get usbid adc fail\n", __func__);
 		goto not_auddev;
 	}
 
@@ -1754,7 +1791,7 @@ static int mt6360_is_water_detected(struct tcpc_device *tcpc)
 	ret = charger_dev_enable_usbid(chip->chgdev, false);
 #endif /* CONFIG_WD_SBU_POLLING */
 	if (ret < 0) {
-		dev_err(chip->dev, "%s pull low usbid fail\n", __func__);
+		dev_notice(chip->dev, "%s pull low usbid fail\n", __func__);
 		goto err;
 	}
 
@@ -1763,7 +1800,7 @@ static int mt6360_is_water_detected(struct tcpc_device *tcpc)
 		dev_info(chip->dev, "%s disable usbid float fail\n", __func__);
 	ret = mt6360_get_usbid_adc(tcpc, &usbid);
 	if (ret < 0) {
-		dev_err(chip->dev, "%s get usbid adc fail\n", __func__);
+		dev_notice(chip->dev, "%s get usbid adc fail\n", __func__);
 		goto err;
 	}
 	ret = charger_dev_enable_usbid_floating(chip->chgdev, true);
@@ -1797,25 +1834,26 @@ static int mt6360_is_water_detected(struct tcpc_device *tcpc)
 	/* Pull high usb idpin */
 	ret = charger_dev_set_usbid_src_ton(chip->chgdev, 0);
 	if (ret < 0) {
-		dev_err(chip->dev, "%s usbid always src on fail\n", __func__);
+		dev_notice(chip->dev, "%s usbid always src on fail\n",
+			__func__);
 		goto err;
 	}
 
 	ret = charger_dev_set_usbid_rup(chip->chgdev, 500000);
 	if (ret < 0) {
-		dev_err(chip->dev, "%s usbid rup500k fail\n", __func__);
+		dev_notice(chip->dev, "%s usbid rup500k fail\n", __func__);
 		goto err;
 	}
 
 	ret = charger_dev_enable_usbid(chip->chgdev, true);
 	if (ret < 0) {
-		dev_err(chip->dev, "%s usbid pulled high fail\n", __func__);
+		dev_notice(chip->dev, "%s usbid pulled high fail\n", __func__);
 		goto err;
 	}
 
 	ret = mt6360_get_usbid_adc(tcpc, &usbid);
 	if (ret < 0) {
-		dev_err(chip->dev, "%s get usbid adc fail\n", __func__);
+		dev_notice(chip->dev, "%s get usbid adc fail\n", __func__);
 		goto err;
 	}
 	ub = tcpc->usbid_calib * 110 / 100;
@@ -1883,6 +1921,23 @@ static int mt6360_set_water_protection(struct tcpc_device *tcpc, bool en)
 		(tcpc, MT6360_REG_WD_DET_CTRL1, MT6360_WD_PROTECTION_EN);
 	if (!en)
 		mt6360_enable_auto_rpconnect(tcpc, true);
+	return ret;
+}
+
+static int mt6360_set_usbid_polling(struct tcpc_device *tcpc, bool en)
+{
+	int ret;
+	struct mt6360_chip *chip = tcpc_get_dev_data(tcpc);
+
+	if (!en)
+		cancel_delayed_work(&chip->usbid_poll_work);
+
+	ret = mt6360_enable_usbid_polling(chip, en);
+	if (ret < 0) {
+		dev_notice(chip->dev, "%s fail\n", __func__);
+		return ret;
+	}
+
 	return ret;
 }
 
@@ -2008,7 +2063,7 @@ static int mt6360_get_message(struct tcpc_device *tcpc, u32 *payload,
 {
 	int ret;
 	u8 type, cnt = 0;
-	u8 buf[4];
+	u8 buf[4] = {0};
 
 	ret = mt6360_i2c_block_read(tcpc, TCPC_V10_REG_RX_BYTE_CNT, 4, buf);
 	cnt = buf[0];
@@ -2129,6 +2184,7 @@ static struct tcpc_ops mt6360_tcpc_ops = {
 #ifdef CONFIG_WATER_DETECTION
 	.is_water_detected = mt6360_is_water_detected,
 	.set_water_protection = mt6360_set_water_protection,
+	.set_usbid_polling = mt6360_set_usbid_polling,
 #endif /* CONFIG_WATER_DETECTION */
 
 };
@@ -2173,14 +2229,14 @@ static int mt6360_parse_dt(struct mt6360_chip *chip, struct device *dev,
 
 	np = of_find_node_by_name(NULL, "type_c_port0");
 	if (!np) {
-		dev_err(dev, "%s find node fail\n", __func__);
+		dev_notice(dev, "%s find node fail\n", __func__);
 		return -ENODEV;
 	}
 
 #if (!defined(CONFIG_MTK_GPIO) || defined(CONFIG_MTK_GPIOLIB_STAND))
 	ret = of_get_named_gpio(np, "mt6360pd,intr_gpio", 0);
 	if (ret < 0) {
-		dev_err(dev, "%s no intr_gpio info(gpiolib)\n", __func__);
+		dev_notice(dev, "%s no intr_gpio info(gpiolib)\n", __func__);
 		return ret;
 	}
 	chip->irq_gpio = ret;
@@ -2188,7 +2244,7 @@ static int mt6360_parse_dt(struct mt6360_chip *chip, struct device *dev,
 	ret = of_property_read_u32(np, "mt6360pd,intr_gpio_num",
 				   &chip->irq_gpio);
 	if (ret < 0) {
-		dev_err(dev, "%s no intr_gpio info\n", __func__);
+		dev_notice(dev, "%s no intr_gpio info\n", __func__);
 		return ret;
 	}
 #endif /* !CONFIG_MTK_GPIO || CONFIG_MTK_GPIOLIB_STAND */
@@ -2284,7 +2340,7 @@ static int mt6360_tcpcdev_init(struct mt6360_chip *chip, struct device *dev)
 
 	np = of_find_node_by_name(NULL, "type_c_port0");
 	if (!np) {
-		dev_err(dev, "%s find type_c_port0 fail\n", __func__);
+		dev_notice(dev, "%s find type_c_port0 fail\n", __func__);
 		return -ENODEV;
 	}
 
@@ -2385,32 +2441,32 @@ static inline int mt6360_check_revision(struct i2c_client *client)
 	ret = i2c_smbus_read_i2c_block_data(client,
 					    TCPC_V10_REG_VID, 2, (u8 *)&id);
 	if (ret < 0) {
-		dev_err(&client->dev, "%s read chip ID fail\n", __func__);
+		dev_notice(&client->dev, "%s read chip ID fail\n", __func__);
 		return ret;
 	}
 	if (id != MEDIATEK_6360_VID) {
-		dev_err(&client->dev, "%s check vid fail(0x%04X)\n", __func__,
-			id);
+		dev_notice(&client->dev, "%s check vid fail(0x%04X)\n",
+			__func__, id);
 		return -ENODEV;
 	}
 
 	ret = i2c_smbus_read_i2c_block_data(client,
 					    TCPC_V10_REG_PID, 2, (u8 *)&id);
 	if (ret < 0) {
-		dev_err(&client->dev, "%s read product ID fail\n", __func__);
+		dev_notice(&client->dev, "%s read product ID fail\n", __func__);
 		return ret;
 	}
 
 	if (id != MEDIATEK_6360_PID) {
-		dev_err(&client->dev, "%s check pid fail(0x%04X)\n", __func__,
-			id);
+		dev_notice(&client->dev, "%s check pid fail(0x%04X)\n",
+			__func__, id);
 		return -ENODEV;
 	}
 
 	ret = i2c_smbus_read_i2c_block_data(client,
 					    TCPC_V10_REG_DID, 2, (u8 *)&id);
 	if (ret < 0) {
-		dev_err(&client->dev, "%s read device ID fail\n", __func__);
+		dev_notice(&client->dev, "%s read device ID fail\n", __func__);
 		return ret;
 	}
 
@@ -2453,7 +2509,7 @@ static int mt6360_i2c_probe(struct i2c_client *client,
 			return -EINVAL;
 		client->dev.platform_data = pdata;
 	} else {
-		dev_err(&client->dev, "%s no dts node\n", __func__);
+		dev_notice(&client->dev, "%s no dts node\n", __func__);
 		return -ENODEV;
 	}
 	chip->chip_id = chip_id;
@@ -2469,6 +2525,9 @@ static int mt6360_i2c_probe(struct i2c_client *client,
 #ifdef CONFIG_WATER_DETECTION
 	wakeup_source_init(&chip->wd_wakeup_src, "mt6360_wd_wakeup_src");
 	atomic_set(&chip->wd_protect_rty, CONFIG_WD_PROTECT_RETRY_COUNT);
+#ifdef CONFIG_WD_POLLING_ONLY
+	INIT_DELAYED_WORK(&chip->usbid_poll_work, mt6360_usbid_poll_work);
+#endif /* CONFIG_WD_POLLING_ONLY */
 #endif /* CONFIG_WATER_DETECTION */
 #ifdef CONFIG_WD_SBU_POLLING
 	mutex_init(&chip->usbid_irq_lock);
@@ -2481,7 +2540,8 @@ static int mt6360_i2c_probe(struct i2c_client *client,
 #ifdef CONFIG_RT_REGMAP
 	ret = mt6360_regmap_init(chip);
 	if (ret < 0) {
-		dev_err(chip->dev, "%s regmap init fail(%d)\n", __func__, ret);
+		dev_notice(chip->dev, "%s regmap init fail(%d)\n",
+			__func__, ret);
 		return -EINVAL;
 	}
 #endif /* CONIFG_RT_REGMAP */
@@ -2499,26 +2559,26 @@ static int mt6360_i2c_probe(struct i2c_client *client,
 
 	ret = mt6360_tcpcdev_init(chip, &client->dev);
 	if (ret < 0) {
-		dev_err(chip->dev, "%s tcpc dev init fail\n", __func__);
+		dev_notice(chip->dev, "%s tcpc dev init fail\n", __func__);
 		goto err_tcpc_reg;
 	}
 
 	/* Must init before sw reset */
 	ret = mt6360_init_ctd(chip);
 	if (ret < 0) {
-		dev_err(chip->dev, "%s init ctd fail\n", __func__);
+		dev_notice(chip->dev, "%s init ctd fail\n", __func__);
 		goto err_tcpc_reg;
 	}
 
 	ret = mt6360_software_reset(chip->tcpc);
 	if (ret < 0) {
-		dev_err(chip->dev, "%s sw reset fail\n", __func__);
+		dev_notice(chip->dev, "%s sw reset fail\n", __func__);
 		goto err_sw_reset;
 	}
 
 	ret = mt6360_init_alert(chip->tcpc);
 	if (ret < 0) {
-		dev_err(chip->dev, "%s init alert fail\n", __func__);
+		dev_notice(chip->dev, "%s init alert fail\n", __func__);
 		goto err_sw_reset;
 	}
 
@@ -2546,6 +2606,9 @@ static int mt6360_i2c_remove(struct i2c_client *client)
 		cancel_delayed_work_sync(&chip->poll_work);
 #ifdef CONFIG_WD_SBU_POLLING
 		cancel_work_sync(&chip->wd_work);
+#ifdef CONFIG_WD_POLLING_ONLY
+		cancel_delayed_work_sync(&chip->usbid_poll_work);
+#endif /* CONFIG_WD_POLLING_ONLY */
 #endif /* CONFIG_WD_SBU_POLLING */
 		tcpc_device_unregister(chip->dev, chip->tcpc);
 #ifdef CONFIG_RT_REGMAP

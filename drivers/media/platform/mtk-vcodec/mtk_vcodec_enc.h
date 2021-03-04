@@ -58,6 +58,7 @@ int mtk_venc_unlock(struct mtk_vcodec_ctx *ctx);
 int mtk_venc_lock(struct mtk_vcodec_ctx *ctx);
 int mtk_vcodec_enc_queue_init(void *priv, struct vb2_queue *src_vq,
 	struct vb2_queue *dst_vq);
+void mtk_vcodec_enc_empty_queues(struct file *file, struct mtk_vcodec_ctx *ctx);
 void mtk_vcodec_enc_release(struct mtk_vcodec_ctx *ctx);
 int mtk_vcodec_enc_ctrls_setup(struct mtk_vcodec_ctx *ctx);
 void mtk_vcodec_enc_set_default_params(struct mtk_vcodec_ctx *ctx);

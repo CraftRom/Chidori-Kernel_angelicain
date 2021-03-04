@@ -308,7 +308,7 @@ static int __bprm_mm_init(struct linux_binprm *bprm)
 	vma->vm_start = vma->vm_end - PAGE_SIZE;
 	vma->vm_flags = VM_SOFTDIRTY | VM_STACK_FLAGS | VM_STACK_INCOMPLETE_SETUP;
 	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
-	INIT_VMA(vma);
+	INIT_LIST_HEAD(&vma->anon_vma_chain);
 
 	err = insert_vm_struct(mm, vma);
 	if (err)
@@ -940,7 +940,7 @@ int kernel_read_file(struct file *file, void **buf, loff_t *size,
 				    i_size - pos);
 		if (bytes < 0) {
 			ret = bytes;
-			goto out;
+			goto out_free;
 		}
 
 		if (bytes == 0)
@@ -1793,7 +1793,7 @@ static int do_execveat_common(int fd, struct filename *filename,
 	current->fs->in_exec = 0;
 	current->in_execve = 0;
 	acct_update_integrals(current);
-	task_numa_free(current);
+	task_numa_free(current, false);
 	free_bprm(bprm);
 	kfree(pathbuf);
 	putname(filename);

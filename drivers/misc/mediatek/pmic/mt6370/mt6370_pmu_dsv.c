@@ -1,6 +1,5 @@
 /*
  *  Copyright (C) 2017 MediaTek Inc.
- *  Copyright (C) 2019 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -579,4 +578,4 @@ module_platform_driver(mt6370_pmu_dsv);
 
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("MediaTek MT6370 PMU DSV");
-MODULE_VERSION("1.0.0_G");
+MODULE_VERSION("1.0.1_G");

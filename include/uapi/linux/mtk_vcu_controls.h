@@ -44,7 +44,7 @@ struct mem_obj {
  * @data:	cmd operation data
  * @mask:  cmd operation mask
  * @cmd_cnt: cmdq total cmd count
-*/
+ */
 struct gce_cmds {
 	u8  cmd[VCODEC_CMDQ_CMD_MAX];
 	u64 addr[VCODEC_CMDQ_CMD_MAX];
@@ -66,6 +66,7 @@ struct gce_cmdq_obj {
 	u64	gce_handle;
 	u32	flush_order;
 	u32	codec_type;
+	u32	core_id;
 };
 
 /**

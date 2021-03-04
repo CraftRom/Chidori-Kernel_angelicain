@@ -208,7 +208,6 @@ void atm_ctrl_cmd_from_user(void *nl_data, struct tad_nl_msg_t *ret_msg)
 		{
 			memcpy(&g_tad_ttj, &msg->tad_data[0],
 						sizeof(g_tad_ttj));
-
 			tsta_dprintk(
 				"[atm_ctrl_cmd_from_user] g_tad_ttj = %d\n",
 								g_tad_ttj);
@@ -374,7 +373,7 @@ int wakeup_ta_algo(int flow_state)
 		int size = TAD_NL_MSG_T_HDR_LEN + sizeof(flow_state);
 
 		/*tad_msg = (struct tad_nl_msg_t *)vmalloc(size);*/
-		tad_msg = vmalloc(size);
+		tad_msg = kmalloc(size, GFP_KERNEL);
 
 		if (tad_msg == NULL)
 			return -ENOMEM;
@@ -385,7 +384,7 @@ int wakeup_ta_algo(int flow_state)
 		memcpy(tad_msg->tad_data, &flow_state, sizeof(flow_state));
 		tad_msg->tad_data_len += sizeof(flow_state);
 		ta_nl_send_to_user(g_tad_pid, 0, tad_msg);
-		vfree(tad_msg);
+		kfree(tad_msg);
 		return 0;
 	} else {
 		return -1;
@@ -520,7 +519,7 @@ static int __init ta_init(void)
 
 	g_tad_pid = 0;
 	init_flag = false;
-	g_tad_ttj = 0;
+	g_tad_ttj = CLCTM_TARGET_TJ;
 
 	/*add by willcai for the userspace to kernelspace*/
 	daemo_nl_sk = NULL;

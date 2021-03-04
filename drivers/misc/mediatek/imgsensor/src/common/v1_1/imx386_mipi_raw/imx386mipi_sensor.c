@@ -1552,14 +1552,12 @@ static void sensor_init(void)
 	write_cmos_sensor(0x0138, 0x01);
 
 	write_cmos_sensor(0x0350, 0x01);/* enable auto extend */
-	write_cmos_sensor(0x0100, 0x00);
 }
 
 
 static void preview_setting(void)
 {
 	pr_info("%s.\n", __func__);
-	write_cmos_sensor(0x0100, 0x00);
 	/*
 	 * 1/2Binning@30fps
 	 * H: 2016
@@ -1655,7 +1653,6 @@ static void preview_setting(void)
 static void capture_setting(kal_uint16 currefps)
 {
 	pr_info("%s.\n", __func__);
-	write_cmos_sensor(0x0100, 0x00);
 	/* Mode Setting */
 	write_cmos_sensor(0x0112, 0x0A);
 	write_cmos_sensor(0x0113, 0x0A);
@@ -1742,7 +1739,6 @@ static void capture_setting(kal_uint16 currefps)
 static void custom1_setting(void)
 {
 	pr_info("%s.\n", __func__);
-	write_cmos_sensor(0x0100, 0x00);
 	/* Mode Setting */
 	write_cmos_sensor(0x0112, 0x0A);
 	write_cmos_sensor(0x0113, 0x0A);
@@ -1827,7 +1823,6 @@ static void custom1_setting(void)
 static void hd_4k_setting(void)
 {
 	pr_info("%s.\n", __func__);
-	write_cmos_sensor(0x0100, 0x00);
 	/*
 	 * Full-reso (16:9)@30fps
 	 * H: 4032
@@ -1919,7 +1914,6 @@ static void hd_4k_setting(void)
 static void custom3_setting(void)
 {
 	pr_info("%s.\n", __func__);
-	write_cmos_sensor(0x0100, 0x00);
 	/*
 	 * 1/2Binning@24fps
 	 * H: 2016
@@ -2014,7 +2008,6 @@ static void custom3_setting(void)
 static void normal_video_setting(kal_uint16 currefps)
 {
 	pr_info("%s.\n", __func__);
-	write_cmos_sensor(0x0100, 0x00);
 	/* Mode Setting */
 	write_cmos_sensor(0x0112, 0x0A);
 	write_cmos_sensor(0x0113, 0x0A);
@@ -2101,7 +2094,6 @@ static void normal_video_setting(kal_uint16 currefps)
 static void hs_video_setting(void)
 {
 	pr_info("%s.\n", __func__);
-	write_cmos_sensor(0x0100, 0x00);
 	/*
 	 * 1296X736@120fps
 	 * H: 1296
@@ -2194,7 +2186,6 @@ static void hs_video_setting(void)
 static void slim_video_setting(void)
 {
 	pr_info("%s.\n", __func__);
-	write_cmos_sensor(0x0100, 0x00);
 	/*
 	 * 1296X736@30fps
 	 * H: 1296
@@ -2318,7 +2309,7 @@ static kal_uint32 get_imgsensor_id(UINT32 *sensor_id)
 	 */
 	while (imgsensor_info.i2c_addr_table[i] != 0xff) {
 		spin_lock(&imgsensor_drv_lock);
-		imgsensor.i2c_write_id = imgsensor_info.i2c_addr_table[i];
+		imgsensor.i2c_write_id =  imgsensor_info.i2c_addr_table[i];
 		spin_unlock(&imgsensor_drv_lock);
 
 	do {
@@ -3185,10 +3176,13 @@ static kal_uint32 set_test_pattern_mode(kal_bool enable)
 static kal_uint32 streaming_control(kal_bool enable)
 {
 	pr_info("streaming_enable(0=Sw tandby,1=streaming): %d\n", enable);
-	if (enable)
+	if (enable) {
 		write_cmos_sensor(0x0100, 0X01);
-	else
+	if (imgsensor.current_scenario_id == MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO)
+		mdelay(32);
+	} else {
 		write_cmos_sensor(0x0100, 0x00);
+	}
 	return ERROR_NONE;
 }
 

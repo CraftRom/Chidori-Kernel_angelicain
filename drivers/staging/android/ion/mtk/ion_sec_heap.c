@@ -444,7 +444,9 @@ void ion_sec_heap_dump_info(void)
 			get_task_comm(task_comm, client->task);
 			ION_PRINT_LOG_OR_SEQ(NULL,
 					     "%16.s(%16.s) %16u %16zu 0x%p\n",
-					     task_comm, client->dbg_name,
+					     task_comm,
+					     (*client->dbg_name) ? client->
+							dbg_name : client->name,
 					     client->pid, size, client);
 		} else {
 			ION_PRINT_LOG_OR_SEQ(NULL,
@@ -659,7 +661,9 @@ static int ion_sec_heap_debug_show(struct ion_heap *heap, struct seq_file *s,
 			ION_PRINT_LOG_OR_SEQ(s,
 					     "client(0x%p) %s (%s) pid(%u)\n",
 					     client, task_comm,
-					     client->dbg_name, client->pid);
+					     (*client->dbg_name) ? client->
+							dbg_name : client->name,
+					     client->pid);
 		} else {
 			ION_PRINT_LOG_OR_SEQ(s,
 					     "client(0x%p) %s kernel pid(%u)\n",
@@ -710,7 +714,7 @@ struct ion_heap *ion_sec_heap_create(struct ion_platform_heap *heap_data)
 		return ERR_PTR(-ENOMEM);
 	}
 	heap->heap.ops = &mm_sec_heap_ops;
-	heap->heap.type = ION_HEAP_TYPE_MULTIMEDIA_SEC;
+	heap->heap.type = (unsigned int)ION_HEAP_TYPE_MULTIMEDIA_SEC;
 	heap->heap.flags &= ~ION_HEAP_FLAG_DEFER_FREE;
 	heap->heap.debug_show = ion_sec_heap_debug_show;
 

@@ -54,7 +54,6 @@
 #include "s5k2t7spmipiraw_Sensor.h"
 
 #define MULTI_WRITE 1
-static kal_uint16 s5k2t7_shutter_initialize;
 
 #if MULTI_WRITE
 static const int I2C_BUFFER_LEN = 1020; /*trans# max is 255, each 4 bytes*/
@@ -246,7 +245,6 @@ static struct imgsensor_struct imgsensor = {
 	/* sensor need support LE, SE with HDR feature */
 	.ihdr_mode = KAL_FALSE,
 	.i2c_write_id = 0x20,	/* record current sensor's i2c write id */
-	.AE_binning_type = BINNING_NONE,
 
 };
 
@@ -474,13 +472,6 @@ static void set_shutter(kal_uint16 shutter)
 	unsigned long flags;
 
 	spin_lock_irqsave(&imgsensor_drv_lock, flags);
-	if (s5k2t7_shutter_initialize == 0) {
-		if (imgsensor.AE_binning_type == BINNING_AVERAGED)
-			shutter = shutter/2;
-		else if (imgsensor.AE_binning_type == BINNING_SUMMED)
-			shutter = shutter/4;
-		s5k2t7_shutter_initialize = 1;
-	}
 	imgsensor.shutter = shutter;
 	spin_unlock_irqrestore(&imgsensor_drv_lock, flags);
 
@@ -488,6 +479,61 @@ static void set_shutter(kal_uint16 shutter)
 }				/*      set_shutter */
 
 
+static void set_shutter_frame_length(
+	kal_uint16 shutter, kal_uint16 frame_length)
+{
+	unsigned long flags;
+	kal_uint16 realtime_fps = 0;
+	kal_int32 dummy_line = 0;
+
+	spin_lock_irqsave(&imgsensor_drv_lock, flags);
+	imgsensor.shutter = shutter;
+	spin_unlock_irqrestore(&imgsensor_drv_lock, flags);
+
+	spin_lock(&imgsensor_drv_lock);
+	/* Change frame time */
+	if (frame_length > 1)
+		dummy_line = frame_length - imgsensor.frame_length;
+
+	imgsensor.frame_length = imgsensor.frame_length + dummy_line;
+
+	if (shutter > imgsensor.frame_length - imgsensor_info.margin)
+		imgsensor.frame_length = shutter + imgsensor_info.margin;
+
+	if (imgsensor.frame_length > imgsensor_info.max_frame_length)
+		imgsensor.frame_length = imgsensor_info.max_frame_length;
+
+	spin_unlock(&imgsensor_drv_lock);
+	shutter = (shutter < imgsensor_info.min_shutter) ?
+			imgsensor_info.min_shutter : shutter;
+	shutter = (shutter >
+		(imgsensor_info.max_frame_length - imgsensor_info.margin)) ?
+		(imgsensor_info.max_frame_length - imgsensor_info.margin) :
+		shutter;
+
+	if (imgsensor.autoflicker_en) {
+		realtime_fps = imgsensor.pclk / imgsensor.line_length * 10 /
+			imgsensor.frame_length;
+		if (realtime_fps >= 297 && realtime_fps <= 305) {
+			set_max_framerate(296, 0);
+		} else if (realtime_fps >= 147 && realtime_fps <= 150) {
+			set_max_framerate(146, 0);
+		} else {
+			/* Extend frame length */
+			write_cmos_sensor(0x0340,
+				imgsensor.frame_length & 0xFFFF);
+		}
+	} else {
+		/* Extend frame length */
+		write_cmos_sensor(0x0340, imgsensor.frame_length & 0xFFFF);
+	}
+
+	/* Update Shutter */
+	write_cmos_sensor(0x0202, shutter & 0xFFFF);
+
+	pr_debug("shutter = %d, framelength = %d/%d, dummy_line= %d\n",
+		shutter, imgsensor.frame_length, frame_length, dummy_line);
+}			/*      set_shutter_frame_length */
 
 static kal_uint16 gain2reg(const kal_uint16 gain)
 {
@@ -2081,15 +2127,6 @@ static kal_uint32 control(enum MSDK_SCENARIO_ID_ENUM scenario_id,
 		preview(image_window, sensor_config_data);
 		return ERROR_INVALID_SCENARIO_ID;
 	}
-	s5k2t7_shutter_initialize = 0;
-	if (read_cmos_sensor_8(0x0900) & 0x1) {
-		/*0x0902 = 0:averaged, 1:summed, 2:bayer weighting*/
-		if (read_cmos_sensor_8(0x0902) & 0x1)
-			imgsensor.AE_binning_type = BINNING_SUMMED;
-		else
-			imgsensor.AE_binning_type = BINNING_AVERAGED;
-	} else
-		imgsensor.AE_binning_type = BINNING_NONE;
 	return ERROR_NONE;
 }				/* control() */
 
@@ -2391,6 +2428,10 @@ static kal_uint32 feature_control(MSDK_SENSOR_FEATURE_ENUM feature_id,
 
 	/*pr_debug("feature_id = %d\n", feature_id);*/
 	switch (feature_id) {
+	case SENSOR_FEATURE_SET_SHUTTER_FRAME_TIME:
+		set_shutter_frame_length((UINT16)(*feature_data),
+				(UINT16)(*(feature_data + 1)));
+		break;
 	case SENSOR_FEATURE_GET_PIXEL_CLOCK_FREQ_BY_SCENARIO:
 		switch (*feature_data) {
 		case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
@@ -2703,14 +2744,20 @@ static kal_uint32 feature_control(MSDK_SENSOR_FEATURE_ENUM feature_id,
 		streaming_control(KAL_TRUE);
 		break;
 	case SENSOR_FEATURE_GET_BINNING_TYPE:
-		pr_debug("SENSOR_FEATURE_GET_BINNING_TYPE: %d\n",
-				imgsensor.AE_binning_type);
-		if (imgsensor.AE_binning_type == BINNING_SUMMED)
-			*feature_return_para_32 = 4; /*return ratio*/
-		else if (imgsensor.AE_binning_type == BINNING_AVERAGED)
-			*feature_return_para_32 = 2;
-		else
-			*feature_return_para_32 = 1;
+		switch (*(feature_data + 1)) {
+		case MSDK_SCENARIO_ID_CAMERA_CAPTURE_JPEG:
+			*feature_return_para_32 = 1; /*BINNING_NONE*/
+			break;
+		case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
+		case MSDK_SCENARIO_ID_HIGH_SPEED_VIDEO:
+		case MSDK_SCENARIO_ID_SLIM_VIDEO:
+		case MSDK_SCENARIO_ID_CAMERA_PREVIEW:
+		default:
+			*feature_return_para_32 = 2; /*BINNING_AVERAGED*/
+			break;
+		}
+		pr_debug("SENSOR_FEATURE_GET_BINNING_TYPE AE_binning_type:%d,\n",
+			*feature_return_para_32);
 		*feature_para_len = 4;
 		break;
 	case SENSOR_FEATURE_GET_TEMPERATURE_VALUE:

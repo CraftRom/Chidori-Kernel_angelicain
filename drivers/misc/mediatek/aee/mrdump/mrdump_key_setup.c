@@ -26,7 +26,7 @@
 #ifdef CONFIG_OF
 #include <linux/of.h>
 #endif
-#ifdef CONFIG_MTK_WATCHDOG_COMMON
+#if defined(CONFIG_MTK_WATCHDOG_COMMON) || defined(CONFIG_MACH_MT6757)
 #include <mt-plat/mtk_wd_api.h>
 #ifdef CONFIG_MTK_PMIC_COMMON
 #include <mt-plat/upmu_common.h>
@@ -50,21 +50,27 @@ static const struct of_device_id mrdump_key_of_ids[] = {
 
 static int __init mrdump_key_probe(struct platform_device *pdev)
 {
-#ifdef CONFIG_MTK_WATCHDOG_COMMON
+#if defined(CONFIG_MTK_WATCHDOG_COMMON) || defined(CONFIG_MACH_MT6757)
 	int res;
 	struct wd_api *wd_api = NULL;
-	enum wk_req_mode mode = WD_REQ_IRQ_MODE;
 	const char *mode_str;
+	enum wk_req_mode mode = WD_REQ_IRQ_MODE;
 #endif
+
+#ifdef CONFIG_MTK_ENG_BUILD
+	enum MRDUMP_RST_SOURCE source = MRDUMP_SYSRST;
+#else
 	enum MRDUMP_RST_SOURCE source = MRDUMP_EINT;
+#endif
+
 #ifdef CONFIG_MTK_PMIC_COMMON
 	enum MRDUMP_LONG_PRESS_MODE long_press_mode
 			= LONG_PRESS_NONE;
-	const char *long_press;
 #endif
 	struct device_node *node;
 	const char *source_str, *interrupts;
 	char node_name[] = "mediatek, mrdump_ext_rst-eint";
+
 	pr_notice("%s:%d\n", __func__, __LINE__);
 	node = of_find_compatible_node(NULL, NULL, node_name);
 	if (!node) {
@@ -77,34 +83,34 @@ static int __init mrdump_key_probe(struct platform_device *pdev)
 		goto out;
 	}
 
-	if (!of_property_read_string(node, "source", &source_str)) {
+	pr_notice("%s:default to %s\n", __func__,
+		(source == MRDUMP_EINT) ? "EINT":"SYSRST");
+
+
+
+	if (!of_property_read_string(node, "force_mode", &source_str)) {
 		if (strcmp(source_str, "SYSRST") == 0) {
 			source = MRDUMP_SYSRST;
-#ifdef CONFIG_MTK_PMIC_COMMON
-			if (!of_property_read_string(node, "long_press",
-				&long_press)) {
-				if (strcmp(long_press, "SHUTDOWN") == 0)
-					long_press_mode = LONG_PRESS_SHUTDOWN;
-				else if (strcmp(long_press, "NONE") == 0)
-					long_press_mode = LONG_PRESS_NONE;
-				else
-					pr_info("long_press=%s not supported\n",
-					long_press);
-			}
-		}
+			pr_notice("%s:force_mode=%s\n", __func__, "SYSRST");
+		} else if (strcmp(source_str, "EINT") == 0) {
+			source = MRDUMP_EINT;
+			pr_notice("%s:force_mode=%s\n", __func__, "EINT");
+		} else
+			pr_notice("%s:no valid force_mode\n", __func__);
 	} else
-		pr_notice("MRDUMP_KEY:No attribute \"source\",  default to EINT\n");
+		pr_notice("%s:no force_mode\n", __func__);
 
 
+
+#if defined(CONFIG_MTK_WATCHDOG_COMMON) || defined(CONFIG_MACH_MT6757)
 	if (!of_property_read_string(node, "mode", &mode_str)) {
 		if (strcmp(mode_str, "RST") == 0)
 			mode = WD_REQ_RST_MODE;
+		pr_notice("%s:mode=%s\n", __func__,
+			(strcmp(mode_str, "RST") == 0)?"RST":"IRQ");
 	} else
 		pr_notice("MRDUMP_KEY: no mode property,default IRQ");
-#endif
 
-
-#ifdef CONFIG_MTK_WATCHDOG_COMMON
 	res = get_wd_api(&wd_api);
 	if (res < 0) {
 		pr_notice("MRDUMP_KEY: get_wd_api failed:%d\n", res);
@@ -128,8 +134,8 @@ static int __init mrdump_key_probe(struct platform_device *pdev)
 			pr_notice("long_press_mode = NONE\n");
 			pmic_enable_smart_reset(1, 0);
 		}
-#endif
 
+#endif
 	} else if (source == MRDUMP_EINT) {
 		res = wd_api->wd_debug_key_eint_config(1, mode);
 		if (res == -1)
@@ -150,7 +156,7 @@ out:
 static void mrdump_key_shutdown(struct platform_device *pdev)
 {
 
-#ifdef CONFIG_MTK_WATCHDOG_COMMON
+#if defined(CONFIG_MTK_WATCHDOG_COMMON) || defined(CONFIG_MACH_MT6757)
 	int res;
 	struct wd_api *wd_api = NULL;
 #endif
@@ -160,7 +166,7 @@ static void mrdump_key_shutdown(struct platform_device *pdev)
 	pmic_enable_smart_reset(0, 0);
 #endif
 
-#ifdef CONFIG_MTK_WATCHDOG_COMMON
+#if defined(CONFIG_MTK_WATCHDOG_COMMON) || defined(CONFIG_MACH_MT6757)
 	pr_notice("restore RGU to default value\n");
 	res = get_wd_api(&wd_api);
 	if (res < 0)

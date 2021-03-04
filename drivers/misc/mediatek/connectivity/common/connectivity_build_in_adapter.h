@@ -58,9 +58,18 @@
 	defined(CONFIG_MACH_KIBOPLUS) || \
 	defined(CONFIG_MACH_ELBRUS)
 #define CONNADP_HAS_CLOCK_BUF_CTRL
+#define KERNEL_CLK_BUF_CHIP_NOT_SUPPORT -7788
 #define KERNEL_clk_buf_ctrl connectivity_export_clk_buf_ctrl
+#define KERNEL_clk_buf_show_status_info \
+		connectivity_export_clk_buf_show_status_info
+#define KERNEL_clk_buf_get_xo_en_sta \
+		connectivity_export_clk_buf_get_xo_en_sta
 enum clk_buf_id;
 void connectivity_export_clk_buf_ctrl(enum clk_buf_id id, bool onoff);
+void connectivity_export_clk_buf_show_status_info(void);
+int connectivity_export_clk_buf_get_xo_en_sta(/*enum xo_id id*/ int id);
+#define KERNEL_is_clk_buf_from_pmic connectivity_export_is_clk_buf_from_pmic
+bool connectivity_export_is_clk_buf_from_pmic(void);
 #endif
 
 /*******************************************************************************
@@ -183,6 +192,10 @@ void connectivity_export_mt6306_set_gpio_dir(unsigned long pin,
 #include "mtk_spm_resource_req.h"
 #endif
 
+#define KERNEL_slp_get_wake_reason \
+		connectivity_export_slp_get_wake_reason
+#define KERNEL_spm_get_last_wakeup_src \
+		connectivity_export_spm_get_last_wakeup_src
 #define KERNEL_show_stack connectivity_export_show_stack
 #define KERNEL_tracing_record_cmdline connectivity_export_tracing_record_cmdline
 #define KERNEL_dump_thread_state connectivity_export_dump_thread_state
@@ -202,6 +215,9 @@ void connectivity_export_mt6306_set_gpio_dir(unsigned long pin,
 #define KERNEL_mt_ppm_sysboost_set_freq_limit
 #define KERNEL_spm_resource_req
 #endif
+
+unsigned int connectivity_export_slp_get_wake_reason(void);
+unsigned int connectivity_export_spm_get_last_wakeup_src(void);
 extern void tracing_record_cmdline(struct task_struct *tsk);
 extern void show_stack(struct task_struct *tsk, unsigned long *sp);
 #ifdef CPU_BOOST

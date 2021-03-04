@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2015 MediaTek Inc.
- * Copyright (C) 2019 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -655,6 +654,17 @@ struct LCM_DSI_PARAMS {
 };
 
 /* ------------------------------------------------------------------------- */
+struct LCM_ROUND_CORNER {
+	unsigned int w;
+	unsigned int h;
+	unsigned int tp_size;
+	unsigned int bt_size;
+	void *lt_addr;
+	void *rt_addr;
+	void *lb_addr;
+	void *rb_addr;
+};
+
 struct LCM_PARAMS {
 	enum LCM_TYPE type;
 	enum LCM_CTRL ctrl;		/* ! how to control LCM registers */
@@ -690,6 +700,7 @@ struct LCM_PARAMS {
 	unsigned int corner_pattern_width;
 	unsigned int corner_pattern_height;
 	unsigned int corner_pattern_height_bot;
+	struct LCM_ROUND_CORNER round_corner_params;
 	unsigned int corner_pattern_tp_size;
 	void *corner_pattern_lt_addr;
 
@@ -698,12 +709,8 @@ struct LCM_PARAMS {
 	unsigned int average_luminance;
 	unsigned int max_luminance;
 
-	unsigned use_gpioID;
-	unsigned gpioID_value;
-
-
-	unsigned int vbias_level;
-
+	unsigned int hbm_en_time;
+	unsigned int hbm_dis_time;
 };
 
 
@@ -898,6 +905,10 @@ struct LCM_DRIVER {
 	/* /////////////////////////CABC backlight related function */
 	void (*set_backlight)(unsigned int level);
 	void (*set_backlight_cmdq)(void *handle, unsigned int level);
+	bool (*get_hbm_state)(void);
+	bool (*get_hbm_wait)(void);
+	bool (*set_hbm_wait)(bool wait);
+	bool (*set_hbm_cmdq)(bool en, void *qhandle);
 	void (*set_pwm)(unsigned int divider);
 	unsigned int (*get_pwm)(unsigned int divider);
 	void (*set_backlight_mode)(unsigned int mode);
@@ -930,10 +941,6 @@ struct LCM_DRIVER {
 	void (*set_pwm_for_mix)(int enable);
 
 	void (*aod)(int enter);
-
-	void (*set_cabc_cmdq)(void *handle, unsigned int enable);
-	void (*get_cabc_status)(int *status);
-
 };
 
 /* LCM Driver Functions */

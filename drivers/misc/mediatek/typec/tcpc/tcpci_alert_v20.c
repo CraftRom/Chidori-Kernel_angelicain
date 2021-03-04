@@ -373,6 +373,8 @@ static inline int __tcpci_alert(struct tcpc_device *tcpc_dev)
 		TCPC_INFO("Alert:0x%04x\r\n", alert_status);
 #endif /* CONFIG_USB_PD_DBG_ALERT_STATUS */
 
+	alert_status &= alert_mask;
+
 	tcpci_alert_status_clear(tcpc_dev,
 		alert_status & (~TCPC_REG_ALERT_RX_MASK));
 
@@ -500,6 +502,7 @@ static inline int tcpci_report_usb_port_attached(struct tcpc_device *tcpc)
 #ifdef CONFIG_DUAL_ROLE_USB_INTF
 	switch (tcpc->typec_attach_new) {
 	case TYPEC_ATTACHED_SNK:
+	case TYPEC_ATTACHED_CUSTOM_SRC:
 		tcpc->dual_role_pr = DUAL_ROLE_PROP_PR_SNK;
 		tcpc->dual_role_dr = DUAL_ROLE_PROP_DR_DEVICE;
 		tcpc->dual_role_mode = DUAL_ROLE_PROP_MODE_UFP;

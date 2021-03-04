@@ -68,21 +68,14 @@ struct ion_mm_buffer_info {
 			pr_err(fmt, ##args);\
 	} while (0)
 
-#ifdef CONFIG_DMAUSER_PAGES
-static unsigned int order_gfp_flags[] = {
-	(__GFP_ZERO | __GFP_NOWARN | __GFP_NORETRY) & ~__GFP_RECLAIM,
-	(__GFP_ZERO | __GFP_NOWARN | __GFP_NORETRY) & ~__GFP_DIRECT_RECLAIM,
-	(__GFP_ZERO | __GFP_NOWARN)
-};
-#else
 static unsigned int order_gfp_flags[] = {
 	(GFP_HIGHUSER | __GFP_ZERO | __GFP_NOWARN | __GFP_NORETRY) &
 	    ~__GFP_RECLAIM,
 	(GFP_HIGHUSER | __GFP_ZERO | __GFP_NOWARN | __GFP_NORETRY) &
 	    ~__GFP_DIRECT_RECLAIM,
-	(GFP_HIGHUSER | __GFP_ZERO | __GFP_NOWARN)
+	(GFP_HIGHUSER | __GFP_ZERO)
 };
-#endif
+
 static const unsigned int orders[] = { 4, 1, 0 };
 
 /* static const unsigned int orders[] = {8, 4, 0}; */
@@ -115,7 +108,6 @@ struct page_info {
 	struct list_head list;
 };
 
-static size_t mm_heap_total_memory;
 unsigned int caller_pid;
 unsigned int caller_tid;
 unsigned long long alloc_large_fail_ts;
@@ -163,6 +155,12 @@ static void free_buffer_page(struct ion_system_heap *heap,
 		ion_page_pool_free(pool, page);
 	} else {
 		__free_pages(page, order);
+		if (atomic64_sub_return((1 << order), &page_sz_cnt) < 0) {
+			IONMSG("underflow!, total_now[0x%llx]free[%d]\n",
+			       (u64)atomic64_read(&page_sz_cnt),
+			       (int)(1 << order));
+			atomic64_set(&page_sz_cnt, 0);
+		}
 	}
 }
 
@@ -398,7 +396,6 @@ map_mva_exit:
 		buffer->priv_virt = buffer_info;
 #endif
 
-	mm_heap_total_memory += size;
 	caller_pid = 0;
 	caller_tid = 0;
 
@@ -587,7 +584,6 @@ void ion_mm_heap_free(struct ion_buffer *buffer)
 	LIST_HEAD(pages);
 	int i;
 
-	mm_heap_total_memory -= buffer->size;
 #if (defined(CONFIG_MTK_M4U) || defined(CONFIG_MTK_PSEUDO_M4U))
 	if ((heap->id == ION_HEAP_TYPE_MULTIMEDIA_MAP_MVA) ||
 	    (heap->id == ION_HEAP_TYPE_MULTIMEDIA_PA2MVA)) {
@@ -864,16 +860,17 @@ static int __do_dump_share_fd(const void *data, struct file *file,
 	if (!buffer->handle_count) {
 		if (bug_info)
 		ION_PRINT_LOG_OR_SEQ(s,
-				     "0x%p %9d %16s %5d %5d %16s %4d %8x %8d %8x %8d\n",
-				     buffer, bug_info->pid, buffer->alloc_dbg,
-				     p->pid, p->tgid, p->comm, fd,
+				     "0x%p %8zu %9d %16s %5d %16s %4d %8x %8d %8x %8d\n",
+				     buffer, buffer->size, bug_info->pid,
+				     buffer->alloc_dbg, p->pid, p->comm, fd,
 				     mva[MM_DOMAIN], block_nr[MM_DOMAIN],
 				     mva[VPU_DOMAIN], block_nr[VPU_DOMAIN]);
 		else
 		ION_PRINT_LOG_OR_SEQ(s,
-				     "0x%p %9d %16s %5d %5d %16s %4d %8x %8d %8x %8d\n",
-				     buffer, -1, buffer->alloc_dbg,
-				     p->pid, p->tgid, p->comm, fd,
+				     "0x%p %8zu %9d %16s %5d %16s %4d %8x %8d %8x %8d\n",
+				     buffer, buffer->size, -1,
+				     buffer->alloc_dbg,
+				     p->pid,  p->comm, fd,
 				     mva[MM_DOMAIN], block_nr[MM_DOMAIN],
 				     mva[VPU_DOMAIN], block_nr[VPU_DOMAIN]);
 	}
@@ -891,9 +888,9 @@ static int ion_dump_all_share_fds(struct seq_file *s)
 		return 0;
 
 	ION_PRINT_LOG_OR_SEQ(s,
-			     "%18s %9s %16s %5s %5s %16s %4s %8s %8s %8s %9s\n",
-			     "buffer", "alloc_pid", "alloc_client", "pid",
-			     "tgid", "process", "fd",
+			     "%18s %8.s %9s %16s %5s %16s %4s %8s %8s %8s %9s\n",
+			     "buffer", "size", "alloc_pid", "alloc_client",
+			     "pid", "process", "fd",
 			     "mva1", "nr1", "mva2", "nr2");
 	data.s = s;
 
@@ -924,6 +921,10 @@ static int ion_mm_heap_debug_show(struct ion_heap *heap, struct seq_file *s,
 	unsigned long long current_ts;
 	int val;
 	unsigned int mva, mva1;
+
+	current_ts = sched_clock();
+	do_div(current_ts, 1000000);
+	ION_PRINT_LOG_OR_SEQ(s, "time 3 %lld ms\n", current_ts);
 
 	for (i = 0; i < num_orders; i++) {
 		struct ion_page_pool *pool = sys_heap->pools[i];
@@ -967,6 +968,11 @@ static int ion_mm_heap_debug_show(struct ion_heap *heap, struct seq_file *s,
 			     "dbg_name");
 
 	mutex_lock(&dev->buffer_lock);
+
+	current_ts = sched_clock();
+	do_div(current_ts, 1000000);
+	ION_PRINT_LOG_OR_SEQ(s, "time 4 %lld ms\n", current_ts);
+
 	for (n = rb_first(&dev->buffers); n; n = rb_next(n)) {
 		struct ion_buffer
 		*buffer = rb_entry(n, struct ion_buffer, node);
@@ -1005,11 +1011,19 @@ static int ion_mm_heap_debug_show(struct ion_heap *heap, struct seq_file *s,
 			has_orphaned = true;
 	}
 
+	current_ts = sched_clock();
+	do_div(current_ts, 1000000);
+	ION_PRINT_LOG_OR_SEQ(s, "time 5 %lld ms\n", current_ts);
+
 	if (has_orphaned) {
 		ION_PRINT_LOG_OR_SEQ(s,
 				     "-----orphaned buffer list:------------------\n");
 		ion_dump_all_share_fds(s);
 	}
+
+	current_ts = sched_clock();
+	do_div(current_ts, 1000000);
+	ION_PRINT_LOG_OR_SEQ(s, "time 6 %lld ms\n", current_ts);
 
 	mutex_unlock(&dev->buffer_lock);
 
@@ -1030,7 +1044,9 @@ static int ion_mm_heap_debug_show(struct ion_heap *heap, struct seq_file *s,
 			ION_PRINT_LOG_OR_SEQ(s,
 					     "client(0x%p) %s (%s) pid(%u) ================>\n",
 					     client, task_comm,
-					     client->dbg_name, client->pid);
+					     (*client->dbg_name) ? client->
+							dbg_name : client->name,
+					     client->pid);
 		} else {
 			ION_PRINT_LOG_OR_SEQ(s,
 					     "client(0x%p) %s (from_kernel) pid(%u) ================>\n",
@@ -1062,8 +1078,9 @@ static int ion_mm_heap_debug_show(struct ion_heap *heap, struct seq_file *s,
 	current_ts = sched_clock();
 	do_div(current_ts, 1000000);
 	ION_PRINT_LOG_OR_SEQ(s,
-			     "current time %lld ms, total: %16zu!!\n",
-			     current_ts, mm_heap_total_memory);
+			     "current time %lld ms, total: %llu!!\n",
+		 current_ts,
+		 (u64)(atomic64_read(&page_sz_cnt) * 4096));
 #ifdef CONFIG_MTK_PSEUDO_M4U
 	mtk_iommu_log_dump(s);
 #endif
@@ -1181,7 +1198,9 @@ void ion_mm_heap_memory_detail(void)
 			get_task_comm(task_comm, client->task);
 			sprintf(seq_log + strlen(seq_log),
 				"|%16s(%16s) %6u %12zu 0x%p |",
-				task_comm, client->dbg_name,
+				task_comm,
+				(*client->dbg_name) ? client->
+					dbg_name : client->name,
 				client->pid, size, client);
 		} else {
 			sprintf(seq_log + strlen(seq_log),
@@ -1349,18 +1368,18 @@ skip_client_entry:
 				     total_orphaned_size);
 		ION_PRINT_LOG_OR_SEQ(NULL, "mm total: %16zu, cam: %16zu\n",
 				     mm_size, cam_size);
-		ION_PRINT_LOG_OR_SEQ(NULL, "ion heap total memory: %16zu\n",
-				     mm_heap_total_memory);
+		ION_PRINT_LOG_OR_SEQ(NULL, "ion heap total memory: %llu\n",
+				     (u64)(atomic64_read(&page_sz_cnt) * 4096));
 		ION_PRINT_LOG_OR_SEQ(NULL, "------------------------------\n");
 	} else {
-		ION_PRINT_LOG_OR_SEQ(NULL, "ion heap total memory: %16zu\n",
-				     mm_heap_total_memory);
+		ION_PRINT_LOG_OR_SEQ(NULL, "ion heap total memory: %llu\n",
+				     (u64)(atomic64_read(&page_sz_cnt) * 4096));
 	}
 }
 
 size_t ion_mm_heap_total_memory(void)
 {
-	return mm_heap_total_memory;
+	return (size_t)(atomic64_read(&page_sz_cnt) * 4096);
 }
 
 struct ion_heap *ion_mm_heap_create(struct ion_platform_heap *unused)
@@ -1374,7 +1393,7 @@ struct ion_heap *ion_mm_heap_create(struct ion_platform_heap *unused)
 		return ERR_PTR(-ENOMEM);
 	}
 	heap->heap.ops = &ion_mm_heap_ops;
-	heap->heap.type = ION_HEAP_TYPE_MULTIMEDIA;
+	heap->heap.type = (unsigned int)ION_HEAP_TYPE_MULTIMEDIA;
 	heap->heap.flags = ION_HEAP_FLAG_DEFER_FREE;
 	heap->pools =
 	    kcalloc(num_orders, sizeof(struct ion_page_pool *), GFP_KERNEL);
@@ -1529,6 +1548,7 @@ long ion_mm_ioctl(struct ion_client *client, unsigned int cmd,
 				    ("config error:%d-%d,name %16.s!!!\n",
 				     param.config_buffer_param.module_id,
 				     buffer->heap->type, client->name);
+				ion_drv_put_kernel_handle(kernel_handle);
 				return -EFAULT;
 			}
 
@@ -1664,6 +1684,7 @@ long ion_mm_ioctl(struct ion_client *client, unsigned int cmd,
 					"get iova error:%d-%d,name %16.s!!!\n",
 				     param.get_phys_param.module_id,
 				     buffer->heap->type, client->name);
+				ion_drv_put_kernel_handle(kernel_handle);
 				mutex_unlock(&buffer_info->lock);
 				return -EFAULT;
 			}

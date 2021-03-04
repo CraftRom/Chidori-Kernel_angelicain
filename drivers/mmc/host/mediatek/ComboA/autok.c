@@ -992,8 +992,14 @@ static int autok_check_scan_res64_new(u64 rawdat,
 				scan_res->fail_info[j].bd_e =
 					scan_res->fail_info[j + 1].bd_e;
 			}
-			scan_res->fail_info[scan_res->fail_cnt - 1].bd_s = 0;
-			scan_res->fail_info[scan_res->fail_cnt - 1].bd_e = 0;
+			/* add check to prevent coverity scan fail */
+			if (scan_res->fail_cnt >= 1) {
+				scan_res->fail_info[
+					scan_res->fail_cnt - 1].bd_s = 0;
+				scan_res->fail_info[
+					scan_res->fail_cnt - 1].bd_e = 0;
+			} else
+				WARN_ON(1);
 			scan_res->fail_cnt--;
 		}
 	}
@@ -3596,7 +3602,7 @@ int execute_online_tuning_hs400(struct msdc_host *host, u8 *res)
 		AUTOK_RAWPRINT("[AUTOK]CMD err while check device status\r\n");
 #ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
 	/* check QSR status when CQ on */
-	if (mmc_card_cmdq(host->mmc->card)) {
+	if (host->mmc->card && mmc_card_cmdq(host->mmc->card)) {
 		ret = autok_send_tune_cmd(host, CHECK_QSR,
 			TUNE_CMD, &autok_host_para);
 		if (ret == E_RES_PASS) {
@@ -5174,7 +5180,7 @@ int autok_offline_tuning_device_RX(struct msdc_host *host, u8 *res)
 	unsigned char tune_pass_cnt[32];
 	unsigned char tune_tmo_cnt[32];
 	char tune_result[33];
-	unsigned int cmd_tx;
+	unsigned int cmd_tx = 0;
 	unsigned int dat_tx[4] = {0};
 	unsigned int cmd_init_tx;
 	unsigned int dat_init_tx[4] = {0};

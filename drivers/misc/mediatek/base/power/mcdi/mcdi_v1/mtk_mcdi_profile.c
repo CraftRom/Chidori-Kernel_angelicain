@@ -316,19 +316,6 @@ void mcdi_profile_ts(int cpu_idx, unsigned int prof_idx)
 	mcdi_lat.section[prof_idx].ts[cpu_idx] = sched_clock();
 }
 
-#if 0
-void mcdi_profile_ts_clr(int cpu_idx, unsigned int prof_idx)
-{
-	if (!mcdi_lat.enable)
-		return;
-
-	if (unlikely(prof_idx >= NF_MCDI_PROFILE))
-		return;
-
-	mcdi_lat.section[prof_idx].ts[cpu_idx] = 0;
-}
-#endif
-
 void mcdi_profile_calc(int cpu)
 {
 	int cpu_type;
@@ -365,7 +352,7 @@ void mcdi_profile_calc(int cpu)
 		start = data->start_ts[cpu];
 		end = data->end_ts[cpu];
 
-		if (unlikely(start == 0) || end == 0)
+		if (unlikely(start == 0))
 			continue;
 
 		dur = (unsigned int)((end - start) & 0xFFFFFFFF);
@@ -582,7 +569,9 @@ static ssize_t mcdi_profile_write(struct file *filp,
 		return -EINVAL;
 
 	if (!strncmp(cmd_str, "reg", sizeof("reg"))) {
-		if (param >= MCDI_SYSRAM_SIZE || (param % 4) != 0)
+		if (!(param >= 0
+				&& param < MCDI_SYSRAM_SIZE
+				&& (param % 4) == 0))
 			return -EINVAL;
 
 		pr_info("mcdi_reg: 0x%lx=0x%x(%d)\n",

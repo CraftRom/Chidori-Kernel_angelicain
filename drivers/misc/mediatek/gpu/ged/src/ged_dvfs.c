@@ -29,6 +29,7 @@
 #include <asm/siginfo.h>
 #include <linux/sched.h>
 #include <linux/signal.h>
+#include <linux/vmalloc.h>
 
 #include "disp_session.h"
 #include "ged_dvfs.h"
@@ -63,6 +64,12 @@ static int g_dvfs_skip_round;
 static unsigned int gpu_power;
 static unsigned int gpu_dvfs_enable;
 static unsigned int gpu_debug_enable;
+static uint64_t *g_aActiveOppCosts;
+static uint64_t *g_report;
+static int g_num;
+static uint64_t g_FullOppActive;
+static uint64_t g_update_ts_us;
+unsigned long long g_ns_gpu_on_ts;
 
 MTK_GPU_DVFS_TYPE g_CommitType;
 unsigned long g_ulCommitFreq;
@@ -75,6 +82,7 @@ static unsigned int gpu_cust_upbound_freq;
 #endif
 
 static unsigned int g_ui32PreFreqID;
+static unsigned int g_ui32CurFreqID;
 static unsigned int g_bottom_freq_id;
 static unsigned int g_last_def_commit_freq_id;
 static unsigned int g_cust_upbound_freq_id;
@@ -105,6 +113,7 @@ static unsigned long gL_ulWorkingPeriod_us; /* last frame half, t0 */
 
 static unsigned int g_loading2_count;
 static unsigned int g_loading2_sum;
+static uint64_t g_LoadingTS_us;
 static DEFINE_SPINLOCK(load_info_lock);
 
 static unsigned long g_policy_tar_freq;
@@ -125,6 +134,11 @@ static int g_VsyncOffsetLevel;
 
 static int g_probe_pid = GED_NO_UM_SERVICE;
 
+#ifdef GED_CONFIGURE_LOADING_BASE_DVFS_STEP
+#define DEFAULT_DVFS_STEP_MODE	0x0000 /* dvfs step =0, enlarge range= 0 */
+unsigned int dvfs_step_mode = DEFAULT_DVFS_STEP_MODE;
+static int init;
+#endif
 typedef void (*gpufreq_input_boost_notify)(unsigned int);
 
 extern void mt_gpufreq_input_boost_notify_registerCB(gpufreq_input_boost_notify pCB);
@@ -153,12 +167,6 @@ extern unsigned long (*mtk_get_gpu_custom_boost_freq_fp)(void);
 extern unsigned long (*mtk_get_gpu_custom_upbound_freq_fp)(void);
 
 extern void ged_monitor_3D_fence_set_enable(GED_BOOL bEnable);
-
-#ifdef GED_CONFIGURE_LOADING_BASE_DVFS_STEP
-#define DEFAULT_DVFS_STEP_MODE	0x0004 /* dvfs step =4, enlarge range= 0 */
-unsigned int dvfs_step_mode = DEFAULT_DVFS_STEP_MODE;
-static int init;
-#endif
 
 static unsigned int g_ui32TargetPeriod_us = 16666;
 static unsigned int g_ui32BoostValue = 100;
@@ -196,9 +204,9 @@ struct ld_ud_table {
 };
 static struct ld_ud_table *loading_ud_table;
 
-static int gx_tb_dvfs_margin;
-static int gx_tb_dvfs_margin_cur;
 #define GED_DVFS_TIMER_BASED_DVFS_MARGIN 30
+static int gx_tb_dvfs_margin = GED_DVFS_TIMER_BASED_DVFS_MARGIN;
+static int gx_tb_dvfs_margin_cur = GED_DVFS_TIMER_BASED_DVFS_MARGIN;
 module_param(gx_tb_dvfs_margin, int, 0644);
 static void _init_loading_ud_table(void)
 {
@@ -239,9 +247,9 @@ static void _init_loading_ud_table(void)
 
 unsigned long ged_query_info( GED_INFO eType)
 {
-	unsigned int gpu_loading;
-	unsigned int gpu_block;
-	unsigned int gpu_idle;
+	unsigned int gpu_loading = 0;
+	unsigned int gpu_block = 0;
+	unsigned int gpu_idle = 0;
 
 	switch (eType) {
 		case GED_LOADING:
@@ -315,16 +323,53 @@ EXPORT_SYMBOL(ged_dvfs_cal_gpu_utilization_fp);
 bool ged_dvfs_cal_gpu_utilization(unsigned int *pui32Loading,
 	unsigned int *pui32Block, unsigned int *pui32Idle)
 {
+	unsigned long long TS_us;
+	unsigned long long TS_base_us;
+	unsigned long long TS_p_on_us;
+	unsigned int oppLoading;
+
 	if (ged_dvfs_cal_gpu_utilization_fp != NULL) {
 		ged_dvfs_cal_gpu_utilization_fp(pui32Loading, pui32Block, pui32Idle);
 		if (pui32Loading) {
 			gpu_av_loading = *pui32Loading;
 		gpu_sub_loading = *pui32Loading;
 
+
+			oppLoading = *pui32Loading;
+			TS_us = ged_get_time();
+			/* to approximate us*/
+			TS_us = TS_us >> 10;
+			TS_p_on_us = g_ns_gpu_on_ts >> 10;
+
+			/* for rainy days */
+			if (TS_p_on_us > TS_us)
+				TS_base_us = g_LoadingTS_us;
+			else {
+				TS_base_us = (g_LoadingTS_us > TS_p_on_us)
+					? g_LoadingTS_us : TS_p_on_us;
+			}
+
 			spin_lock(&load_info_lock);
 			g_loading2_sum += gpu_av_loading;
 			g_loading2_count++;
+
+			if (TS_base_us > TS_us || *pui32Loading > 100) {
+				if (*pui32Loading > 100)
+					oppLoading = 100;
+			}
+			g_LoadingTS_us = TS_us;
 			spin_unlock(&load_info_lock);
+
+			/* the minus one should be clock
+			 * reference problem between threads
+			 */
+			if (TS_base_us < TS_us)
+				ged_dvfs_update_opp_cost(
+				oppLoading,
+				(TS_us - TS_base_us),
+				TS_us,
+				g_ui32CurFreqID);
+
 		}
 		return true;
 	}
@@ -547,6 +592,7 @@ bool ged_dvfs_gpu_freq_commit(unsigned long ui32NewFreqID, unsigned long ui32New
 			if (bCommited == true) {
 				ged_log_buf_print(ghLogBuf_DVFS, "[GED_K] committed true");
 				g_ui32PreFreqID = ui32CurFreqID;
+				g_ui32CurFreqID = ui32NewFreqID;
 			}
 		}
 	}
@@ -624,6 +670,10 @@ GED_ERROR ged_dvfs_vsync_offset_event_switch(GED_DVFS_VSYNC_OFFSET_SWITCH_CMD eE
 			(bSwitch) ? (g_ui32EventStatus |= GED_EVENT_VR) :
 				(g_ui32EventStatus &= (~GED_EVENT_VR));
 			break;
+		case GED_DVFS_VSYNC_OFFSET_DHWC_EVENT:
+			(bSwitch) ? (g_ui32EventStatus |= GED_EVENT_DHWC) :
+				(g_ui32EventStatus &= (~GED_EVENT_DHWC));
+			break;
 		case GED_DVFS_VSYNC_OFFSET_GAS_EVENT:
 			(bSwitch) ? (g_ui32EventStatus |= GED_EVENT_GAS) :
 				(g_ui32EventStatus &= (~GED_EVENT_GAS));
@@ -648,13 +698,6 @@ GED_ERROR ged_dvfs_vsync_offset_event_switch(GED_DVFS_VSYNC_OFFSET_SWITCH_CMD eE
 		case GED_DVFS_BOOST_HOST_EVENT:
 			ret = ged_dvfs_probe_signal(GED_SIGNAL_BOOST_HOST_EVENT);
 			goto CHECK_OUT;
-		case GED_DVFS_VSYNC_OFFSET_LOW_LATENCY_MODE_EVENT:
-			(bSwitch) ?
-			(g_ui32EventStatus |= GED_EVENT_LOW_LATENCY_MODE) :
-			(g_ui32EventStatus &= (~GED_EVENT_LOW_LATENCY_MODE));
-			ret = ged_dvfs_probe_signal
-			(GED_LOW_LATENCY_MODE_SIGNAL_EVENT);
-			break;
 		default:
 			GED_LOGE("%s: not acceptable event:%u\n", __func__, eEvent);
 			ret = GED_ERROR_INVALID_PARAMS;
@@ -864,10 +907,31 @@ static int ged_dvfs_fb_gpu_dvfs(int t_gpu, int t_gpu_target,
 
 	if (force_fallback_pre != force_fallback) {
 		force_fallback_pre = force_fallback;
+#ifdef GED_CONFIGURE_LOADING_BASE_DVFS_STEP
+		if (force_fallback == 1) {
+			int i32NewFreqID =
+			(int) mt_gpufreq_get_cur_freq_index();
+
+			if (dvfs_step_mode == 0)
+				i32NewFreqID = 0;
+			else
+				i32NewFreqID -= (dvfs_step_mode&0xff);
+
+			if (i32NewFreqID < 0)
+				i32NewFreqID = 0;
+
+			ged_dvfs_gpu_freq_commit((unsigned long)i32NewFreqID
+			, mt_gpufreq_get_freq_by_idx((unsigned long)
+			i32NewFreqID)
+			, GED_DVFS_DEFAULT_COMMIT);
+		}
+#else
 		if (force_fallback == 1)
 			ged_dvfs_gpu_freq_commit(0
 				, mt_gpufreq_get_freq_by_idx(0)
 				, GED_DVFS_DEFAULT_COMMIT);
+#endif
+
 	}
 	if (force_fallback) {
 		gpu_freq_pre = ret_freq = mt_gpufreq_get_cur_freq();
@@ -999,6 +1063,7 @@ static int ged_dvfs_fb_gpu_dvfs(int t_gpu, int t_gpu_target,
 #endif
 
 	gpu_freq_pre = gpu_freq_pre << 10;
+
 #ifdef GED_ENABLE_DYNAMIC_DVFS_MARGIN
 	ged_log_buf_print(ghLogBuf_DVFS,
 	"[GED_K][FB_DVFS]t_gpu:%d,t_gpu_tar:%d,gpu_freq_tar:%d,gpu_freq_pre:%d",
@@ -1013,6 +1078,7 @@ static int ged_dvfs_fb_gpu_dvfs(int t_gpu, int t_gpu_target,
 		"[GED_K][FB_DVFS] FB DVFS mode, t_gpu: %d, t_gpu_target: %d, gpu_freq_tar: %d, gpu_freq_pre: %d"
 		, t_gpu, t_gpu_target, gpu_freq_tar, gpu_freq_pre);
 #endif
+
 	g_CommitType = MTK_GPU_DVFS_TYPE_VSYNCBASED;
 	ged_dvfs_gpu_freq_commit((unsigned long)ui32NewFreqID,
 		gpu_freq_tar, GED_DVFS_DEFAULT_COMMIT);
@@ -1132,8 +1198,7 @@ static bool ged_dvfs_policy(
 		if (init == 0) {
 			init = 1;
 			gx_tb_dvfs_margin_cur
-				= gx_tb_dvfs_margin
-				= GED_DVFS_TIMER_BASED_DVFS_MARGIN;
+				= gx_tb_dvfs_margin;
 			_init_loading_ud_table();
 		}
 
@@ -1388,7 +1453,7 @@ static void ged_dvfs_margin_value(int i32MarginValue)
 	/* 0~100: configure margin mode */
 	/* 101~199:  dynamic margin mode - CONFIG_FPS_MARGIN */
 	/* 201~299:  dynamic margin mode - FIXED_FPS_MARGIN */
-	/* 301~499:  dynamic margin mode - NO_FPS_MARGIN */
+	/* 301~399:  dynamic margin mode - NO_FPS_MARGIN */
 
 	mutex_lock(&gsDVFSLock);
 
@@ -1458,6 +1523,28 @@ static int ged_get_loading_base_dvfs_step(void)
 	return dvfs_step_mode;
 }
 
+#endif
+
+#ifdef GED_ENABLE_TIMER_BASED_DVFS_MARGIN
+static void ged_timer_base_dvfs_margin(int i32MarginValue)
+{
+	/* -1:  default: GED_DVFS_TIMER_BASED_DVFS_MARGIN */
+	/* 1~99: configure timer base dvfs margin */
+
+	mutex_lock(&gsDVFSLock);
+
+	if (i32MarginValue == -1)
+		gx_tb_dvfs_margin = GED_DVFS_TIMER_BASED_DVFS_MARGIN;
+	else if ((i32MarginValue > 0) && (i32MarginValue < 100))
+		gx_tb_dvfs_margin = i32MarginValue;
+
+	mutex_unlock(&gsDVFSLock);
+}
+
+static int ged_get_timer_base_dvfs_margin(void)
+{
+	return gx_tb_dvfs_margin_cur;
+}
 #endif
 /* Need spinlocked */
 void ged_dvfs_save_loading_page(void)
@@ -1723,6 +1810,71 @@ unsigned long ged_gas_query_mode(void)
 }
 
 
+void ged_dvfs_reset_opp_cost(int oppsize)
+{
+	if (oppsize > 0 && oppsize <= mt_gpufreq_get_dvfs_table_num()) {
+		memset(g_aActiveOppCosts, 0, sizeof(uint64_t) * oppsize);
+		memset(g_report, 0, sizeof(uint64_t) * (g_num + 1));
+		g_FullOppActive = 0;
+	}
+}
+
+uint64_t *ged_dvfs_query_opp_cost(uint64_t reset_base_us, uint64_t curTs_us)
+{
+	uint64_t idle;
+
+	if (g_report) {
+		memcpy(g_report, g_aActiveOppCosts, g_num*sizeof(uint64_t));
+
+		idle = curTs_us - g_FullOppActive - reset_base_us;
+		if (idle > g_report[g_num])
+			g_report[g_num] = idle;
+	}
+
+	return g_report;
+}
+
+
+
+
+void ged_dvfs_update_opp_cost(unsigned int loading,
+	unsigned int TSDiff_us, unsigned long long cur_us, unsigned int idx)
+{
+	unsigned int Active_us;
+
+	if (g_aActiveOppCosts) {
+		Active_us = (TSDiff_us * loading / 100);
+		/* update opp busy */
+		g_aActiveOppCosts[idx] += Active_us;
+		/* update all gpu busy */
+		g_FullOppActive += Active_us;
+		g_update_ts_us = cur_us;
+	}
+
+}
+
+static void ged_dvfs_init_opp_cost(void)
+{
+	int oppsize;
+
+	oppsize = mt_gpufreq_get_dvfs_table_num();
+
+	if (oppsize == 0)
+		return;
+
+	g_aActiveOppCosts = vmalloc(sizeof(uint64_t) * oppsize);
+	/* the last tuple would be used to save total idle */
+	g_num = oppsize;
+	g_report = vmalloc(sizeof(uint64_t) * (g_num + 1));
+	ged_dvfs_reset_opp_cost(oppsize);
+}
+
+static void ged_dvfs_deinit_opp_cost(void)
+{
+	vfree(g_report);
+	vfree(g_aActiveOppCosts);
+}
+
 GED_ERROR ged_dvfs_probe(int pid)
 {
 	if (pid == GED_VSYNC_OFFSET_NOT_SYNC) {
@@ -1842,6 +1994,11 @@ GED_ERROR ged_dvfs_system_init(void)
 	mtk_loading_base_dvfs_step_fp = ged_loading_base_dvfs_step;
 	mtk_get_loading_base_dvfs_step_fp = ged_get_loading_base_dvfs_step;
 #endif
+#ifdef GED_ENABLE_TIMER_BASED_DVFS_MARGIN
+	mtk_timer_base_dvfs_margin_fp =	ged_timer_base_dvfs_margin;
+	mtk_get_timer_base_dvfs_margin_fp = ged_get_timer_base_dvfs_margin;
+#endif
+
 	/* CAP query */
 	mtk_get_gpu_dvfs_cal_freq_fp = ged_get_gpu_dvfs_cal_freq;
 
@@ -1850,11 +2007,14 @@ GED_ERROR ged_dvfs_system_init(void)
 	gpu_dvfs_enable = 0;
 #endif /* ENABLE_COMMON_DVFS */
 
+	ged_dvfs_init_opp_cost();
+
 	return GED_OK;
 }
 
 void ged_dvfs_system_exit(void)
 {
+	ged_dvfs_deinit_opp_cost();
 	mutex_destroy(&gsDVFSLock);
 	mutex_destroy(&gsVSyncOffsetLock);
 }

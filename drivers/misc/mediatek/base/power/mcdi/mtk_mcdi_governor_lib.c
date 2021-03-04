@@ -44,7 +44,6 @@ static void __release_last_core_prot(unsigned int clr)
 void release_last_core_prot(void)
 {
 	__release_last_core_prot(1U << 9);
-	mcdi_cpc_auto_off_counter_resume();
 }
 
 void release_cluster_last_core_prot(void)
@@ -78,7 +77,6 @@ int acquire_last_core_prot(int cpu)
 		udelay_and_update_wait_time(dur_us, 2);
 
 		if (!is_last_core_in_mcusys(cpu) || dur_us > 1000) {
-			__release_last_core_prot(1U << 9);
 			ret = CPC_RET_GIVE_UP;
 			break;
 		}
@@ -88,14 +86,10 @@ int acquire_last_core_prot(int cpu)
 
 	} while (ret == CPC_RET_RETRY);
 
-	if (ret == CPC_RET_SUCCESS) {
-		mcdi_cpc_auto_off_counter_suspend();
-		return 0;
-	} else if (ret == CPC_RET_GIVE_UP) {
+	if (ret == CPC_RET_GIVE_UP)
 		any_core_cpu_cond_inc(MULTI_CORE_CNT);
-	}
 
-	return -1;
+	return ret == CPC_RET_SUCCESS ? 0 : -1;
 }
 
 int acquire_cluster_last_core_prot(int cpu)
@@ -112,7 +106,6 @@ int acquire_cluster_last_core_prot(int cpu)
 		udelay_and_update_wait_time(dur_us, 2);
 
 		if (!is_last_core_in_cluster(cpu) || dur_us > 1000) {
-			__release_last_core_prot(1U << 8);
 			ret = CPC_RET_GIVE_UP;
 			break;
 		}

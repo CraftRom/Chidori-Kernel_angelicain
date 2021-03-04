@@ -291,29 +291,6 @@ const struct sched_group_energy * const cpu_core_energy(int cpu)
 	return sge;
 }
 
-#ifdef CONFIG_MTK_UNIFY_POWER
-struct sched_group_energy cci_tbl;
-inline
-const struct sched_group_energy * const cci_energy(void)
-{
-	struct sched_group_energy *sge = &cci_tbl;
-	struct upower_tbl_info **addr_ptr_tbl_info;
-	struct upower_tbl_info *ptr_tbl_info;
-	struct upower_tbl *ptr_tbl;
-
-	addr_ptr_tbl_info = upower_get_tbl();
-	ptr_tbl_info = *addr_ptr_tbl_info;
-
-	ptr_tbl = ptr_tbl_info[UPOWER_BANK_CCI].p_upower_tbl;
-
-	sge->nr_cap_states = ptr_tbl->row_num;
-	sge->cap_states = ptr_tbl->row;
-	sge->lkg_idx = ptr_tbl->lkg_idx;
-
-	return sge;
-}
-#endif
-
 const struct cpumask *cpu_coregroup_mask(int cpu)
 {
 	return &cpu_topology[cpu].core_sibling;
@@ -340,13 +317,21 @@ static struct sched_domain_topology_level arm64_topology[] = {
 
 static void update_cpu_capacity(unsigned int cpu)
 {
-	unsigned long capacity = SCHED_CAPACITY_SCALE;
-
+	u64 capacity = cpu_capacity(cpu);
+#ifndef CONFIG_MACH_MT6757
 	if (cpu_core_energy(cpu)) {
 		int max_cap_idx = cpu_core_energy(cpu)->nr_cap_states - 1;
 		capacity = cpu_core_energy(cpu)->cap_states[max_cap_idx].cap;
 	}
+#else
+	if (!capacity || !max_cpu_perf) {
+		cpu_capacity(cpu) = 0;
+		return;
+	}
 
+	capacity *= SCHED_CAPACITY_SCALE;
+	capacity = div64_u64(capacity, max_cpu_perf);
+#endif
 	set_capacity_scale(cpu, capacity);
 
 	pr_info("CPU%d: update cpu_capacity %lu\n",

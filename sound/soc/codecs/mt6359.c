@@ -308,6 +308,24 @@ int mt6359_set_mtkaif_protocol(struct snd_soc_component *cmpnt,
 	return 0;
 }
 
+static void gpio_smt_set(struct mt6359_priv *priv)
+{
+	/* set gpio SMT mode */
+	regmap_update_bits(priv->regmap, MT6359_SMT_CON1,
+			   0x3ff0, 0x3ff0);
+}
+
+static void gpio_driving_set(struct mt6359_priv *priv)
+{
+	/* 8:4mA(default), a:8mA, c:12mA, e:16mA */
+	regmap_update_bits(priv->regmap, MT6359_DRV_CON2,
+			   0xffff, 0x8888);
+	regmap_update_bits(priv->regmap, MT6359_DRV_CON3,
+			   0xffff, 0x8888);
+	regmap_update_bits(priv->regmap, MT6359_DRV_CON4,
+			   0x00ff, 0x88);
+}
+
 static void playback_gpio_set(struct mt6359_priv *priv)
 {
 	/* set gpio mosi mode, clk / data mosi */
@@ -2168,6 +2186,8 @@ static int mt_mic_bias_0_event(struct snd_soc_dapm_widget *w,
 	struct snd_soc_component *cmpnt = snd_soc_dapm_to_component(w->dapm);
 	struct mt6359_priv *priv = snd_soc_component_get_drvdata(cmpnt);
 	unsigned int mic_type = priv->mux_select[MUX_MIC_TYPE_0];
+	bool vow_is_on = (IS_VOW_AMIC_BASE(priv->mux_select[MUX_MIC_TYPE_0]) ||
+			  IS_VOW_AMIC_BASE(priv->mux_select[MUX_MIC_TYPE_2]));
 
 	dev_info(priv->dev, "%s(), event 0x%x, mic_type %d\n",
 		 __func__, event, mic_type);
@@ -2201,7 +2221,7 @@ static int mt_mic_bias_0_event(struct snd_soc_dapm_widget *w,
 		/* vow low power select */
 		regmap_update_bits(priv->regmap, MT6359_AUDENC_ANA_CON15,
 				   RG_AUDMICBIAS0LOWPEN_MASK_SFT,
-				   (IS_VOW_AMIC_BASE(mic_type) ? 1 : 0)
+				   (vow_is_on ? 1 : 0)
 				   << RG_AUDMICBIAS0LOWPEN_SFT);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
@@ -2309,7 +2329,9 @@ static int mt_vow_aud_lpw_event(struct snd_soc_dapm_widget *w,
 {
 	struct snd_soc_component *cmpnt = snd_soc_dapm_to_component(w->dapm);
 	struct mt6359_priv *priv = snd_soc_component_get_drvdata(cmpnt);
-
+	unsigned int mic_type_l = priv->mux_select[MUX_MIC_TYPE_0];
+	unsigned int mic_type_hs = priv->mux_select[MUX_MIC_TYPE_1];
+	unsigned int mic_type_r = priv->mux_select[MUX_MIC_TYPE_2];
 	dev_info(priv->dev, "%s(), event 0x%x\n", __func__, event);
 
 	switch (event) {
@@ -2318,16 +2340,28 @@ static int mt_vow_aud_lpw_event(struct snd_soc_dapm_widget *w,
 		/* Enable Audio ADC 1st Stage LPW */
 		/* Enable Audio ADC 2nd & 3rd LPW */
 		/* Enable Audio ADC flash Audio ADC flash */
-		regmap_update_bits(priv->regmap, MT6359_AUDENC_ANA_CON3,
-				   0x0039, 0x0039);
+		if (IS_VOW_AMIC_BASE(mic_type_l) ||
+		    IS_VOW_AMIC_BASE(mic_type_hs))
+			regmap_update_bits(priv->regmap, MT6359_AUDENC_ANA_CON3,
+					   0x0039, 0x0039);
+		if (IS_VOW_BASE(mic_type_r) ||
+		   (priv->vow_channel == 2))
+			regmap_update_bits(priv->regmap, MT6359_AUDENC_ANA_CON4,
+					   0x0039, 0x0039);
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		/* Disable audio uplink LPW mode */
 		/* Disable Audio ADC 1st Stage LPW */
 		/* Disable Audio ADC 2nd & 3rd LPW */
 		/* Disable Audio ADC flash Audio ADC flash */
-		regmap_update_bits(priv->regmap, MT6359_AUDENC_ANA_CON3,
-				   0x0039, 0x0000);
+		if (IS_VOW_BASE(mic_type_l) ||
+		    IS_VOW_BASE(mic_type_hs))
+			regmap_update_bits(priv->regmap, MT6359_AUDENC_ANA_CON3,
+					   0x0039, 0x0000);
+		if (IS_VOW_BASE(mic_type_r) ||
+		   (priv->vow_channel == 2))
+			regmap_update_bits(priv->regmap, MT6359_AUDENC_ANA_CON4,
+					   0x0039, 0x0000);
 		break;
 	default:
 		break;
@@ -3905,6 +3939,22 @@ static int mt_vow_amic_connect(struct snd_soc_dapm_widget *source,
 		return 0;
 }
 
+static int mt_normal_amic_connect(struct snd_soc_dapm_widget *source,
+				  struct snd_soc_dapm_widget *sink)
+{
+
+	struct snd_soc_dapm_widget *w = sink;
+	struct snd_soc_component *cmpnt = snd_soc_dapm_to_component(w->dapm);
+	struct mt6359_priv *priv = snd_soc_component_get_drvdata(cmpnt);
+
+	if (IS_VOW_AMIC_BASE(priv->mux_select[MUX_MIC_TYPE_0]) ||
+	    IS_VOW_AMIC_BASE(priv->mux_select[MUX_MIC_TYPE_1]) ||
+	    IS_VOW_AMIC_BASE(priv->mux_select[MUX_MIC_TYPE_2]))
+		return 0;
+	else
+		return 1;
+}
+
 static int mt_vow_amic_dcc_connect(struct snd_soc_dapm_widget *source,
 				   struct snd_soc_dapm_widget *sink)
 {
@@ -4037,7 +4087,7 @@ static const struct snd_soc_dapm_route mt6359_dapm_routes[] = {
 		 * amic fifo ch1/2 clk from ADC_L,
 		 * enable ADC_L even use ADC_R only
 		 */
-		{"ADC_R", NULL, "ADC_L_EN"},
+		{"ADC_R", NULL, "ADC_L_EN", mt_normal_amic_connect},
 	{"ADC_3", NULL, "ADC_3_Mux"},
 		{"ADC_3", NULL, "ADC_CLKGEN"},
 		{"ADC_3", NULL, "ADC_3_EN"},
@@ -6004,6 +6054,8 @@ static int mt6359_codec_debug_set(struct snd_kcontrol *kcontrol,
 	regmap_read(priv->regmap, MT6359_ZCD_CON5, &value);
 	dev_info(priv->dev, "MT6359_ZCD_CON5 = 0x%x\n", value);
 
+	regmap_read(priv->regmap, MT6359_SMT_CON1, &value);
+	dev_info(priv->dev, "MT6359_SMT_CON1 = 0x%x\n", value);
 	regmap_read(priv->regmap, MT6359_GPIO_DIR0, &value);
 	dev_info(priv->dev, "MT6359_GPIO_DIR0 = 0x%x\n", value);
 	regmap_read(priv->regmap, MT6359_GPIO_DIR1, &value);
@@ -6291,6 +6343,8 @@ static int mt6359_codec_init_reg(struct mt6359_priv *priv)
 			   0x1 << RG_AUDLOLSCDISABLE_VAUDP32_SFT);
 
 	/* set gpio */
+	gpio_smt_set(priv);
+	gpio_driving_set(priv);
 	playback_gpio_reset(priv);
 	capture_gpio_reset(priv);
 
@@ -6546,6 +6600,9 @@ static ssize_t mt6359_debugfs_read(struct file *file, char __user *buf,
 	n += scnprintf(buffer + n, size - n, "hp_current_calibrate_val = %d\n",
 		       priv->hp_current_calibrate_val);
 
+	regmap_read(priv->regmap, MT6359_SMT_CON1, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_SMT_CON1 = 0x%x\n", value);
 	regmap_read(priv->regmap, MT6359_GPIO_DIR0, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_GPIO_DIR0 = 0x%x\n", value);
@@ -6710,6 +6767,12 @@ static ssize_t mt6359_debugfs_read(struct file *file, char __user *buf,
 	regmap_read(priv->regmap, MT6359_AFE_UL_SRC_CON0_L, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AFE_UL_SRC_CON0_L = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AFE_ADDA6_L_SRC_CON0_H, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AFE_ADDA6_L_SRC_CON0_H = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AFE_ADDA6_UL_SRC_CON0_L, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AFE_ADDA6_UL_SRC_CON0_L = 0x%x\n", value);
 	regmap_read(priv->regmap, MT6359_AFE_TOP_CON0, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AFE_TOP_CON0 = 0x%x\n", value);
@@ -6740,9 +6803,30 @@ static ssize_t mt6359_debugfs_read(struct file *file, char __user *buf,
 	regmap_read(priv->regmap, MT6359_AFUNC_AUD_CON6, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AFUNC_AUD_CON6 = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AFUNC_AUD_CON7, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AFUNC_AUD_CON7 = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AFUNC_AUD_CON8, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AFUNC_AUD_CON8 = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AFUNC_AUD_CON9, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AFUNC_AUD_CON9 = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AFUNC_AUD_CON10, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AFUNC_AUD_CON10 = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AFUNC_AUD_CON11, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AFUNC_AUD_CON11 = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AFUNC_AUD_CON12, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AFUNC_AUD_CON12 = 0x%x\n", value);
 	regmap_read(priv->regmap, MT6359_AFUNC_AUD_MON0, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AFUNC_AUD_MON0 = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AFUNC_AUD_MON1, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AFUNC_AUD_MON1 = 0x%x\n", value);
 	regmap_read(priv->regmap, MT6359_AUDRC_TUNE_MON0, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AUDRC_TUNE_MON0 = 0x%x\n", value);
@@ -6761,6 +6845,15 @@ static ssize_t mt6359_debugfs_read(struct file *file, char __user *buf,
 	regmap_read(priv->regmap, MT6359_AFE_ADDA_MTKAIF_MON2, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AFE_ADDA_MTKAIF_MON2 = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AFE_ADDA6_MTKAIF_MON3, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AFE_ADDA6_MTKAIF_MON3 = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AFE_ADDA_MTKAIF_MON4, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AFE_ADDA_MTKAIF_MON4 = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AFE_ADDA_MTKAIF_MON5, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AFE_ADDA_MTKAIF_MON5 = 0x%x\n", value);
 	regmap_read(priv->regmap, MT6359_AFE_ADDA_MTKAIF_CFG0, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AFE_ADDA_MTKAIF_CFG0 = 0x%x\n", value);
@@ -6776,6 +6869,12 @@ static ssize_t mt6359_debugfs_read(struct file *file, char __user *buf,
 	regmap_read(priv->regmap, MT6359_AFE_ADDA_MTKAIF_RX_CFG3, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AFE_ADDA_MTKAIF_RX_CFG3 = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AFE_ADDA_MTKAIF_SYNCWORD_CFG0, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AFE_ADDA_MTKAIF_SYNCWORD_CFG0 = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AFE_ADDA_MTKAIF_SYNCWORD_CFG1, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AFE_ADDA_MTKAIF_SYNCWORD_CFG1 = 0x%x\n", value);
 	regmap_read(priv->regmap, MT6359_AFE_SGEN_CFG0, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AFE_SGEN_CFG0 = 0x%x\n", value);
@@ -6785,6 +6884,9 @@ static ssize_t mt6359_debugfs_read(struct file *file, char __user *buf,
 	regmap_read(priv->regmap, MT6359_AFE_ADC_ASYNC_FIFO_CFG, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AFE_ADC_ASYNC_FIFO_CFG = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AFE_ADC_ASYNC_FIFO_CFG1, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AFE_ADC_ASYNC_FIFO_CFG1 = 0x%x\n", value);
 	regmap_read(priv->regmap, MT6359_AFE_DCCLK_CFG0, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AFE_DCCLK_CFG0 = 0x%x\n", value);
@@ -6794,6 +6896,9 @@ static ssize_t mt6359_debugfs_read(struct file *file, char __user *buf,
 	regmap_read(priv->regmap, MT6359_AUDIO_DIG_CFG, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AUDIO_DIG_CFG = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AUDIO_DIG_CFG1, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AUDIO_DIG_CFG1 = 0x%x\n", value);
 	regmap_read(priv->regmap, MT6359_AFE_AUD_PAD_TOP, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AFE_AUD_PAD_TOP = 0x%x\n", value);
@@ -6803,6 +6908,9 @@ static ssize_t mt6359_debugfs_read(struct file *file, char __user *buf,
 	regmap_read(priv->regmap, MT6359_AFE_AUD_PAD_TOP_MON1, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AFE_AUD_PAD_TOP_MON1 = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AFE_AUD_PAD_TOP_MON2, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AFE_AUD_PAD_TOP_MON2 = 0x%x\n", value);
 	regmap_read(priv->regmap, MT6359_AFE_DL_NLE_CFG, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AFE_DL_NLE_CFG = 0x%x\n", value);
@@ -6941,6 +7049,18 @@ static ssize_t mt6359_debugfs_read(struct file *file, char __user *buf,
 	regmap_read(priv->regmap, MT6359_AFE_VOW_HPF_CFG1, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AFE_VOW_HPF_CFG1 = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AUDIO_DIG_3RD_DSN_ID, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AUDIO_DIG_3RD_DSN_ID = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AUDIO_DIG_3RD_DSN_REV0, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AUDIO_DIG_3RD_DSN_REV0 = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AUDIO_DIG_3RD_DSN_DBI, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AUDIO_DIG_3RD_DSN_DBI = 0x%x\n", value);
+	regmap_read(priv->regmap, MT6359_AUDIO_DIG_3RD_DSN_DXI, &value);
+	n += scnprintf(buffer + n, size - n,
+		       "MT6359_AUDIO_DIG_3RD_DSN_DXI = 0x%x\n", value);
 	regmap_read(priv->regmap, MT6359_AFE_VOW_PERIODIC_CFG0, &value);
 	n += scnprintf(buffer + n, size - n,
 		       "MT6359_AFE_VOW_PERIODIC_CFG0 = 0x%x\n", value);
@@ -7373,6 +7493,7 @@ static bool is_readable_reg(struct device *dev, unsigned int reg)
 	case MT6359_DRV_CON2:
 	case MT6359_DRV_CON3:
 	case MT6359_DRV_CON4:
+	case MT6359_SMT_CON1:
 	case MT6359_GPIO_DIR0:
 	case MT6359_GPIO_DIR1:
 	case MT6359_GPIO_MODE2:

@@ -225,14 +225,13 @@ config MTK_AUDIO_TUNNELING_SUPPORT
 	  The decoding process is done in DSP.
 	  Select Y to enable MTK_AUDIO_TUNNELING_SUPPORT for DSP playback.
 
-config SND_SOC_MTK_SCP_SMARTPA
-	bool "Smart Power Amplifier in Sensor Hub Processor"
+config MTK_AUDIO_SCP_SPKPROTECT_SUPPORT
+	bool "speaker protection through dsp"
 	help
-	  SmartPA(Smart Power Amplifie) provides speaker thermal
-	  and excursion protection. This configuration makes
-	  speaker protection processing in SCP(Sensor Hub Processor).
-	  Select Y to enable CONFIG_SND_SOC_MTK_SCP_SMARTPA for
-	  speaker protection in SCP.
+	  Only enable this when we have DSP.
+	  This makes speaker protection processing from dsp side.
+	  The process is done in DSP.
+	  Select Y to enable CONFIG_MTK_AUDIO_SCP_SPKPROTECT_SUPPORT for DSP playback.
 
 config MTK_VOW_BARGE_IN_SUPPORT
 	bool "Support VOW barge-in"

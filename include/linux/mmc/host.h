@@ -202,6 +202,8 @@ struct mmc_cmdq_req {
 	unsigned int		dev_pend_tasks;
 	bool			resp_err;
 	bool			skip_err_handling;
+	bool			skip_dump; /* for skip dump info */
+	bool			skip_reset; /* for skip autok */
 	int			tag; /* used for command queuing */
 	u8			ctx_id;
 };

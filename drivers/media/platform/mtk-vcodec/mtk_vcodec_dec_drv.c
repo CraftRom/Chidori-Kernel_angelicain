@@ -65,7 +65,8 @@ static int fops_vcodec_open(struct file *file)
 	INIT_LIST_HEAD(&ctx->list);
 	ctx->dev = dev;
 	init_waitqueue_head(&ctx->queue);
-	mutex_init(&ctx->lock);
+	mutex_init(&ctx->buf_lock);
+	mutex_init(&ctx->worker_lock);
 
 	ctx->type = MTK_INST_DECODER;
 	ret = mtk_vcodec_dec_ctrls_setup(ctx);
@@ -153,7 +154,11 @@ static int fops_vcodec_release(struct file *file)
 	 * Second, the decoder will be flushed and all the buffers will be
 	 * returned in stop_streaming.
 	 */
+	mtk_vcodec_dec_empty_queues(file, ctx);
+	// Need to sync worker status in case ctx is free.
+	mutex_lock(&ctx->worker_lock);
 	v4l2_m2m_ctx_release(ctx->m2m_ctx);
+	mutex_unlock(&ctx->worker_lock);
 	mtk_vcodec_dec_release(ctx);
 
 	if (v4l2_fh_is_singular(&ctx->fh))

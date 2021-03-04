@@ -37,8 +37,7 @@
 #define DRV_ClrReg32(addr, val)   DRV_WriteReg32(addr, DRV_Reg32(addr) & ~(val))
 #ifdef CFG_RECOVERY_SUPPORT
 #define ADSP_WDT_TIMEOUT (60 * HZ) /* 60 seconds*/
-static struct timer_list adsp_wdt_timer[ADSP_CORE_TOTAL];
-#define ADSP_WDT_TIMER                (0)
+static struct timer_list adsp_wdt_timer;
 unsigned int wdt_counter;
 #endif
 
@@ -48,28 +47,20 @@ irqreturn_t  adsp_A_wdt_handler(int irq, void *dev_id)
 	DRV_ClrReg32(ADSP_A_WDT_REG, WDT_EN_BIT);
 
 #ifdef CFG_RECOVERY_SUPPORT
-	if (!wdt_counter) {
-		if (timer_pending(&adsp_wdt_timer[ADSP_A_ID]) != 1) {
-			adsp_wdt_timer[ADSP_A_ID].expires =
-				jiffies + ADSP_WDT_TIMEOUT;
-			add_timer(&adsp_wdt_timer[ADSP_A_ID]);
-		}
-	}
+	if (!wdt_counter && !timer_pending(&adsp_wdt_timer))
+		mod_timer(&adsp_wdt_timer, jiffies + ADSP_WDT_TIMEOUT);
+
 	/* recovery failed reboot*/
 	if (wdt_counter > WDT_LAST_WAIT_COUNT)
 		BUG_ON(1);
 
-	if (adsp_reset_by_cmd) {
-		pr_info("[ADSP] WDT exception by cmd (%u)\n", wdt_counter);
-		adsp_send_reset_wq(ADSP_RESET_TYPE_CMD, ADSP_A_ID);
-	} else {
-		if (adsp_set_reset_status() == ADSP_RESET_STATUS_STOP) {
-			wdt_counter++;
-			pr_info("[ADSP] WDT exception (%u)\n", wdt_counter);
-			adsp_send_reset_wq(ADSP_RESET_TYPE_WDT, ADSP_A_ID);
-		} else
-			pr_notice("[ADSP] resetting (%u)\n", wdt_counter);
-	}
+	if (adsp_set_reset_status() == ADSP_RESET_STATUS_STOP) {
+		wdt_counter++;
+		pr_info("[ADSP] WDT exception (%u)\n", wdt_counter);
+		adsp_send_reset_wq(ADSP_RESET_TYPE_WDT, ADSP_A_ID);
+	} else
+		pr_notice("[ADSP] resetting (%u)\n", wdt_counter);
+
 #else
 	adsp_aed_reset(EXCEP_RUNTIME, ADSP_A_ID);
 #endif
@@ -81,9 +72,9 @@ irqreturn_t  adsp_A_wdt_handler(int irq, void *dev_id)
 }
 
 #ifdef CFG_RECOVERY_SUPPORT
-static void adsp_wdt_timeout(unsigned long data)
+static void adsp_wdt_counter_reset(unsigned long data)
 {
-	del_timer(&adsp_wdt_timer[ADSP_A_ID]);
+	del_timer(&adsp_wdt_timer);
 	wdt_counter = 0;
 	pr_info("[ADSP] %s\n", __func__);
 }
@@ -100,6 +91,7 @@ irqreturn_t adsp_A_irq_handler(int irq, void *dev_id)
 	adsp_A_ipi_handler();
 	/* write 1 clear */
 	writel(ADSP_IRQ_ADSP2HOST, ADSP_A_TO_HOST_REG);
+	dsb(SY);
 
 	return IRQ_HANDLED;
 }
@@ -111,12 +103,6 @@ void adsp_A_irq_init(void)
 {
 	writel(ADSP_IRQ_ADSP2HOST, ADSP_A_TO_HOST_REG); /* clear adsp irq */
 #ifdef CFG_RECOVERY_SUPPORT
-		init_timer(&adsp_wdt_timer[ADSP_A_ID]);
-		adsp_wdt_timer[ADSP_A_ID].expires =
-					jiffies + ADSP_WDT_TIMEOUT;
-		adsp_wdt_timer[ADSP_A_ID].function =
-					&adsp_wdt_timeout;
-		adsp_wdt_timer[ADSP_A_ID].data =
-					(unsigned long)ADSP_WDT_TIMER;
+	setup_timer(&adsp_wdt_timer, adsp_wdt_counter_reset, 0);
 #endif
 }

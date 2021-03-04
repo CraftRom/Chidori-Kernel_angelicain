@@ -272,7 +272,7 @@ static int cmdq_enable(struct mmc_host *mmc)
 	bool dcmd_enable = FALSE;
 	struct cmdq_host *cq_host = mmc_cmdq_private(mmc);
 
-	if (!cq_host || !mmc_card_cmdq(mmc->card)) {
+	if (!cq_host || !mmc->card || !mmc_card_cmdq(mmc->card)) {
 		err = -EINVAL;
 		goto out;
 	}
@@ -362,6 +362,7 @@ static void cmdq_disable(struct mmc_host *mmc, bool soft)
 static void cmdq_reset(struct mmc_host *mmc, bool soft)
 {
 	struct cmdq_host *cq_host = (struct cmdq_host *)mmc_cmdq_private(mmc);
+	struct mmc_request *mrq = mmc->err_mrq;
 	unsigned int cqcfg = 0;
 	unsigned int tdlba = 0;
 	unsigned int tdlbau = 0;
@@ -378,7 +379,7 @@ static void cmdq_reset(struct mmc_host *mmc, bool soft)
 
 	cmdq_disable(mmc, true);
 
-	if (cq_host->ops->reset) {
+	if (cq_host->ops->reset && !mrq->cmdq_req->skip_reset) {
 		ret = cq_host->ops->reset(mmc);
 		if (ret) {
 			pr_notice("%s: reset CMDQ controller: failed\n",
@@ -423,8 +424,10 @@ static void cmdq_prep_task_desc(struct mmc_request *mrq,
 		 cmdq_req->blk_addr);
 #endif
 
-	/* set force programming, if can not apply cache */
-	if (!msdc_can_apply_cache(
+	/* set force programming, if can not apply cache during write */
+	/* when DIR is set means read, so check if DIR is unset here */
+	if (!(req_flags & DIR) &&
+		!msdc_can_apply_cache(
 		(u64)mrq->cmdq_req->blk_addr,
 		mrq->cmdq_req->data.blocks)) {
 		req_flags |= FORCED_PRG;
@@ -732,7 +735,6 @@ irqreturn_t cmdq_irq(struct mmc_host *mmc, int err)
 	u32 status = 0;
 	unsigned long tag = 0, comp_status = 0, cmd_idx = 0;
 	struct cmdq_host *cq_host = (struct cmdq_host *)mmc_cmdq_private(mmc);
-	struct mmc_cmdq_context_info *ctx_info = &mmc->cmdq_ctx;
 	unsigned long err_info = 0;
 	struct mmc_request *mrq = NULL;
 	int ret;
@@ -784,12 +786,17 @@ _err:
 		if (err_info & CQ_RMEFV) {
 			cmd_idx = GET_CMD_ERR_CMDIDX(err_info);
 			if (cmd_idx == MMC_SEND_STATUS) {
+				u32 task_mask;
 				/*
 				 * since CMD13 does not belong to
 				 * any tag, just find an active
-				 * task and trigger error.
+				 * task from CQTCN or CQTDBR register
+				 * and trigger error.
 				 */
-				tag = uffs(ctx_info->active_reqs) - 1;
+				task_mask = cmdq_readl(cq_host, CQTCN);
+				if (!task_mask)
+					task_mask = cmdq_readl(cq_host, CQTDBR);
+				tag = uffs(task_mask) - 1;
 				pr_notice("%s: cmd%lu err tag: %lu\n",
 					__func__, cmd_idx, tag);
 			} else {
@@ -821,8 +828,14 @@ _err:
 			 * exception once the queue is empty
 			 */
 			WARN_ON(!mmc->card); /*bug*/
-			if (mrq && mrq->cmdq_req)
+			if (mrq && mrq->cmdq_req) {
 				mrq->cmdq_req->resp_err = true;
+				if (cmdq_readl(cq_host, CQCRA) & (0x1 << 26)) {
+				/* WP violation: shrink log & don't run autok */
+					mrq->cmdq_req->skip_dump = true;
+					mrq->cmdq_req->skip_reset = true;
+				}
+			}
 			pr_notice("%s: Response error (0x%08x) from card !!!\n",
 				mmc_hostname(mmc), cmdq_readl(cq_host, CQCRA));
 		} else {

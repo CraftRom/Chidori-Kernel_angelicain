@@ -1837,7 +1837,7 @@ static void read_volt_from_VOP(struct eem_det *det)
 	/* eem_debug("read(EEM_VOP30) = 0x%08X\n", temp); */
 	/* EEM_VOP30=>pmic value */
 	det->volt_tbl[0] = (temp & 0xff);
-	det->volt_tbl[1 * ((det->num_freq_tbl + 7) / 8)] = (temp >> 8)  & 0xff;
+	det->volt_tbl[1 * ((det->num_freq_tbl + 7) / 8)] = (temp >> 8)	& 0xff;
 	det->volt_tbl[2 * ((det->num_freq_tbl + 7) / 8)] = (temp >> 16) & 0xff;
 	det->volt_tbl[3 * ((det->num_freq_tbl + 7) / 8)] = (temp >> 24) & 0xff;
 
@@ -1845,7 +1845,7 @@ static void read_volt_from_VOP(struct eem_det *det)
 	/* eem_debug("read(EEM_VOP74) = 0x%08X\n", temp); */
 	/* EEM_VOP74=>pmic value */
 	det->volt_tbl[4 * ((det->num_freq_tbl + 7) / 8)] = (temp & 0xff);
-	det->volt_tbl[5 * ((det->num_freq_tbl + 7) / 8)] = (temp >> 8)  & 0xff;
+	det->volt_tbl[5 * ((det->num_freq_tbl + 7) / 8)] = (temp >> 8)	& 0xff;
 	det->volt_tbl[6 * ((det->num_freq_tbl + 7) / 8)] = (temp >> 16) & 0xff;
 	det->volt_tbl[7 * ((det->num_freq_tbl + 7) / 8)] = (temp >> 24) & 0xff;
 
@@ -2902,10 +2902,12 @@ int mt_eem_status(enum eem_det_id id)
 	struct eem_det *det = id_to_eem_det(id);
 
 	FUNC_ENTER(FUNC_LV_API);
-
-	WARN_ON(!det); /*BUG_ON(!det);*/
-	WARN_ON(!det->ops); /*BUG_ON(!det->ops);*/
-	WARN_ON(!det->ops->get_status); /* BUG_ON(!det->ops->get_status);*/
+	if (det == NULL)
+		return 0;
+	else if (det->ops == NULL)
+		return 0;
+	else if (det->ops->get_status == NULL)
+		return 0;
 
 	FUNC_EXIT(FUNC_LV_API);
 

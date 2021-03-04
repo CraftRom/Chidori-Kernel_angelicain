@@ -98,17 +98,11 @@ static void usb_extcon_detect_cable(struct work_struct *work)
 	/* device -> host */
 	} else if (cur_dr == DUAL_PROP_DR_DEVICE &&
 			new_dr == DUAL_PROP_DR_HOST) {
-		extcon_set_state_sync(g_extcon_info->edev,
-			EXTCON_USB, false);
-		extcon_set_state_sync(g_extcon_info->edev,
-			EXTCON_USB_HOST, true);
+		pr_info("device -> host, it's illegal\n");
 	/* host -> device */
 	} else if (cur_dr == DUAL_PROP_DR_HOST &&
 			new_dr == DUAL_PROP_DR_DEVICE) {
-		extcon_set_state_sync(g_extcon_info->edev,
-			EXTCON_USB_HOST, false);
-		extcon_set_state_sync(g_extcon_info->edev,
-			EXTCON_USB, true);
+		pr_info("host -> device, it's illegal\n");
 	}
 
 	g_extcon_info->dr = new_dr;
@@ -137,14 +131,14 @@ static void issue_connection_work(unsigned int dr)
 #if !defined(CONFIG_USB_MU3D_DRV)
 void mt_usb_connect(void)
 {
-	pr_info("mt_usb_connect\n");
+	pr_info("%s\n", __func__);
 	issue_connection_work(DUAL_PROP_DR_DEVICE);
 }
 EXPORT_SYMBOL_GPL(mt_usb_connect);
 
 void mt_usb_disconnect(void)
 {
-	pr_info("mt_usb_disconnect\n");
+	pr_info("%s\n", __func__);
 	issue_connection_work(DUAL_PROP_DR_NONE);
 }
 EXPORT_SYMBOL_GPL(mt_usb_disconnect);
@@ -152,14 +146,14 @@ EXPORT_SYMBOL_GPL(mt_usb_disconnect);
 
 void mt_usbhost_connect(void)
 {
-	pr_info("mt_usbhost_connect\n");
+	pr_info("%s\n", __func__);
 	issue_connection_work(DUAL_PROP_DR_HOST);
 }
 EXPORT_SYMBOL_GPL(mt_usbhost_connect);
 
 void mt_usbhost_disconnect(void)
 {
-	pr_info("mt_usbhost_disconnect\n");
+	pr_info("%s\n", __func__);
 	issue_connection_work(DUAL_PROP_DR_NONE);
 }
 EXPORT_SYMBOL_GPL(mt_usbhost_disconnect);
@@ -190,13 +184,13 @@ static int usb_extcon_probe(struct platform_device *pdev)
 
 	info->edev = devm_extcon_dev_allocate(dev, usb_extcon_cable);
 	if (IS_ERR(info->edev)) {
-		dev_err(dev, "failed to allocate extcon device\n");
+		dev_info(dev, "failed to allocate extcon device\n");
 		return -ENOMEM;
 	}
 
 	ret = devm_extcon_dev_register(dev, info->edev);
 	if (ret < 0) {
-		dev_err(dev, "failed to register extcon device\n");
+		dev_info(dev, "failed to register extcon device\n");
 		return ret;
 	}
 	platform_set_drvdata(pdev, info);

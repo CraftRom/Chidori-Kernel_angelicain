@@ -32,55 +32,8 @@ DEFINE_MUTEX(cpufreq_mutex);
 DEFINE_MUTEX(cpufreq_para_mutex);
 struct opp_idx_tbl opp_tbl_m[NR_OPP_IDX];
 int dvfs_disable_flag;
-unsigned int dvfs_init_flag;
 int new_idx_bk;
-#ifdef ENABLE_DOE
-static void modify_kernel_opp_table_by_doe
-	(struct mt_cpu_freq_info *opp, struct mt_cpu_dvfs *p, int j)
-{
-	struct cpudvfs_doe *d = &dvfs_doe;
-	struct buck_ctrl_t *vproc_p;
-	int i;
 
-	vproc_p = id_to_buck_ctrl(p->Vproc_buck_id);
-	if ((d->doe_flag >> j) & 1) {
-		for (i = 0; i < NR_FREQ; i++) {
-			opp[i].cpufreq_khz =
-			d->dts_opp_tbl[j][i * ARRAY_COL_SIZE] * 1000;
-			opp[i].cpufreq_volt =
-			vproc_p->buck_ops->transfer2volt
-			(d->dts_opp_tbl[j][i * ARRAY_COL_SIZE + 1]);
-#if 0
-			tag_pr_notice("@@%s cluster = %d flag = %d opp[%d] = %d\n",
-			__func__, j, d->doe_flag, i, opp[i].cpufreq_khz);
-#endif
-
-		}
-	}
-}
-
-static void modify_kernel_opp_div_by_doe
-	(struct mt_cpu_freq_method *opp_tbl_m, int j)
-{
-	struct cpudvfs_doe *d = &dvfs_doe;
-	int i;
-
-	if ((d->doe_flag >> j) & 1) {
-		for (i = 0; i < NR_FREQ; i++) {
-			opp_tbl_m[i].clk_div =
-			d->dts_opp_tbl[j][i * ARRAY_COL_SIZE + 3];
-			opp_tbl_m[i].pos_div =
-			d->dts_opp_tbl[j][i * ARRAY_COL_SIZE + 2];
-#if 0
-			tag_pr_info("@@%s cls = %d posdiv = %d clk_div = %d\n",
-					__func__, j, opp_tbl_m[i].pos_div,
-					opp_tbl_m[i].clk_div);
-#endif
-		}
-	}
-}
-
-#endif
 /* Prototype */
 static int _mt_cpufreq_cpu_CB(struct notifier_block *nfb, unsigned long action,
 	void *hcpu);
@@ -731,6 +684,11 @@ static int _cpufreq_set_locked(struct cpufreq_policy *policy,
 	pcci_p = id_to_pll_ctrl(p_cci->Pll_id);
 	new_opp_idx =
 	_search_available_freq_idx(p, target_khz, CPUFREQ_RELATION_L);
+	if (new_opp_idx == -1) {
+		tag_pr_info("%s cant find freq idx new_opp_idx = %d\n",
+				__func__, new_opp_idx);
+		goto out;
+	}
 	new_cci_opp_idx =
 	_calc_new_cci_opp_idx(p, new_opp_idx, &target_cci_volt);
 	cur_cci_khz = pcci_p->pll_ops->get_cur_freq(pcci_p);
@@ -819,8 +777,8 @@ target_khz, target_volt, num_online_cpus(), cur_khz);
 #else
 	if (vproc_p->cur_volt > target_volt) {
 #endif
-
 		ret = set_cur_volt_wrapper(p, target_volt);
+
 		if (ret)	/* set volt fail */
 			goto out;
 	}
@@ -1208,11 +1166,11 @@ static int _mt_cpufreq_sync_opp_tbl_idx(struct mt_cpu_dvfs *p)
 
 	FUNC_ENTER(FUNC_LV_LOCAL);
 
-	if (cpu_dvfs_is_available(p))
+	if (cpu_dvfs_is_available(p)) {
 		ret = _sync_opp_tbl_idx(p);
-
-	cpufreq_ver("%s freq = %d\n", cpu_dvfs_get_name(p),
-					cpu_dvfs_get_cur_freq(p));
+		cpufreq_ver("%s freq = %d\n", cpu_dvfs_get_name(p),
+			cpu_dvfs_get_cur_freq(p));
+	}
 
 	FUNC_EXIT(FUNC_LV_LOCAL);
 
@@ -1380,6 +1338,7 @@ static int _mt_cpufreq_verify(struct cpufreq_policy *policy)
 {
 	struct mt_cpu_dvfs *p;
 	int ret; /* cpufreq_frequency_table_verify() always return 0 */
+
 	p = id_to_cpu_dvfs(_get_cpu_dvfs_id(policy->cpu));
 	if (!p)
 		return -EINVAL;
@@ -1422,6 +1381,7 @@ static int _mt_cpufreq_init(struct cpufreq_policy *policy)
 {
 	int ret = -EINVAL;
 	unsigned long flags;
+
 	FUNC_ENTER(FUNC_LV_MODULE);
 
 	policy->shared_type = CPUFREQ_SHARED_TYPE_ANY;
@@ -1444,9 +1404,7 @@ static int _mt_cpufreq_init(struct cpufreq_policy *policy)
 				__func__, cpu_dvfs_get_name(p), p->cpu_id);
 
 		opp_tbl_info = &opp_tbls[id][lv];
-#ifdef ENABLE_DOE
-		modify_kernel_opp_table_by_doe(opp_tbl_info->opp_tbl, p, id);
-#endif
+
 		p->cpu_level = lv;
 
 		ret = _mt_cpufreq_setup_freqs_table(policy,
@@ -1456,16 +1414,8 @@ static int _mt_cpufreq_init(struct cpufreq_policy *policy)
 		policy->cpuinfo.min_freq = cpu_dvfs_get_min_freq(p);
 
 		opp_tbl_m_info = &opp_tbls_m[id][lv];
-#ifdef ENABLE_DOE
-		modify_kernel_opp_div_by_doe(opp_tbls_m[id][lv].opp_tbl_m, id);
-#endif
 		p->freq_tbl = opp_tbl_m_info->opp_tbl_m;
-#if 0
-		for (i = 0; i < NR_FREQ_CPU; i++)
-			tag_pr_info("@@ after pos_div = %d clk_div = %d\n",
-					opp_tbl_m_info->opp_tbl_m[i].pos_div,
-					opp_tbl_m_info->opp_tbl_m[i].clk_div);
-#endif
+
 		cpufreq_lock(flags);
 		/* Sync p */
 		if (_mt_cpufreq_sync_opp_tbl_idx(p) >= 0)
@@ -1516,16 +1466,12 @@ static int _mt_cpufreq_init(struct cpufreq_policy *policy)
 #endif
 		cpufreq_unlock(flags);
 	}
-#ifdef ENABLE_DOE
-	srate_doe();
-#endif
+
 	if (ret)
 		tag_pr_notice("failed to setup frequency table\n");
 
-	dvfs_init_flag = 1;
 	FUNC_EXIT(FUNC_LV_MODULE);
 
-	cpufreq_ver("end %s\n", __func__);
 	return ret;
 }
 
@@ -1560,7 +1506,6 @@ static struct cpufreq_driver _mt_cpufreq_driver = {
 	.name = "mt-cpufreq",
 	.attr = _mt_cpufreq_attr,
 };
-
 
 /*
  * Platform driver
@@ -1604,7 +1549,6 @@ _mt_cpufreq_pm_callback(struct notifier_block *nb,
 	default:
 		return NOTIFY_DONE;
 	}
-
 	return NOTIFY_OK;
 }
 
@@ -1631,6 +1575,7 @@ static int _mt_cpufreq_pdrv_probe(struct platform_device *pdev)
 #endif
 
 	FUNC_ENTER(FUNC_LV_MODULE);
+
 	/* init proc */
 	cpufreq_procfs_init();
 	_mt_cpufreq_aee_init();
@@ -1750,13 +1695,6 @@ static int __init _mt_cpufreq_tbl_init(void)
 	int i, j;
 	struct opp_tbl_info *opp_tbl_info;
 	struct cpufreq_frequency_table *table;
-#ifdef ENABLE_DOE
-	struct cpudvfs_doe *d = &dvfs_doe;
-
-	tag_pr_notice("@@~%s DVFS state = %d\n", __func__, dvfs_doe.state);
-	if (!d->state)
-		return 0;
-#endif
 
 #ifdef CPU_DVFS_NOT_READY
 	return 0;
@@ -1765,9 +1703,7 @@ static int __init _mt_cpufreq_tbl_init(void)
 	/* Prepare OPP table for EEM */
 	for_each_cpu_dvfs(j, p) {
 		opp_tbl_info = &opp_tbls[j][lv];
-#ifdef ENABLE_DOE
-		modify_kernel_opp_table_by_doe(opp_tbl_info->opp_tbl, p, j);
-#endif
+
 		if (!p->freq_tbl_for_cpufreq) {
 			table = kzalloc(
 			(opp_tbl_info->size + 1) * sizeof(*table), GFP_KERNEL);
@@ -1799,12 +1735,6 @@ static int __init _mt_cpufreq_pdrv_init(void)
 	struct cpumask cpu_mask;
 	unsigned int cluster_num;
 	int i;
-
-#ifdef ENABLE_DOE
-	tag_pr_notice("@@~ %s DVFS state = %d\n", __func__, dvfs_doe.state);
-	if (!dvfs_doe.state)
-		return 0;
-#endif
 
 #ifdef CPU_DVFS_NOT_READY
 	return 0;

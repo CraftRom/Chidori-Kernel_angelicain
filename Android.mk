@@ -1,5 +1,4 @@
 # Copyright (C) 2017 MediaTek Inc.
-# Copyright (C) 2019 XiaoMi, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License version 2 as
@@ -17,38 +16,50 @@ ifneq ($(strip $(TARGET_NO_KERNEL)),true)
 include $(LOCAL_PATH)/kenv.mk
 
 ifeq ($(wildcard $(TARGET_PREBUILT_KERNEL)),)
-# .config cannot be PHONY due to config_data.gz
-$(TARGET_KERNEL_CONFIG): $(KERNEL_CONFIG_FILE) $(LOCAL_PATH)/Android.mk
-$(TARGET_KERNEL_CONFIG): $(shell find $(KERNEL_DIR) -name "Kconfig*")
-	$(hide) mkdir -p $(dir $@)
-	$(MAKE) -C $(KERNEL_DIR) $(KERNEL_MAKE_OPTION) $(KERNEL_DEFCONFIG)
-	$(warning xiaomi international $(PRODUCT_BUILD_INTERNATIONAL))
-	$(warning xiaomi international $@)
-ifeq (true,$(PRODUCT_BUILD_INTERNATIONAL))
-	@echo "CONFIG_MTK_MD3_SUPPORT=0" >> $@
-	@echo "CONFIG_MTK_ECCCI_C2K=y" >> $@
-	@echo "CONFIG_MTK_MD1_SUPPORT=9" >> $@
-	@echo "CONFIG_MTK_C2K_LTE_MODE=0" >> $@
-endif
+KERNEL_MAKE_DEPENDENCIES := $(shell find $(KERNEL_DIR) -name .git -prune -o -type f | sort)
+KERNEL_MAKE_DEPENDENCIES := $(filter-out %/.git %/.gitignore %/.gitattributes,$(KERNEL_MAKE_DEPENDENCIES))
 
-$(KERNEL_MODULES_DEPS): $(KERNEL_ZIMAGE_OUT) ;
+#add by lct begin device/mediateksample/k62v1_64_bsp/BoardConfig.mk
+#default 6M
+ifeq ($(LCT_RAT_CONFIG),6)
+KERNEL_CONFIG_OVERRIDE_MD1 := CONFIG_MTK_MD1_SUPPORT=12
+KERNEL_CONFIG_OVERRIDE_C2K_LTE_MODE := CONFIG_MTK_C2K_LTE_MODE=2
+else ifeq ($(LCT_RAT_CONFIG),4)
+KERNEL_CONFIG_OVERRIDE_MD1 := CONFIG_MTK_MD1_SUPPORT=9
+KERNEL_CONFIG_OVERRIDE_C2K_LTE_MODE := CONFIG_MTK_C2K_LTE_MODE=0
+else
+KERNEL_CONFIG_OVERRIDE_MD1 := CONFIG_MTK_MD1_SUPPORT=9
+KERNEL_CONFIG_OVERRIDE_C2K_LTE_MODE := CONFIG_MTK_C2K_LTE_MODE=0
+endif
+#add by lct end
+ifeq ($(VERSION_TYPE),longcheer_factory)
+KERNEL_CONFIG_OVERRIDE_FACTORY := CONFIG_KERNEL_CUSTOM_FACTORY=y
+endif
+KERNEL_CONFIG_LCT_OVERRIDE := yes
+
+$(TARGET_KERNEL_CONFIG): PRIVATE_DIR := $(KERNEL_DIR)
+$(TARGET_KERNEL_CONFIG): $(KERNEL_CONFIG_FILE) $(LOCAL_PATH)/Android.mk
+$(TARGET_KERNEL_CONFIG): $(KERNEL_MAKE_DEPENDENCIES)
+	$(hide) mkdir -p $(dir $@)
+	$(PREBUILT_MAKE_PREFIX)$(MAKE) -C $(PRIVATE_DIR) $(KERNEL_MAKE_OPTION) $(KERNEL_DEFCONFIG)
+	$(hide) if [ "$(KERNEL_CONFIG_LCT_OVERRIDE)" == "yes" ]; then \
+			echo "Overriding kernel config with '$(KERNEL_OUT)/.config'"; \
+			echo $(KERNEL_CONFIG_OVERRIDE_MD1) >> $(KERNEL_OUT)/.config; \
+			echo $(KERNEL_CONFIG_OVERRIDE_C2K_LTE_MODE) >> $(KERNEL_OUT)/.config; \
+			echo $(KERNEL_CONFIG_OVERRIDE_FACTORY) >> $(KERNEL_OUT)/.config; \
+			$(PREBUILT_MAKE_PREFIX)$(MAKE) -C $(PRIVATE_DIR) $(KERNEL_MAKE_OPTION) oldconfig; \
+			fi
+
 $(BUILT_DTB_OVERLAY_TARGET): $(KERNEL_ZIMAGE_OUT)
 
 .KATI_RESTAT: $(KERNEL_ZIMAGE_OUT)
-$(KERNEL_ZIMAGE_OUT): $(TARGET_KERNEL_CONFIG) FORCE
+$(KERNEL_ZIMAGE_OUT): PRIVATE_DIR := $(KERNEL_DIR)
+$(KERNEL_ZIMAGE_OUT): $(TARGET_KERNEL_CONFIG) $(KERNEL_MAKE_DEPENDENCIES)
 	$(hide) mkdir -p $(dir $@)
-	$(MAKE) -C $(KERNEL_DIR) $(KERNEL_MAKE_OPTION)
+	$(PREBUILT_MAKE_PREFIX)$(MAKE) -C $(PRIVATE_DIR) $(KERNEL_MAKE_OPTION)
 	$(hide) $(call fixup-kernel-cmd-file,$(KERNEL_OUT)/arch/$(KERNEL_TARGET_ARCH)/boot/compressed/.piggy.xzkern.cmd)
 	# check the kernel image size
 	python device/mediatek/build/build/tools/check_kernel_size.py $(KERNEL_OUT) $(KERNEL_DIR)
-ifneq ($(KERNEL_CONFIG_MODULES),)
-	#$(MAKE) -C $(KERNEL_DIR) $(KERNEL_MAKE_OPTION) INSTALL_MOD_PATH=$(KERNEL_MODULES_SYMBOLS_OUT) modules_install
-	#$(hide) $(call move-kernel-module-files,$(KERNEL_MODULES_SYMBOLS_OUT),$(KERNEL_OUT))
-	#$(hide) $(call clean-kernel-module-dirs,$(KERNEL_MODULES_SYMBOLS_OUT),$(KERNEL_OUT))
-	#$(MAKE) -C $(KERNEL_DIR) $(KERNEL_MAKE_OPTION) INSTALL_MOD_PATH=$(KERNEL_MODULES_OUT) modules_install
-	#$(hide) $(call move-kernel-module-files,$(KERNEL_MODULES_OUT),$(KERNEL_OUT))
-	#$(hide) $(call clean-kernel-module-dirs,$(KERNEL_MODULES_OUT),$(KERNEL_OUT))
-endif
 
 ifeq ($(strip $(MTK_HEADER_SUPPORT)), yes)
 $(BUILT_KERNEL_TARGET): $(KERNEL_ZIMAGE_OUT) $(TARGET_KERNEL_CONFIG) $(LOCAL_PATH)/Android.mk | $(HOST_OUT_EXECUTABLES)/mkimage$(HOST_EXECUTABLE_SUFFIX)
@@ -66,11 +77,7 @@ endif#TARGET_PREBUILT_KERNEL is empty
 $(INSTALLED_KERNEL_TARGET): $(BUILT_KERNEL_TARGET) $(LOCAL_PATH)/Android.mk | $(ACP)
 	$(copy-file-to-target)
 
-ifneq ($(KERNEL_CONFIG_MODULES),)
-$(BUILT_SYSTEMIMAGE): $(KERNEL_MODULES_DEPS)
-endif
-
-.PHONY: kernel save-kernel kernel-savedefconfig %config-kernel clean-kernel odmdtboimage
+.PHONY: kernel save-kernel kernel-savedefconfig kernel-menuconfig menuconfig-kernel savedefconfig-kernel clean-kernel
 kernel: $(INSTALLED_KERNEL_TARGET)
 save-kernel: $(TARGET_PREBUILT_KERNEL)
 
@@ -81,7 +88,7 @@ kernel-menuconfig:
 	$(hide) mkdir -p $(KERNEL_OUT)
 	$(MAKE) -C $(KERNEL_DIR) $(KERNEL_MAKE_OPTION) menuconfig
 
-%config-kernel:
+menuconfig-kernel savedefconfig-kernel:
 	$(hide) mkdir -p $(KERNEL_OUT)
 	$(MAKE) -C $(KERNEL_DIR) $(KERNEL_MAKE_OPTION) $(patsubst %config-kernel,%config,$@)
 
@@ -90,20 +97,25 @@ clean-kernel:
 	$(hide) rm -f $(INSTALLED_DTB_OVERLAY_TARGET)
 
 
-.PHONY: check-kernel-config check-kernel-dotconfig
+.PHONY: check-kernel-config check-kernel-dotconfig check-mtk-config
 droid: check-kernel-config check-kernel-dotconfig
 check-mtk-config: check-kernel-config check-kernel-dotconfig
 check-kernel-config: PRIVATE_COMMAND := $(if $(wildcard device/mediatek/build/build/tools/check_kernel_config.py),$(if $(filter yes,$(DISABLE_MTK_CONFIG_CHECK)),-)python device/mediatek/build/build/tools/check_kernel_config.py -c $(MTK_TARGET_PROJECT_FOLDER)/ProjectConfig.mk -k $(KERNEL_CONFIG_FILE) -p $(MTK_PROJECT_NAME))
 check-kernel-config:
 	$(PRIVATE_COMMAND)
 
-ifneq ($(filter check-mtk-config check-kernel-dotconfig,$(MAKECMDGOALS)),)
-.PHONY: $(TARGET_KERNEL_CONFIG)
-endif
 check-kernel-dotconfig: PRIVATE_COMMAND := $(if $(wildcard device/mediatek/build/build/tools/check_kernel_config.py),$(if $(filter yes,$(DISABLE_MTK_CONFIG_CHECK)),-)python device/mediatek/build/build/tools/check_kernel_config.py -c $(MTK_TARGET_PROJECT_FOLDER)/ProjectConfig.mk -k $(TARGET_KERNEL_CONFIG) -p $(MTK_PROJECT_NAME))
 check-kernel-dotconfig: $(TARGET_KERNEL_CONFIG)
 	$(PRIVATE_COMMAND)
 
+### DTB
+ifdef BOARD_PREBUILT_DTBIMAGE_DIR
+INSTALLED_MTK_DTB_TARGET := $(BOARD_PREBUILT_DTBIMAGE_DIR)/mtk_dtb
+$(shell if [ ! -f $(INSTALLED_MTK_DTB_TARGET) ]; then mkdir -p $(dir $(INSTALLED_MTK_DTB_TARGET)); touch $(INSTALLED_MTK_DTB_TARGET);fi)
+$(INSTALLED_MTK_DTB_TARGET): $(INSTALLED_KERNEL_TARGET)
+	@mkdir -p $(dir $@)
+	@cp -f $(KERNEL_DTB_FILE) $@
+endif
 
 endif#TARGET_NO_KERNEL
 endif#LINUX_KERNEL_VERSION

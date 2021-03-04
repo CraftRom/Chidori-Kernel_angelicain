@@ -342,7 +342,7 @@ void scp_A_dump_regs(void)
  */
 void scp_aee_last_reg(void)
 {
-	pr_debug("scp_aee_last_reg\n");
+	pr_debug("[SCP] %s begins\n", __func__);
 
 	scp_A_aee_status.pc = readl(SCP_A_DEBUG_PC_REG);
 	scp_A_aee_status.lr = readl(SCP_A_DEBUG_LR_REG);
@@ -351,7 +351,7 @@ void scp_aee_last_reg(void)
 	scp_A_aee_status.m2h = readl(SCP_A_TO_HOST_REG);
 	scp_A_aee_status.h2m = readl(SCP_GIPC_IN_REG);
 
-	pr_debug("scp_aee_last_reg end\n");
+	pr_debug("[SCP] %s ends\n", __func__);
 }
 
 /*
@@ -377,7 +377,7 @@ static unsigned int scp_crash_dump(struct MemoryDump *pMemoryDump,
 	scp_awake_fail_flag = 0;
 	/*check SRAM lock ,awake scp*/
 	if (scp_awake_lock(id) == -1) {
-		pr_err("scp_crash_dump: awake scp fail, scp id=%u\n", id);
+		pr_err("[SCP] %s: awake scp fail, scp id=%u\n", __func__, id);
 		scp_awake_fail_flag = 1;
 	}
 
@@ -404,6 +404,7 @@ static unsigned int scp_crash_dump(struct MemoryDump *pMemoryDump,
 #else
 	scp_dump_size = 0;
 #endif
+
 	exception_header_init(pMemoryDump, id);
 	/* init sub header*/
 	scp_sub_header_init(&(pMemoryDump->scp_dump_header));
@@ -439,7 +440,7 @@ static unsigned int scp_crash_dump(struct MemoryDump *pMemoryDump,
 	if (scp_awake_fail_flag != 1) {
 		if (scp_awake_unlock(id) == -1)
 			pr_debug("[SCP]%s awake unlock fail, scp id=%u\n",
-					__func__, id);
+				__func__, id);
 	}
 
 	return scp_dump_size;
@@ -455,10 +456,10 @@ static void scp_prepare_aed(char *aed_str, struct scp_aed_cfg *aed)
 	u8 *phy;
 	u32 log_size, phy_size;
 
-	pr_debug("scp_prepare_aed\n");
+	pr_debug("[SCP] %s begins\n", __func__);
 
 	aed->detail = NULL;
-	detail = vmalloc(SCP_AED_STR_LEN);
+	detail = scp_A_detail_buffer;
 	if (!detail)
 		return;
 
@@ -478,7 +479,7 @@ static void scp_prepare_aed(char *aed_str, struct scp_aed_cfg *aed)
 	aed->phy_size = phy_size;
 	aed->detail = detail;
 
-	pr_debug("scp_prepare_aed end\n");
+	pr_debug("[SCP] %s ends\n", __func__);
 }
 
 /*
@@ -499,7 +500,7 @@ static void scp_prepare_aed_dump(char *aed_str,
 
 	char *scp_A_log = NULL;
 
-	pr_debug("scp_prepare_aed_dump:%s\n", aed_str);
+	pr_debug("[SCP] %s begins:%s\n", __func__, aed_str);
 	scp_aee_last_reg();
 
 	scp_A_log = scp_get_last_log(SCP_A_ID);
@@ -555,7 +556,7 @@ static void scp_prepare_aed_dump(char *aed_str,
 	aed->pMemoryDump = NULL;
 	aed->memory_dump_size = 0;
 
-	pr_debug("scp_prepare_aed_dump end\n");
+	pr_debug("[SCP] %s ends\n", __func__);
 }
 
 /*
@@ -568,7 +569,7 @@ void scp_aed(enum scp_excep_id type, enum scp_core_id id)
 	char *scp_aed_title;
 
 	mutex_lock(&scp_excep_mutex);
-
+	aed.detail = NULL;
 	/* get scp title and exception type*/
 	switch (type) {
 	case EXCEP_LOAD_FIRMWARE:
@@ -599,7 +600,6 @@ void scp_aed(enum scp_excep_id type, enum scp_core_id id)
 		scp_get_log(id);
 			break;
 	default:
-		scp_prepare_aed("scp unknown exception", &aed);
 		if (id == SCP_A_ID)
 			scp_aed_title = "SCP_A unknown exception";
 		else
@@ -631,7 +631,7 @@ void scp_aed(enum scp_excep_id type, enum scp_core_id id)
  */
 void scp_aed_reset_inplace(enum scp_excep_id type, enum scp_core_id id)
 {
-	pr_debug("[SCP]scp_aed_reset_inplace\n");
+	pr_debug("[SCP] %s begins\n", __func__);
 	if (scp_ee_enable)
 		scp_aed(type, id);
 	else
@@ -667,8 +667,8 @@ static void scp_aed_reset_ws(struct work_struct *ws)
 	enum scp_excep_id type = (enum scp_excep_id) sws->flags;
 	enum scp_core_id id = (enum scp_core_id) sws->id;
 
-	pr_debug("[SCP]scp_aed_reset_ws: scp_excep_id=%u scp_core_id=%u\n",
-			type, id);
+	pr_debug("[SCP] %s begins: scp_excep_id=%u scp_core_id=%u\n",
+		__func__, type, id);
 	scp_aed_reset_inplace(type, id);
 }
 
@@ -785,5 +785,6 @@ void scp_excep_cleanup(void)
 
 	scp_A_task_context_addr = 0;
 
-	pr_debug("[SCP] scp_excep_cleanup() done\n");
+	pr_debug("[SCP] %s ends\n", __func__);
 }
+

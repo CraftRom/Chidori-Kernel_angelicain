@@ -111,11 +111,9 @@ static long ged_dispatch(struct file *pFile, GED_BRIDGE_PACKAGE *psBridgePackage
 	void *pvIn = NULL, *pvOut = NULL;
 	typedef int (ged_bridge_func_type)(void *, void *);
 	ged_bridge_func_type* pFunc = NULL;
-	uint32_t ui32FunctionID;
 
 	/* We make sure the both size are GE 0 integer.
 	 */
-	ui32FunctionID = psBridgePackageKM->ui32FunctionID;
 	if (psBridgePackageKM->i32InBufferSize >= 0 && psBridgePackageKM->i32OutBufferSize >= 0) {
 
 		if (psBridgePackageKM->i32InBufferSize > 0) {
@@ -127,8 +125,7 @@ static long ged_dispatch(struct file *pFile, GED_BRIDGE_PACKAGE *psBridgePackage
 			if (ged_copy_from_user(pvIn,
 						psBridgePackageKM->pvParamIn,
 						psBridgePackageKM->i32InBufferSize) != 0) {
-				pr_err("%s: ged_copy_from_user fail\n"
-					, __func__);
+				GED_LOGE("ged_copy_from_user fail\n");
 				goto dispatch_exit;
 			}
 		}
@@ -143,20 +140,33 @@ static long ged_dispatch(struct file *pFile, GED_BRIDGE_PACKAGE *psBridgePackage
 		/* Make sure that the UM will never break the KM.
 		 * Check IO size are both matched the size of IO sturct.
 		 */
+#define SET_FUNC_AND_CHECK_FOR_NO_TYPEDEF(func, struct_name) do { \
+		pFunc = (ged_bridge_func_type *) func; \
+		if (sizeof(struct GED_BRIDGE_IN_##struct_name) > \
+			psBridgePackageKM->i32InBufferSize || \
+			sizeof(struct GED_BRIDGE_OUT_##struct_name) > \
+			psBridgePackageKM->i32OutBufferSize) { \
+			GED_LOGE("%s fail io_size:%d/%d, expected: %zu/%zu", \
+				"GED_BRIDGE_COMMAND_##cmd", \
+				psBridgePackageKM->i32InBufferSize, \
+				psBridgePackageKM->i32OutBufferSize, \
+				sizeof(struct GED_BRIDGE_IN_##struct_name), \
+				sizeof(struct GED_BRIDGE_OUT_##struct_name)); \
+			goto dispatch_exit; \
+		} } while (0)
+
 #define SET_FUNC_AND_CHECK(func, struct_name) do { \
 		pFunc = (ged_bridge_func_type *) func; \
 		if (sizeof(GED_BRIDGE_IN_##struct_name) > psBridgePackageKM->i32InBufferSize || \
 			sizeof(GED_BRIDGE_OUT_##struct_name) > psBridgePackageKM->i32OutBufferSize) { \
-			pr_err("%s: GED_BRIDGE_COMMAND_##cmd fail " \
-				, __func__); \
-			pr_err("io_size:%d/%d, expected: %zu/%zu", \
+			GED_LOGE("GED_BRIDGE_COMMAND_##cmd fail io_size:%d/%d, expected: %zu/%zu", \
 				psBridgePackageKM->i32InBufferSize, psBridgePackageKM->i32OutBufferSize, \
 				sizeof(GED_BRIDGE_IN_##struct_name), sizeof(GED_BRIDGE_OUT_##struct_name)); \
 			goto dispatch_exit; \
 		} } while (0)
 
 		/* we will change the below switch into a function pointer mapping table in the future */
-		switch (GED_GET_BRIDGE_ID(ui32FunctionID)) {
+		switch (GED_GET_BRIDGE_ID(psBridgePackageKM->ui32FunctionID)) {
 		case GED_BRIDGE_COMMAND_LOG_BUF_GET:
 			SET_FUNC_AND_CHECK(ged_bridge_log_buf_get, LOGBUFGET);
 			break;
@@ -188,8 +198,14 @@ static long ged_dispatch(struct file *pFile, GED_BRIDGE_PACKAGE *psBridgePackage
 			SET_FUNC_AND_CHECK(ged_bridge_event_notify, EVENT_NOTIFY);
 			break;
 		case GED_BRIDGE_COMMAND_GPU_HINT_TO_CPU:
-			SET_FUNC_AND_CHECK(ged_bridge_gpu_hint_to_cpu,
+			SET_FUNC_AND_CHECK_FOR_NO_TYPEDEF(
+				ged_bridge_gpu_hint_to_cpu,
 				GPU_HINT_TO_CPU);
+			break;
+		case GED_BRIDGE_COMMAND_HINT_FORCE_MDP:
+			SET_FUNC_AND_CHECK_FOR_NO_TYPEDEF(
+				ged_bridge_hint_force_mdp,
+				HINT_FORCE_MDP);
 			break;
 		case GED_BRIDGE_COMMAND_GE_ALLOC:
 			SET_FUNC_AND_CHECK(ged_bridge_ge_alloc, GE_ALLOC);
@@ -208,13 +224,12 @@ static long ged_dispatch(struct file *pFile, GED_BRIDGE_PACKAGE *psBridgePackage
 				GPU_TIMESTAMP);
 			break;
 		case GED_BRIDGE_COMMAND_GPU_TUNER_STATUS:
-			SET_FUNC_AND_CHECK(ged_bridge_gpu_tuner_status,
+			SET_FUNC_AND_CHECK_FOR_NO_TYPEDEF(
+				ged_bridge_gpu_tuner_status,
 				GPU_TUNER_STATUS);
 			break;
 		default:
-			pr_err("%s: Unknown Bridge ID: %u\n"
-				, __func__
-				, GED_GET_BRIDGE_ID(ui32FunctionID));
+			GED_LOGE("Unknown Bridge ID: %u\n", GED_GET_BRIDGE_ID(psBridgePackageKM->ui32FunctionID));
 			break;
 		}
 
@@ -246,8 +261,7 @@ static long ged_ioctl(struct file *pFile, unsigned int ioctlCmd, unsigned long a
 	psBridgePackageKM = &sBridgePackageKM;
 	if (0 != ged_copy_from_user(psBridgePackageKM, psBridgePackageUM, sizeof(GED_BRIDGE_PACKAGE)))
 	{
-		pr_err("%s : Fail to ged_copy_from_user\n"
-			, __func__);
+		GED_LOGE("Fail to ged_copy_from_user\n");
 		goto unlock_and_return;
 	}
 
@@ -371,7 +385,6 @@ static void ged_exit(void)
 	ged_ge_exit();
 
 	ged_gpu_tuner_exit();
-
 	remove_proc_entry(GED_DRIVER_DEVICE_NAME, NULL);
 
 }
@@ -498,7 +511,12 @@ ERROR:
 	return -EFAULT;
 }
 
+#ifdef GED_MODULE_LATE_INIT
+late_initcall(ged_init);
+
+#else
 module_init(ged_init);
+#endif
 module_exit(ged_exit);
 
 MODULE_LICENSE("GPL");

@@ -68,6 +68,7 @@ static int fops_vcodec_open(struct file *file)
 	INIT_LIST_HEAD(&ctx->list);
 	ctx->dev = dev;
 	init_waitqueue_head(&ctx->queue);
+	mutex_init(&ctx->worker_lock);
 
 	ctx->type = MTK_INST_ENCODER;
 	ret = mtk_vcodec_enc_ctrls_setup(ctx);
@@ -141,10 +142,14 @@ static int fops_vcodec_release(struct file *file)
 	struct mtk_vcodec_dev *dev = video_drvdata(file);
 	struct mtk_vcodec_ctx *ctx = fh_to_ctx(file->private_data);
 
-	mtk_v4l2_debug(1, "[%d] encoder", ctx->id);
+	mtk_v4l2_debug(0, "[%d] encoder", ctx->id);
 	mutex_lock(&dev->dev_mutex);
 
+	mtk_release_pmqos(ctx);
+	mtk_vcodec_enc_empty_queues(file, ctx);
+	mutex_lock(&ctx->worker_lock);
 	v4l2_m2m_ctx_release(ctx->m2m_ctx);
+	mutex_unlock(&ctx->worker_lock);
 	mtk_vcodec_enc_release(ctx);
 	v4l2_fh_del(&ctx->fh);
 	v4l2_fh_exit(&ctx->fh);
@@ -228,7 +233,7 @@ static int mtk_vcodec_enc_suspend_notifier(struct notifier_block *nb,
 }
 
 
-static int mtk_vcodec_probe(struct platform_device *pdev)
+static int mtk_vcodec_enc_probe(struct platform_device *pdev)
 {
 	struct mtk_vcodec_dev *dev;
 	struct video_device *vfd_enc;
@@ -427,7 +432,7 @@ static const struct dev_pm_ops mtk_vcodec_enc_pm_ops = {
 };
 
 static struct platform_driver mtk_vcodec_enc_driver = {
-	.probe  = mtk_vcodec_probe,
+	.probe  = mtk_vcodec_enc_probe,
 	.remove = mtk_vcodec_enc_remove,
 	.driver = {
 		.name   = MTK_VCODEC_ENC_NAME,

@@ -51,10 +51,11 @@ static unsigned long uclamp_policy_mask[NR_CGROUP];
 static int uclamp_min[NR_CGROUP][EAS_MAX_KIR];
 static int debug_uclamp_min[NR_CGROUP];
 
+#if defined(CONFIG_CPU_FREQ_GOV_SCHEDPLUS)
 static int cur_schedplus_down_throttle_ns;
 static int default_schedplus_down_throttle_ns;
 static unsigned long schedplus_down_throttle_ns_policy_mask;
-static int schedplus_down_throttle_ns[EAS_DOWN_THRES_MAX_KIR];
+static int schedplus_down_throttle_ns[EAS_THRES_MAX_KIR];
 static int debug_schedplus_down_throttle_nsec;
 
 static int cur_schedplus_sync_flag;
@@ -62,6 +63,7 @@ static int default_schedplus_sync_flag;
 static unsigned long schedplus_sync_flag_policy_mask;
 static int schedplus_sync_flag[EAS_SYNC_FLAG_MAX_KIR];
 static int debug_schedplus_sync_flag;
+#endif
 
 /* log */
 static int log_enable;
@@ -131,6 +133,7 @@ static int check_debug_uclamp_value(int value)
 }
 
 /************************/
+#if defined(CONFIG_CPU_FREQ_GOV_SCHEDPLUS)
 int update_schedplus_down_throttle_ns(int kicker, int nsec)
 {
 	int i;
@@ -140,7 +143,7 @@ int update_schedplus_down_throttle_ns(int kicker, int nsec)
 
 	schedplus_down_throttle_ns[kicker] = nsec;
 
-	for (i = 0; i < EAS_DOWN_THRES_MAX_KIR; i++) {
+	for (i = 0; i < EAS_THRES_MAX_KIR; i++) {
 		if (schedplus_down_throttle_ns[i] == -1) {
 			clear_bit(i, &schedplus_down_throttle_ns_policy_mask);
 			continue;
@@ -219,6 +222,7 @@ int update_schedplus_sync_flag(int kicker, int enable)
 
 	return cur_schedplus_sync_flag;
 }
+#endif
 
 #ifdef CONFIG_CGROUP_SCHEDTUNE
 int update_eas_boost_value(int kicker, int cgroup_idx, int value)
@@ -286,7 +290,9 @@ int update_eas_boost_value(int kicker, int cgroup_idx, int value)
 		boost_write_for_perf_idx(cgroup_idx,
 				current_boost_value[cgroup_idx]);
 
-	strncat(msg, msg1, LOG_BUF_SIZE);
+	if (strlen(msg) + strlen(msg1) < LOG_BUF_SIZE)
+		strncat(msg, msg1, strlen(msg1));
+
 	if (log_enable)
 		pr_debug("%s\n", msg);
 
@@ -368,7 +374,8 @@ int update_eas_uclamp_min(int kicker, int cgroup_idx, int value)
 		uclamp_min_for_perf_idx(cgroup_idx,
 				cur_uclamp_min[cgroup_idx]);
 
-	strncat(msg, msg1, LOG_BUF_SIZE);
+	if (strlen(msg) + strlen(msg1) < LOG_BUF_SIZE)
+		strncat(msg, msg1, strlen(msg1));
 	if (log_enable)
 		pr_debug("%s\n", msg);
 
@@ -920,7 +927,7 @@ perfmgr_perfserv_ext_launch_mon_proc_show(
 	return 0;
 }
 
-
+#if defined(CONFIG_CPU_FREQ_GOV_SCHEDPLUS)
 static ssize_t perfmgr_perfserv_schedplus_sync_flag_proc_write(
 		struct file *filp, const char *ubuf,
 		size_t cnt, loff_t *pos)
@@ -985,7 +992,7 @@ static ssize_t perfmgr_perfserv_schedplus_down_throttle_proc_write(
 	if (rv != 0)
 		return rv;
 
-	update_schedplus_down_throttle_ns(EAS_DOWN_THRES_KIR_PERF, data);
+	update_schedplus_down_throttle_ns(EAS_THRES_KIR_PERF, data);
 
 	return cnt;
 }
@@ -994,7 +1001,7 @@ static int perfmgr_perfserv_schedplus_down_throttle_proc_show(
 	struct seq_file *m, void *v)
 {
 	seq_printf(m, "%d\n",
-		schedplus_down_throttle_ns[EAS_DOWN_THRES_KIR_PERF]);
+		schedplus_down_throttle_ns[EAS_THRES_KIR_PERF]);
 
 	return 0;
 }
@@ -1029,6 +1036,7 @@ static int perfmgr_debug_schedplus_down_throttle_proc_show(
 
 	return 0;
 }
+#endif
 
 /* Add procfs to control sysctl_sched_migration_cost */
 /* sysctl_sched_migration_cost: eas_ctrl_plat.h */
@@ -1158,10 +1166,12 @@ PROC_FOPS_RW(perfserv_ta_uclamp_min);
 PROC_FOPS_RW(debug_ta_uclamp_min);
 PROC_FOPS_RO(current_ta_uclamp_min);
 
+#if defined(CONFIG_CPU_FREQ_GOV_SCHEDPLUS)
 PROC_FOPS_RW(perfserv_schedplus_down_throttle);
 PROC_FOPS_RW(debug_schedplus_down_throttle);
 PROC_FOPS_RW(perfserv_schedplus_sync_flag);
 PROC_FOPS_RW(debug_schedplus_sync_flag);
+#endif
 
 /* others */
 PROC_FOPS_RW(perfserv_ext_launch_mon);
@@ -1207,10 +1217,12 @@ int eas_ctrl_init(struct proc_dir_entry *parent)
 		PROC_ENTRY(debug_ta_uclamp_min),
 		PROC_ENTRY(current_ta_uclamp_min),
 
+#if defined(CONFIG_CPU_FREQ_GOV_SCHEDPLUS)
 		PROC_ENTRY(perfserv_schedplus_down_throttle),
 		PROC_ENTRY(debug_schedplus_down_throttle),
 		PROC_ENTRY(perfserv_schedplus_sync_flag),
 		PROC_ENTRY(debug_schedplus_sync_flag),
+#endif
 
 		/* log */
 		PROC_ENTRY(perfmgr_log),
@@ -1258,16 +1270,18 @@ int eas_ctrl_init(struct proc_dir_entry *parent)
 	perf_sched_big_task_rotation = 0;
 	perf_sched_stune_task_thresh = -1;
 
+#if defined(CONFIG_CPU_FREQ_GOV_SCHEDPLUS)
 	default_schedplus_down_throttle_ns = 4000000;
 	default_schedplus_sync_flag = 1;
 	cur_schedplus_down_throttle_ns = -1;
 	cur_schedplus_sync_flag = -1;
 	debug_schedplus_down_throttle_nsec = -1;
 	debug_schedplus_sync_flag = -1;
-	for (i = 0; i < EAS_DOWN_THRES_MAX_KIR; i++)
+	for (i = 0; i < EAS_THRES_MAX_KIR; i++)
 		schedplus_down_throttle_ns[i] = -1;
 	for (i = 0; i < EAS_SYNC_FLAG_MAX_KIR; i++)
 		schedplus_sync_flag[i] = -1;
+#endif
 
 	debug_fix_boost = 0;
 

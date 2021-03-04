@@ -4467,11 +4467,6 @@ static long WPE_ioctl(struct file *pFile,
 				     g_WPE_ReqRing.WPEReq_Struct[
 				     g_WPE_ReqRing.ReadIdx].
 				     enqueReqNum);
-				spin_unlock_irqrestore(
-					&(WPEInfo.SpinLockIrq
-					[WPE_IRQ_TYPE_INT_WPE_ST]), flags);
-
-				mutex_unlock(&gWpeDequeMutex);
 				Ret = -EFAULT;
 				return Ret;
 			}
@@ -5084,7 +5079,7 @@ static signed int WPE_probe(struct platform_device *pDev)
 #ifdef CONFIG_OF
 
 	if (pDev == NULL) {
-		LOG_ERR("[ERROR]pDev is NULL");
+		LOG_ERR(&pDev->dev, "[ERROR]pDev is NULL");
 		return -ENXIO;
 	}
 
@@ -5093,7 +5088,7 @@ static signed int WPE_probe(struct platform_device *pDev)
 		sizeof(struct WPE_device) * nr_WPE_devs, GFP_KERNEL);
 
 	if (!_wpe_dev) {
-		LOG_ERR("[ERROR]Unable to allocate WPE_devs\n");
+		LOG_ERR(&pDev->dev, "[ERROR]Unable to allocate WPE_devs\n");
 		return -ENOMEM;
 	}
 	WPE_devs = _wpe_dev;
@@ -5106,7 +5101,7 @@ static signed int WPE_probe(struct platform_device *pDev)
 	/* gISPSYS_Reg[nr_WPE_devs - 1] = WPE_dev->regs; */
 
 	if (!WPE_dev->regs) {
-		LOG_ERR(
+		LOG_ERR(&pDev->dev,
 			"[ERROR]Unable to ioremap registers, of_iomap fail, nr_WPE_devs=%d, devnode(%s).\n",
 			nr_WPE_devs, pDev->dev.of_node->name);
 		return -ENOMEM;
@@ -5123,7 +5118,7 @@ static signed int WPE_probe(struct platform_device *pDev)
 		if (of_property_read_u32_array
 		    (pDev->dev.of_node, "interrupts",
 		    irq_info, ARRAY_SIZE(irq_info))) {
-			LOG_ERR("get irq flags from DTS fail!!\n");
+			LOG_ERR(&pDev->dev, "get irq flags from DTS fail!!\n");
 			return -ENODEV;
 		}
 
@@ -5138,7 +5133,7 @@ static signed int WPE_probe(struct platform_device *pDev)
 					device_name, NULL);
 
 				if (Ret) {
-					LOG_ERR(
+					LOG_ERR(&pDev->dev,
 						"[ERROR]Unable to request IRQ, request_irq fail, nr_WPE_devs=%d, devnode(%s), irq=%d, ISR: %s\n",
 						nr_WPE_devs,
 						pDev->dev.of_node->name,
@@ -5180,7 +5175,7 @@ static signed int WPE_probe(struct platform_device *pDev)
 		/* Register char driver */
 		Ret = WPE_RegCharDev();
 		if (Ret) {
-			LOG_ERR("[ERROR]register char failed");
+			LOG_ERR(&pDev->dev, "[ERROR]register char failed");
 			return Ret;
 		}
 #ifndef __WPE_EP_NO_CLKMGR__
@@ -5207,7 +5202,7 @@ static signed int WPE_probe(struct platform_device *pDev)
 					WPEDevNo, NULL, WPE_DEV_NAME);
 		if (IS_ERR(dev)) {
 			Ret = PTR_ERR(dev);
-			LOG_ERR(
+			LOG_ERR(&pDev->dev,
 				"[ERROR]Failed to create device: /dev/%s, err = %d",
 				WPE_DEV_NAME, Ret);
 			goto EXIT;

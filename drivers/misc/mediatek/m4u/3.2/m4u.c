@@ -106,11 +106,12 @@ static int m4u_buf_show(void *priv,
 	struct m4u_buf_info_t *pMvaInfo = priv;
 
 	M4U_PRINT_SEQ(data,
-		"0x%-8x, 0x%-8x, 0x%lx, 0x%-8x, 0x%x, %s, 0x%x, 0x%x, 0x%x\n",
+		"0x%-8x, 0x%-8x, 0x%lx, 0x%-8x, 0x%x, %s, 0x%x, 0x%x, 0x%x, %llu ns\n",
 		pMvaInfo->mva, pMvaInfo->mva+pMvaInfo->size-1, pMvaInfo->va,
 		pMvaInfo->size, pMvaInfo->prot,
 		m4u_get_port_name(pMvaInfo->port),
-		pMvaInfo->flags, mva_start, mva_end);
+		pMvaInfo->flags, mva_start, mva_end,
+		pMvaInfo->current_ts);
 
 	return 0;
 }
@@ -121,7 +122,7 @@ int m4u_dump_buf_info(struct seq_file *seq, unsigned int domain_idx)
 
 	M4U_PRINT_SEQ(seq, "\ndump mva allocated info ========>\n");
 	M4U_PRINT_SEQ(seq,
-	"mva_start   mva_end          va       size     prot   module   flags   debug1  debug2\n");
+	"mva_start   mva_end          va       size     prot   module   flags   debug1  debug2  ts\n");
 
 	mva_foreach_priv((void *) m4u_buf_show, seq, domain_idx);
 
@@ -176,11 +177,8 @@ int m4u_put_sgtable_pages(struct sg_table *table)
 	for_each_sg(table->sgl, sg, table->nents, i) {
 		struct page *page = sg_page(sg);
 
-		if (page) {
-			if (!PageReserved(page))
-				SetPageDirty(page);
+		if (page)
 			put_page(page);
-		}
 	}
 	return 0;
 }
@@ -444,7 +442,7 @@ static int m4u_fill_sgtable_user(
 	int i;
 	long ret = 0;
 	struct scatterlist *sg = *pSg;
-	struct page *pages;
+	struct page *pages = NULL;
 	int gup_flags;
 
 	va_align = round_down(va, PAGE_SIZE);
@@ -847,6 +845,7 @@ int m4u_alloc_mva(struct m4u_client_t *client,
 	pMvaInfo->mva_align = mva_align;
 	pMvaInfo->size_align = size_align;
 	pMvaInfo->domain_idx = domain_idx;
+	pMvaInfo->current_ts = sched_clock();
 	*pMva = mva;
 
 	if (flags & M4U_FLAGS_SEQ_ACCESS)
@@ -956,18 +955,18 @@ int m4u_alloc_mva_sg(struct port_mva_info_t *port_info,
 #ifdef M4U_TEE_SERVICE_ENABLE
 static int m4u_unmap_nonsec_buffer(unsigned int mva, unsigned int size);
 
-int m4u_register_mva_share(int eModuleID, unsigned int mva)
+int m4u_register_mva_share(int module_id, unsigned int mva)
 {
 	struct m4u_buf_info_t *pMvaInfo;
 	unsigned int domain_idx = 0;
 
-	if (eModuleID >= M4U_PORT_VPU)
+	if (module_id >= M4U_PORT_VPU)
 		domain_idx = 1;
 
 	pMvaInfo = mva_get_priv(mva, domain_idx);
 	if (!pMvaInfo) {
 		M4UMSG("%s cannot find mva: module=%s, mva=0x%x, domain=%u\n",
-			__func__, m4u_get_port_name(eModuleID),
+			__func__, m4u_get_port_name(module_id),
 			mva, domain_idx);
 		return -1;
 	}
@@ -978,7 +977,7 @@ int m4u_register_mva_share(int eModuleID, unsigned int mva)
 #endif
 
 
-int m4u_dealloc_mva_sg(int eModuleID, struct sg_table *sg_table,
+int m4u_dealloc_mva_sg(int module_id, struct sg_table *sg_table,
 			const unsigned int BufSize, const unsigned int MVA)
 {
 	if (!ion_m4u_client) {
@@ -986,7 +985,7 @@ int m4u_dealloc_mva_sg(int eModuleID, struct sg_table *sg_table,
 		return -1;
 	}
 
-	return m4u_dealloc_mva(ion_m4u_client, eModuleID, MVA);
+	return m4u_dealloc_mva(ion_m4u_client, module_id, MVA);
 }
 
 /* should not hold client->dataMutex here. */
@@ -1782,7 +1781,9 @@ static int __m4u_sec_init(void)
 		goto out;
 	}
 
-	ret = ctx->m4u_msg->rsp;
+	M4ULOG_HIGH("%s ret:0x%x, rsp:0x%x\n",
+		__func__, ret, ctx->m4u_msg->rsp);
+	/* ret = ctx->m4u_msg->rsp; */
 out:
 #ifdef CONFIG_MACH_MT6779
 	for (i = 0; i < SMI_LARB_NR; i++)
@@ -1895,24 +1896,30 @@ out:
 
 #endif
 /* ------------------------------------------------------------- */
+#if defined(CONFIG_TRUSTONIC_TEE_SUPPORT) && \
+	!defined(CONFIG_MTK_TEE_GP_SUPPORT)
 #include "mobicore_driver_api.h"
 
 static const struct mc_uuid_t m4u_drv_uuid = M4U_DRV_UUID;
 static struct mc_session_handle m4u_dci_session;
 static struct m4u_msg *m4u_dci_msg;
+#endif
 
 int m4u_sec_init(void)
 {
 	int ret;
+#if defined(CONFIG_TRUSTONIC_TEE_SUPPORT) && \
+	!defined(CONFIG_MTK_TEE_GP_SUPPORT)
 	enum mc_result mcRet;
-
+#endif
 	M4UINFO("call m4u_sec_init in normal m4u driver\n");
 
 	if (m4u_tee_en) {
 		M4UMSG("warning: m4u secure has been inited, %d\n", m4u_tee_en);
 		goto m4u_sec_reinit;
 	}
-
+#if defined(CONFIG_TRUSTONIC_TEE_SUPPORT) && \
+		!defined(CONFIG_MTK_TEE_GP_SUPPORT)
 	/* Allocating WSM for DCI */
 	mcRet = mc_malloc_wsm(MC_DEVICE_ID_DEFAULT, 0,
 		sizeof(struct m4u_msg), (uint8_t **) &m4u_dci_msg, 0);
@@ -1933,7 +1940,7 @@ int m4u_sec_init(void)
 	}
 
 	M4UINFO("tz_m4u: open DCI session returned: %d\n", mcRet);
-
+#endif
 	{
 		/* volatile */
 		int i, j = 0;
@@ -2797,32 +2804,50 @@ static int m4u_probe(struct platform_device *pdev)
 
 	m4u_domain_init(gM4uDev, &gMvaNode_unknown, pdev->id);
 
-	if (pdev->id == 0) {
-
 #ifdef M4U_TEE_SERVICE_ENABLE
-		{
-			struct m4u_buf_info_t *pMvaInfo;
-			unsigned int mva;
+{
+	struct m4u_buf_info_t *pMvaInfo;
+	unsigned int mva;
 
-			pMvaInfo = m4u_alloc_buf_info();
-			if (pMvaInfo != NULL) {
-				pMvaInfo->port = M4U_PORT_UNKNOWN;
-				pMvaInfo->size =
-					M4U_NONSEC_MVA_START - 0x100000;
+	pMvaInfo = m4u_alloc_buf_info();
+	if (pMvaInfo != NULL && pdev->id < TOTAL_M4U_NUM) {
+		pMvaInfo->port = M4U_PORT_UNKNOWN;
+		pMvaInfo->size =
+			M4U_NONSEC_MVA_START - 0x100000;
 
-				mva = m4u_do_mva_alloc(M4U_SEC_MVA_DOMAIN,
-					0, M4U_NONSEC_MVA_START - 0x100000,
-					pMvaInfo);
-				M4UINFO(
-					"reserve sec mva: 0x%x, domain:%d\n",
-					mva, pdev->id);
-			} else {
-				M4UINFO(
-					"pMvaInfo is NULL,secure mva space reserve fail\n");
-			}
-		}
+		mva = m4u_do_mva_alloc(pdev->id,
+			0, M4U_NONSEC_MVA_START - 0x100000,
+			pMvaInfo);
+		M4UINFO(
+			"reserve sec mva: 0x%x, domain:%d\n",
+			mva, pdev->id);
+	} else {
+		M4UINFO(
+			"pMvaInfo is NULL,secure mva space reserve fail\n");
+	}
+}
 #endif
 
+	if (pdev->id == 1) {
+		struct m4u_buf_info_t *pMvaInfo;
+
+		pMvaInfo = m4u_alloc_buf_info();
+		if (pMvaInfo != NULL) {
+			pMvaInfo->port = M4U_PORT_VPU;
+			pMvaInfo->size = VPU_IOMMU_MVA_SIZE;
+
+			pMvaInfo->mva = m4u_do_mva_alloc_start_from(
+				1, 0, VPU_IOMMU_MVA_START,
+				VPU_IOMMU_MVA_SIZE, pMvaInfo);
+
+			M4UINFO(
+				"reserve vpu_iommu mva_start: 0x%x, mva_end:0x%x, domain:%d\n",
+				pMvaInfo->mva,
+				(pMvaInfo->mva + VPU_IOMMU_MVA_SIZE), pdev->id);
+		} else {
+			M4UINFO(
+				"pMvaInfo is NULL,vpu_iommu mva space reserve fail\n");
+		}
 	}
 
 	m4u_hw_init(gM4uDev, pdev->id);
@@ -2849,15 +2874,18 @@ static int m4u_remove(struct platform_device *pdev)
 static int m4u_suspend(struct platform_device *pdev, pm_message_t mesg)
 {
 	m4u_reg_backup();
-	M4UINFO("M4U backup in suspend\n");
+	M4UINFO("M4U backup in suspend dev:%d\n", pdev->id);
 
 	return 0;
 }
 
 static int m4u_resume(struct platform_device *pdev)
 {
+#ifdef M4U_TEE_SERVICE_ENABLE
+	m4u_late_resume();
+#endif
 	m4u_reg_restore();
-	M4UINFO("M4U restore in resume\n");
+	M4UINFO("M4U restore in resume dev:%d\n", pdev->id);
 	return 0;
 }
 

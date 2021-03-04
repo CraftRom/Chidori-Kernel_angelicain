@@ -32,9 +32,7 @@ enum {
 
 /* IPI Msg data structure */
 struct ppm_ipi_data {
-	/* 1 int for opcode */
 	unsigned int cmd;
-	/* 6 int for ipi data */
 	union {
 		struct {
 			unsigned int efuse_val;
@@ -55,10 +53,6 @@ struct ppm_ipi_data {
 		struct {
 			unsigned int activate;
 		} ptpod_test;
-		/* padding to 6 int */
-		struct {
-			unsigned int ppm_data[6];
-		};
 	} u;
 };
 

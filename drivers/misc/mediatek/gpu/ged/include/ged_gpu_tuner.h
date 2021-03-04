@@ -47,8 +47,8 @@ GED_ERROR ged_gpu_get_stauts_by_packagename(char *packagename,
 GED_ERROR ged_gpu_tuner_init(void);
 GED_ERROR ged_gpu_tuner_exit(void);
 
-int ged_bridge_gpu_tuner_status(GED_BRIDGE_IN_GPU_TUNER_STATUS *in,
-	GED_BRIDGE_OUT_GPU_TUNER_STATUS *out);
+int ged_bridge_gpu_tuner_status(struct GED_BRIDGE_IN_GPU_TUNER_STATUS *in,
+	struct GED_BRIDGE_OUT_GPU_TUNER_STATUS *out);
 
 #if defined(__cplusplus)
 }

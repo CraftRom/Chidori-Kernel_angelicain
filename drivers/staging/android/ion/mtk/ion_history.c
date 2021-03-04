@@ -427,6 +427,7 @@ static int string_hash_put(struct string_struct *string)
 	if (!string->ref) {
 		hlist_del(&string->list);
 		kfree(string);
+		string = NULL;
 	}
 
 	spin_unlock(&ion_str_hash_lock);
@@ -584,6 +585,7 @@ static int write_mm_page_pool(int high, int order, int cache, size_t size)
 
 static int ion_history_record(void *data)
 {
+	int ret;
 	struct ion_device *dev = g_ion_device;
 	struct rb_node *n;
 	size_t old_total_size = 0;
@@ -595,8 +597,12 @@ static int ion_history_record(void *data)
 			break;
 		}
 
-		wait_event_interruptible(ion_history_wq,
-					 atomic_read(&ion_history_event));
+		ret = wait_event_interruptible(ion_history_wq,
+					       atomic_read(&ion_history_event));
+		if (ret < 0) {
+			IONMSG("%s is waked up error", __func__);
+			continue;
+		}
 		msleep(500);
 		atomic_set(&ion_history_event, 0);
 
@@ -672,7 +678,9 @@ static int ion_history_record(void *data)
 
 					ion_client_write_record
 					    (g_client_history, task_comm,
-					     client->dbg_name, size, client);
+					     (*client->dbg_name) ? client->
+						     dbg_name : client->name,
+					     size, client);
 				} else {
 					ion_client_write_record
 					    (g_client_history, client->name,

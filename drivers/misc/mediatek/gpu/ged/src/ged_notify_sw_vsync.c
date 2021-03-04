@@ -156,7 +156,6 @@ static void ged_notify_sw_sync_work_handle(struct work_struct *psWork)
 #ifdef ENABLE_COMMON_DVFS	
 static unsigned long long hw_vsync_ts;
 #endif
-static unsigned long long g_ns_gpu_on_ts=0;
 
 static bool g_timer_on = false;
 static unsigned long long g_timer_on_ts=0;

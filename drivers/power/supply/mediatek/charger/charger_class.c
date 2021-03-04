@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2016 MediaTek Inc.
- * Copyright (C) 2019 XiaoMi, Inc.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -18,7 +18,7 @@
 #include <linux/ctype.h>
 #include <linux/err.h>
 #include <linux/slab.h>
-#include <mt-plat/upmu_common.h>
+
 #include <mt-plat/charger_class.h>
 
 static struct class *charger_class;
@@ -77,6 +77,16 @@ int charger_dev_is_enabled(struct charger_device *chg_dev, bool *en)
 	return -ENOTSUPP;
 }
 EXPORT_SYMBOL(charger_dev_is_enabled);
+
+int charger_dev_set_hizmode(struct charger_device *chg_dev, bool en)
+{
+	if (chg_dev != NULL && chg_dev->ops != NULL && chg_dev->ops->hiz_mode)
+		return chg_dev->ops->hiz_mode(chg_dev, en);
+
+	return -ENOTSUPP;
+}
+EXPORT_SYMBOL(charger_dev_set_hizmode);
+
 
 int charger_dev_plug_in(struct charger_device *chg_dev)
 {
@@ -195,6 +205,16 @@ int charger_dev_get_ibus(struct charger_device *chg_dev, u32 *ibus)
 	return -ENOTSUPP;
 }
 EXPORT_SYMBOL(charger_dev_get_ibus);
+
+int charger_dev_get_ibat(struct charger_device *chg_dev, u32 *ibat)
+{
+	if (chg_dev != NULL && chg_dev->ops != NULL &&
+	    chg_dev->ops->get_ibat_adc)
+		return chg_dev->ops->get_ibat_adc(chg_dev, ibat);
+
+	return -ENOTSUPP;
+}
+EXPORT_SYMBOL(charger_dev_get_ibat);
 
 int charger_dev_get_temperature(struct charger_device *chg_dev, int *tchg_min,
 		int *tchg_max)
@@ -328,7 +348,7 @@ EXPORT_SYMBOL(charger_dev_set_mivr);
 
 int charger_dev_get_mivr(struct charger_device *chg_dev, u32 *uV)
 {
-	if (chg_dev != NULL && chg_dev->ops != NULL && chg_dev->ops->set_mivr)
+	if (chg_dev != NULL && chg_dev->ops != NULL && chg_dev->ops->get_mivr)
 		return chg_dev->ops->get_mivr(chg_dev, uV);
 
 	return -ENOTSUPP;
@@ -396,22 +416,7 @@ int charger_dev_enable_termination(struct charger_device *chg_dev, bool en)
 	return -ENOTSUPP;
 }
 EXPORT_SYMBOL(charger_dev_enable_termination);
-int charger_dev_enable_rst(struct charger_device *chg_dev, bool en)
-{
-	if (chg_dev != NULL && chg_dev->ops != NULL &&
-	    chg_dev->ops->enable_rst){
-		if (!!en) {
-			pmic_config_interface(0x14c, 0x3221, 0xFFFF, 0x0);
-		} else {
-			pmic_config_interface(0x14c, 0x3021, 0xFFFF, 0x0);
-		}
 
-		return chg_dev->ops->enable_rst(chg_dev, en);
-	}
-
-	return -ENOTSUPP;
-}
-EXPORT_SYMBOL(charger_dev_enable_rst);
 int charger_dev_get_mivr_state(struct charger_device *chg_dev, bool *in_loop)
 {
 	if (chg_dev != NULL && chg_dev->ops != NULL &&
@@ -538,6 +543,7 @@ int charger_dev_set_boost_current_limit(struct charger_device *chg_dev, u32 uA)
 }
 EXPORT_SYMBOL(charger_dev_set_boost_current_limit);
 
+
 int charger_dev_get_zcv(struct charger_device *chg_dev, u32 *uV)
 {
 	if (chg_dev != NULL && chg_dev->ops != NULL && chg_dev->ops->get_zcv)
@@ -566,20 +572,11 @@ int charger_dev_reset_eoc_state(struct charger_device *chg_dev)
 }
 EXPORT_SYMBOL(charger_dev_reset_eoc_state);
 
-int charger_dev_enable_hz(struct charger_device *charger_dev, bool en)
-{
-             if (charger_dev != NULL && charger_dev->ops != NULL && charger_dev->ops->enable_hz)
-                             return charger_dev->ops->enable_hz(charger_dev, en);
-
-             return -ENOTSUPP;
-}
-EXPORT_SYMBOL(charger_dev_enable_hz);
-
-int charger_dev_safety_check(struct charger_device *chg_dev)
+int charger_dev_safety_check(struct charger_device *chg_dev, u32 polling_ieoc)
 {
 	if (chg_dev != NULL && chg_dev->ops != NULL &&
 	    chg_dev->ops->safety_check)
-		return chg_dev->ops->safety_check(chg_dev);
+		return chg_dev->ops->safety_check(chg_dev, polling_ieoc);
 
 	return -ENOTSUPP;
 }
@@ -710,7 +707,7 @@ struct charger_device *charger_device_register(const char *name,
 	struct srcu_notifier_head *head;
 	int rc;
 
-	pr_debug("charger_device_register: name=%s\n", name);
+	pr_debug("%s: name=%s\n", __func__, name);
 	chg_dev = kzalloc(sizeof(*chg_dev), GFP_KERNEL);
 	if (!chg_dev)
 		return ERR_PTR(-ENOMEM);

@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2015-2016 MediaTek Inc.
+ * Copyright (C) 2021 XiaoMi, Inc.
  * Author: Yong Wu <yong.wu@mediatek.com>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -83,6 +84,14 @@ enum mtk_smi_gen {
 struct mtk_smi_dev *common;
 struct mtk_smi_dev **larbs;
 
+#if IS_ENABLED(CONFIG_MACH_MT6765)
+#define SMI_INIT_AFTER_PROBE
+#endif
+#ifdef SMI_INIT_AFTER_PROBE
+static u32 nr_smi_dev;
+static struct platform_driver mtk_smi_larb_driver;
+static struct platform_driver mtk_smi_common_driver;
+#endif
 int mtk_smi_clk_ref_cnts_read(struct mtk_smi_dev *smi)
 {
 	/* check parameter */
@@ -127,6 +136,7 @@ int mtk_smi_dev_enable(struct mtk_smi_dev *smi)
 	if (ret)
 		for (j = i - 1; j >= 0; j--)
 			clk_disable_unprepare(smi->clks[j]);
+	/* add one for reference counts */
 	atomic_inc(&(smi->clk_ref_cnts));
 	return ret;
 }
@@ -145,10 +155,11 @@ int mtk_smi_dev_disable(struct mtk_smi_dev *smi)
 			smi->index);
 		return -ENXIO;
 	}
-	atomic_dec(&(smi->clk_ref_cnts));
 	/* disable clocks without mtcmos */
 	for (i = smi->nr_clks - 1; i >= 1; i--)
 		clk_disable_unprepare(smi->clks[i]);
+	/* sub one for reference counts */
+	atomic_dec(&(smi->clk_ref_cnts));
 	return 0;
 }
 EXPORT_SYMBOL_GPL(mtk_smi_dev_disable);
@@ -173,8 +184,9 @@ static int mtk_smi_clks_get(struct mtk_smi_dev *smi)
 	if (nr_clks <= 0)
 		return 0;
 	smi->nr_clks = nr_clks;
-#if IS_ENABLED(CONFIG_MACH_MT6758) || IS_ENABLED(CONFIG_MACH_MT6765)
-	/* workaround for mmdvfs at mt6758/mt6765 */
+#if IS_ENABLED(CONFIG_MACH_MT6758) || IS_ENABLED(CONFIG_MACH_MT6763) \
+	|| IS_ENABLED(CONFIG_MACH_MT6765)
+	/* workaround for mmdvfs at mt6758/mt6763/mt6765 */
 	if (smi->index == common->index)
 		smi->nr_clks = 4;
 #endif
@@ -227,7 +239,7 @@ int mtk_smi_config_set(struct mtk_smi_dev *smi, const unsigned int scen_indx)
 			smi->index, scen_indx, smi->nr_scens);
 		return -EINVAL;
 	} else if (!mtk_smi_clk_ref_cnts_read(smi)) {
-		dev_dbg(smi->dev, "%s %d without mtcmos\n",
+		dev_info(smi->dev, "%s %d without mtcmos\n",
 			smi->index == common->index ? "common" : "larb",
 			smi->index);
 		return ret;
@@ -521,7 +533,7 @@ static int mtk_smi_larb_probe(struct platform_device *pdev)
 {
 #if IS_ENABLED(CONFIG_MTK_SMI_EXT)
 	struct resource	*res;
-	unsigned int	index;
+	unsigned int	index = 0;
 	int		ret;
 	/* check parameter */
 	if (!pdev) {
@@ -531,8 +543,7 @@ static int mtk_smi_larb_probe(struct platform_device *pdev)
 	/* index */
 	ret = of_property_read_u32(pdev->dev.of_node, "cell-index", &index);
 	if (ret) {
-		dev_notice(&pdev->dev, "larb index %d read failed %d\n",
-			index, ret);
+		dev_notice(&pdev->dev, "cell-index read failed %d\n", ret);
 		return ret;
 	}
 	/* dev */
@@ -562,6 +573,23 @@ static int mtk_smi_larb_probe(struct platform_device *pdev)
 	ret = component_add(&pdev->dev, &mtk_smi_larb_component_ops);
 	if (ret)
 		return ret;
+
+#ifdef SMI_INIT_AFTER_PROBE
+    nr_smi_dev += 1;
+    dev_dbg(&pdev->dev,
+        "common:%p index:%#x nr_smi_dev:%#x larb:%p index:%#x\n",
+        common, common->index, nr_smi_dev, larbs[index], index);
+    if (common && nr_smi_dev == common->index + 1) {
+        ret = smi_register(&mtk_smi_common_driver);
+        if (ret) {
+            dev_notice(&pdev->dev,
+                "Failed to register SMI-EXT driver: %d\n", ret);
+            platform_driver_unregister(&mtk_smi_larb_driver);
+            platform_driver_unregister(&mtk_smi_common_driver);
+            return ret;
+        }
+    }
+#endif
 	return ret;
 #else /* !CONFIG_MTK_SMI_EXT */
 	struct mtk_smi_larb *larb;
@@ -661,7 +689,7 @@ static int mtk_smi_common_probe(struct platform_device *pdev)
 {
 #if IS_ENABLED(CONFIG_MTK_SMI_EXT)
 	struct resource	*res;
-	unsigned int	nr_larbs;
+	unsigned int	nr_larbs = 0;
 	int		ret;
 	/* check parameter */
 	if (!pdev) {
@@ -676,8 +704,7 @@ static int mtk_smi_common_probe(struct platform_device *pdev)
 	/* index */
 	ret = of_property_read_u32(common->dev->of_node, "nr_larbs", &nr_larbs);
 	if (ret) {
-		dev_notice(&pdev->dev, "common nr_larbs %d read failed %d\n",
-			nr_larbs, ret);
+		dev_notice(&pdev->dev, "nr_larbs read failed %d\n", ret);
 		return ret;
 	}
 	common->index = nr_larbs;
@@ -703,6 +730,10 @@ static int mtk_smi_common_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	/* device set driver data */
 	platform_set_drvdata(pdev, common);
+
+	#ifdef SMI_INIT_AFTER_PROBE
+		nr_smi_dev += 1;
+	#endif
 	return ret;
 #else /* !CONFIG_MTK_SMI_EXT  */
 	struct device *dev = &pdev->dev;
@@ -785,6 +816,7 @@ static int __init mtk_smi_init(void)
 	}
 
 #if IS_ENABLED(CONFIG_MTK_SMI_EXT)
+#ifndef SMI_INIT_AFTER_PROBE
 	ret = smi_register(&mtk_smi_common_driver);
 	if (ret) {
 		pr_notice("Failed to register SMI-EXT driver\n");
@@ -792,6 +824,7 @@ static int __init mtk_smi_init(void)
 		platform_driver_unregister(&mtk_smi_common_driver);
 		return ret;
 	}
+#endif
 #endif
 	return ret;
 

@@ -33,6 +33,7 @@
 #include <ddp_reg.h>
 #include <ddp_path.h>
 #include <ddp_gamma.h>
+#include <ddp_pq.h>
 #include <disp_drv_platform.h>
 #if defined(CONFIG_MACH_MT6755) || defined(CONFIG_MACH_MT6797) || \
 	defined(CONFIG_MACH_MT6757) || defined(CONFIG_MACH_KIBOPLUS) || \
@@ -270,21 +271,12 @@ static int disp_gamma_set_lut
 		return -EFAULT;
 	}
 
-#ifdef CONFIG_MTK_VIDEOX_LIVEDISPLAY
-	if (virt_addr_valid(user_gamma_lut))
-		memcpy(gamma_lut, user_gamma_lut, sizeof(struct DISP_GAMMA_LUT_T));
-	else
-#endif
-
 	if (copy_from_user(gamma_lut, user_gamma_lut,
 		sizeof(struct DISP_GAMMA_LUT_T)) != 0) {
-		GAMMA_ERR("disp_gamma_set_lut: cannot copy from user mem");
 		ret = -EFAULT;
 		kfree(gamma_lut);
-	}
-
-	if (!ret) {
-       	id = gamma_lut->hw_id;
+	} else {
+		id = gamma_lut->hw_id;
 		if (id >= 0 && id < DISP_GAMMA_TOTAL) {
 			mutex_lock(&g_gamma_global_lock);
 
@@ -1068,6 +1060,8 @@ static int ccorr_ioctl(enum DISP_MODULE_ENUM module, void *handle,
 static int disp_ccorr_io(enum DISP_MODULE_ENUM module, unsigned int msg,
 	unsigned long arg, void *cmdq)
 {
+	struct DISP_COLOR_TRANSFORM color_transform;
+	unsigned int i;
 #ifdef CCORR_TRANSITION
 	int enabled;
 #endif
@@ -1104,6 +1098,21 @@ static int disp_ccorr_io(enum DISP_MODULE_ENUM module, unsigned int msg,
 
 		break;
 #endif
+	case DISP_IOCTL_SUPPORT_COLOR_TRANSFORM:
+		if (copy_from_user(&color_transform, (void *)arg,
+			sizeof(struct DISP_COLOR_TRANSFORM))) {
+			CCORR_ERR("DISP_IOCTL_SUPPORT_COLOR_TRANSFORM: failed");
+			return -EFAULT;
+		}
+
+		for (i = 0 ; i < 3; i++) {
+			if (color_transform.matrix[3][i] != 0 ||
+				color_transform.matrix[i][3] != 0) {
+				CCORR_DBG("unsupported matrix");
+				return -EFAULT;
+			}
+		}
+		break;
 	}
 
 	return 0;
@@ -1286,7 +1295,8 @@ static int ddp_simple_strtoul(char *ptr, unsigned long *res)
 		strncpy(buffer, ptr, end);
 		buffer[end] = '\0';
 		ret = kstrtoul(buffer, 0, res);
-
+		if (ret != 0)
+			CCORR_ERR("kstrtoul ret[%d]\n", ret);
 	}
 	return end;
 

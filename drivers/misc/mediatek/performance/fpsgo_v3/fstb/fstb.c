@@ -56,11 +56,12 @@
 #define mtk_fstb_dprintk(fmt, args...) \
 	do { \
 		if (fstb_fps_klog_on == 1) \
-		pr_debug("[FSTB]" fmt, ##args); \
+			pr_debug("[FSTB]" fmt, ##args); \
 	} while (0)
 
 #define fpsgo_systrace_c_fstb_man(pid, val, fmt...) \
 	fpsgo_systrace_c(FPSGO_DEBUG_MANDATORY, pid, val, fmt)
+
 
 static void fstb_fps_stats(struct work_struct *work);
 static DECLARE_WORK(fps_stats_work,

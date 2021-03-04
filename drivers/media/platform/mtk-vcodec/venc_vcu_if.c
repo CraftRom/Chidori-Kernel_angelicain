@@ -82,7 +82,10 @@ static int vcu_enc_ipi_handler(void *data, unsigned int len, void *priv)
 	struct task_struct *task = NULL;
 	struct files_struct *f = NULL;
 
-	vcu_get_task(&task, &f);
+	vcu_get_file_lock();
+	vcu_get_task(&task, &f, 0);
+	vcu_put_file_lock();
+
 	if (msg == NULL || task == NULL ||
 	   task->tgid != current->tgid ||
 	   (struct venc_vcu_inst *)msg->venc_inst == NULL) {
@@ -343,6 +346,10 @@ int vcu_enc_set_param(struct venc_vcu_inst *vcu,
 	case VENC_SET_PARAM_BITRATE_MODE:
 		out.data_item = 1;
 		out.data[0] = enc_param->bitratemode;
+		break;
+	case VENC_SET_PARAM_HEIF_GRID_SIZE:
+		out.data_item = 1;
+		out.data[0] = enc_param->heif_grid_size;
 		break;
 	default:
 		mtk_vcodec_err(vcu, "id %d not supported", id);

@@ -22,6 +22,8 @@ ccflags-y += -I$(srctree)/drivers/i2c/busses
 ccflags-y += -I$(srctree)/drivers/iommu/
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/imgsensor/inc
 
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/smi/
+
 #$(warning $(subdir-ccflags-y))
 
 #obj-$(CONFIG_MTK_VPU) += ccu_drv.o ccu_algo.o ccu_dbg.o

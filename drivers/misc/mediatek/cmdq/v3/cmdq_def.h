@@ -45,7 +45,14 @@
 /* Thread that are high-priority (display threads) */
 #define CMDQ_MAX_HIGH_PRIORITY_THREAD_COUNT (8)
 #define CMDQ_MIN_SECURE_THREAD_ID	(CMDQ_MAX_HIGH_PRIORITY_THREAD_COUNT)
+
+#if IS_ENABLED(CONFIG_MACH_MT6779)
+/* primary disp / secondary disp / mdp / isp fd */
+#define CMDQ_MAX_SECURE_THREAD_COUNT	(4)
+#else
+/* primary disp / secondary disp / mdp */
 #define CMDQ_MAX_SECURE_THREAD_COUNT	(3)
+#endif
 
 #ifdef CMDQ_SECURE_PATH_SUPPORT
 #define CMDQ_DYNAMIC_THREAD_ID_START	(CMDQ_MIN_SECURE_THREAD_ID + \
@@ -434,6 +441,9 @@ struct cmdqSecDataStruct {
 
 	/* ISP metadata for secure camera */
 	struct cmdqSecIspMeta ispMeta;
+
+	/* client extension feature */
+	uint64_t extension;
 };
 
 struct cmdq_v3_replace_struct {

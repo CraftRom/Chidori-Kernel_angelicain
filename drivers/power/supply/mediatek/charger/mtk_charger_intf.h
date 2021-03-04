@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2016 MediaTek Inc.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -21,22 +22,23 @@
 #include <linux/spinlock.h>
 #include <linux/timer.h>
 #include <linux/wait.h>
+#include <linux/alarmtimer.h>
+#include <linux/kthread.h>
+#include <linux/power_supply.h>
 #include <mt-plat/charger_type.h>
 #include <mt-plat/mtk_charger.h>
 #include <mt-plat/mtk_battery.h>
 
 #include <mtk_gauge_time_service.h>
 
-#include "charger_class.h"
-
-/* PD */
-#include <tcpm.h>
+#include <mt-plat/charger_class.h>
 
 struct charger_manager;
 #include "mtk_pe_intf.h"
 #include "mtk_pe20_intf.h"
 #include "mtk_pe40_intf.h"
 #include "mtk_pdc_intf.h"
+#include "adapter_class.h"
 
 #define CHARGING_INTERVAL 10
 #define CHARGING_FULL_INTERVAL 20
@@ -88,6 +90,31 @@ do {								\
 #define CHG_BAT_LT_STATUS	(1 << 5)
 #define CHG_TYPEC_WD_STATUS	(1 << 6)
 
+/* HVDCP type */
+enum hvdcp_status{
+	HVDCP_NULL,
+	HVDCP,
+	HVDCP_3,
+};
+
+enum hvdcp3_type {
+	HVDCP3_NONE = 0,
+	HVDCP3_CLASSA_18W,
+	HVDCP3_CLASSB_27W,
+	USB_PD,
+	HVDCP2_TYPE,
+};
+
+/*wireless charger type*/
+enum wireless_chg_state {
+	WIRELESS_NULL = 0,
+	WIRELESS_SDP,
+	WIRELESS_CDP,
+	WIRELESS_CHG_CDP,
+	WIRELESS_CHG_DCP,
+	WIRELESS_CHG_HVDCP,
+};
+
 /* charger_algorithm notify charger_dev */
 enum {
 	EVENT_EOC,
@@ -124,6 +151,9 @@ struct sw_jeita_data {
 	int sm;
 	int pre_sm;
 	int cv;
+	int pre_cv;
+	//2020.03.16 longcheer wangbin add for add jeita current item
+	int curr;
 	bool charging;
 	bool error_recovery_flag;
 };
@@ -163,6 +193,11 @@ struct charger_custom_data {
 	int ta_ac_charger_current;
 	int pd_charger_current;
 
+	/* dynamic mivr */
+	int min_charger_voltage_1;
+	int min_charger_voltage_2;
+	int max_dmivr_charger_current;
+
 	/* sw jeita */
 	int jeita_temp_above_t4_cv;
 	int jeita_temp_t3_to_t4_cv;
@@ -170,6 +205,15 @@ struct charger_custom_data {
 	int jeita_temp_t1_to_t2_cv;
 	int jeita_temp_t0_to_t1_cv;
 	int jeita_temp_below_t0_cv;
+
+	/*2020.03.16 longcheer wangbin add start*/
+	/*add jeita current parameters*/
+	int jeita_current_t3_to_t4;
+	int jeita_current_t2_to_t3;
+	int jeita_current_t1_to_t2;
+	int jeita_current_t0_to_t1;
+	/*2020.03.16 longcheer wangbin add end*/
+
 	int temp_t4_thres;
 	int temp_t4_thres_minus_x_degree;
 	int temp_t3_thres;
@@ -209,6 +253,12 @@ struct charger_custom_data {
 	int pe40_dual_charger_chg1_current;
 	int pe40_dual_charger_chg2_current;
 	int pe40_stop_battery_soc;
+	int pe40_max_vbus;
+	int pe40_max_ibus;
+	int high_temp_to_leave_pe40;
+	int high_temp_to_enter_pe40;
+	int low_temp_to_leave_pe40;
+	int low_temp_to_enter_pe40;
 
 	/* pe4.0 cable impedance threshold (mohm) */
 	u32 pe40_r_cable_1a_lower;
@@ -216,8 +266,16 @@ struct charger_custom_data {
 	u32 pe40_r_cable_3a_lower;
 
 	/* dual charger */
+	u32 chg1_ta_ac_charger_input_current;
+	u32 chg2_ta_ac_charger_input_current;
 	u32 chg1_ta_ac_charger_current;
 	u32 chg2_ta_ac_charger_current;
+	int slave_mivr_diff;
+	u32 dual_polling_ieoc;
+
+	/* slave charger */
+	int chg2_eff;
+	bool parallel_vbus;
 
 	/* cable measurement impedance */
 	int cable_imp_threshold;
@@ -232,6 +290,18 @@ struct charger_custom_data {
 	bool power_path_support;
 
 	int max_charging_time; /* second */
+
+	int bc12_charger;
+
+	/* pd */
+	int pd_vbus_upper_bound;
+	int pd_vbus_low_bound;
+	int pd_ichg_level_threshold;
+	int pd_stop_battery_soc;
+
+	int vsys_watt;
+	int ibus_err;
+	int set_cap_delay;
 };
 
 struct charger_data {
@@ -264,16 +334,23 @@ struct charger_manager {
 	struct notifier_block chg2_nb;
 	struct charger_data chg2_data;
 
+	struct adapter_device *pd_adapter;
+
+
 	enum charger_type chr_type;
+	enum hvdcp_status hvdcp_type;
+	enum wireless_chg_state wireless_status;
+	int hvdcp_check_count;
+
 	bool can_charging;
 	int cable_out_cnt;
 
-	int (*do_algorithm)(struct charger_manager *);
-	int (*plug_in)(struct charger_manager *);
-	int (*plug_out)(struct charger_manager *);
-	int (*do_charging)(struct charger_manager *, bool en);
+	int (*do_algorithm)(struct charger_manager *cm);
+	int (*plug_in)(struct charger_manager *cm);
+	int (*plug_out)(struct charger_manager *cm);
+	int (*do_charging)(struct charger_manager *cm, bool en);
 	int (*do_event)(struct notifier_block *nb, unsigned long ev, void *v);
-	int (*change_current_setting)(struct charger_manager *);
+	int (*change_current_setting)(struct charger_manager *cm);
 
 	/* notify charger user */
 	struct srcu_notifier_head evt_nh;
@@ -285,6 +362,7 @@ struct charger_manager {
 
 	/* sw jeita */
 	bool enable_sw_jeita;
+	bool swjeita_enable_dual_charging;
 	struct sw_jeita_data sw_jeita;
 
 	/* dynamic_cv */
@@ -330,15 +408,23 @@ struct charger_manager {
 
 	/* pd */
 	struct mtk_pdc pdc;
+	bool disable_pd_dual;
+
+	/* Ra Rp detection */
+	bool ra_detected;
+	int	rp_lvl;
 
 	int pd_type;
-	struct tcpc_device *tcpc;
-	struct notifier_block pd_nb;
+	//struct tcpc_device *tcpc;
 	bool pd_reset;
 
 	/* thread related */
 	struct hrtimer charger_kthread_timer;
-	struct gtimer charger_kthread_fgtimer;
+
+	/* alarm timer */
+	struct alarm charger_timer;
+	struct timespec endtime;
+	bool is_suspend;
 
 	struct wakeup_source charger_wakelock;
 	struct mutex charger_lock;
@@ -355,6 +441,71 @@ struct charger_manager {
 
 	/* ATM */
 	bool atm_enabled;
+
+	/* dynamic mivr */
+	bool enable_dynamic_mivr;
+
+	/* input suspend*/
+	bool is_input_suspend;
+
+	struct power_supply	*usb_psy;
+
+	/*delay work*/
+	struct delayed_work	pd_hard_reset_work;
+	/* plug in time*/
+	struct timespec plugintime;
+
+	/*thermal level*/
+	int system_temp_level;
+	int system_temp_level_max;
+};
+
+struct chg_type_info {
+	struct device *dev;
+	struct charger_consumer *chg_consumer;
+	struct tcpc_device *tcpc_dev;
+	struct notifier_block pd_nb;
+	struct notifier_block otg_nb;
+	bool tcpc_kpoc;
+	/* Charger Detection */
+	struct mutex chgdet_lock;
+	bool chgdet_en;
+	atomic_t chgdet_cnt;
+	wait_queue_head_t waitq;
+	struct kthread_work chgdet_task_threadfn;
+	struct task_struct *chgdet_task;
+	struct workqueue_struct *pwr_off_wq;
+	struct work_struct pwr_off_work;
+    struct workqueue_struct *chg_in_wq;
+    struct work_struct chg_in_work;
+	bool ignore_usb;
+	bool plugin;
+	int cc_orientation;
+	int typec_mode;
+};
+
+/* Power Supply */
+struct mt_charger {
+	struct device *dev;
+	struct power_supply_desc chg_desc;
+	struct power_supply_config chg_cfg;
+	struct power_supply *chg_psy;
+	struct power_supply_desc ac_desc;
+	struct power_supply_config ac_cfg;
+	struct power_supply *ac_psy;
+	struct power_supply_desc usb_desc;
+	struct power_supply_config usb_cfg;
+	struct power_supply *usb_psy;
+	struct power_supply_desc main_desc;
+	struct power_supply_config main_cfg;
+	struct power_supply *main_psy;
+	struct power_supply *parallel_psy;
+	struct chg_type_info *cti;
+	bool chg_online; /* Has charger in or not */
+	enum charger_type chg_type;
+	enum hvdcp_status	hvdcp_type;
+  enum power_supply_type real_charger_type;
+	struct charger_device *chg1_dev;
 };
 
 /* charger related module interface */
@@ -378,6 +529,11 @@ extern int pmic_is_bif_exist(void);
 extern int pmic_enable_hw_vbus_ovp(bool enable);
 extern bool pmic_is_battery_exist(void);
 
+
+extern void notify_adapter_event(enum adapter_type type, enum adapter_event evt,
+	void *val);
+
+
 /* FIXME */
 enum usb_state_enum {
 	USB_SUSPEND = 0,
@@ -387,7 +543,8 @@ enum usb_state_enum {
 
 bool __attribute__((weak)) is_usb_rdy(void)
 {
-	return true;
+	pr_info("%s is not defined\n", __func__);
+	return false;
 }
 
 /* procfs */

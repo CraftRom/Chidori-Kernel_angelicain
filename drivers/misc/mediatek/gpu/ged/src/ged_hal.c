@@ -41,7 +41,6 @@ static struct dentry* gpsCustomBoostGPUFreqEntry = NULL;
 static struct dentry* gpsCustomUpboundGPUFreqEntry = NULL;
 static struct dentry* gpsVsyncOffsetLevelEntry = NULL;
 static struct dentry* gpsVsyncOffsetEnableEntry = NULL;
-static struct dentry *gpsGPUInfoEntry;
 static struct dentry* gpsDvfsTuningModeEntry = NULL;
 static struct dentry* gpsDvfsCurFreqEntry = NULL;
 static struct dentry* gpsDvfsPreFreqEntry = NULL;
@@ -49,6 +48,7 @@ static struct dentry* gpsDvfsGpuUtilizationEntry = NULL;
 static struct dentry* gpsFpsUpperBoundEntry = NULL;
 static struct dentry* gpsIntegrationReportReadEntry = NULL;
 static struct dentry *gpsBoostLevelEntry;
+static struct dentry *gpsOppCostsEntry;
 
 #ifdef GED_FDVFS_ENABLE
 static struct dentry *gpsGpuFreqHintEntry;
@@ -58,6 +58,9 @@ static struct dentry *gpsDvfsMarginValueEntry;
 #endif
 #ifdef GED_CONFIGURE_LOADING_BASE_DVFS_STEP
 static struct dentry *gpsLoadingBaseDvfsStepEntry;
+#endif
+#ifdef GED_ENABLE_TIMER_BASED_DVFS_MARGIN
+static struct dentry *gpsTimerBaseDvfsMarginEntry;
 #endif
 
 int tokenizer(char* pcSrc, int i32len, int* pi32IndexArray, int i32NumToken)
@@ -367,7 +370,7 @@ static ssize_t ged_vsync_offset_enable_write_entry(const char __user *pszBuffer,
 	int aint32Indx[NUM_TOKEN];
 	char *pcCMD;
 	char *pcValue;
-	int value;
+	int value = 0;
 	int i;
 
 	if (uiCount >= GED_HAL_DEBUGFS_SIZE)
@@ -375,6 +378,9 @@ static ssize_t ged_vsync_offset_enable_write_entry(const char __user *pszBuffer,
 
 	if (ged_copy_from_user(acBuffer, pszBuffer, uiCount))
 		goto normal_exit;
+
+	for (i = 0; i < NUM_TOKEN; i++)
+		aint32Indx[i] = 0;
 
 	acBuffer[uiCount] = '\0';
 	i = tokenizer(acBuffer, uiCount, aint32Indx, NUM_TOKEN);
@@ -416,7 +422,14 @@ static ssize_t ged_vsync_offset_enable_write_entry(const char __user *pszBuffer,
 	else if (strcmp(pcCMD, "low_latency_mode") == 0)
 		ged_dvfs_vsync_offset_event_switch
 		(GED_DVFS_VSYNC_OFFSET_LOW_LATENCY_MODE_EVENT, !!value);
-	else
+	else if (strcmp(pcCMD, "video-merge-md") == 0) {
+		if (value == 1)
+			ged_dvfs_vsync_offset_event_switch
+			(GED_DVFS_VSYNC_OFFSET_FORCE_OFF, true);
+		else if (value == 0)
+			ged_dvfs_vsync_offset_event_switch
+			(GED_DVFS_VSYNC_OFFSET_DEBUG_CLEAR_EVENT, true);
+	} else
 		GED_LOGE("unknown command:%s %c", pcCMD, *pcValue);
 
 normal_exit:
@@ -475,8 +488,8 @@ static int ged_vsync_offset_enable_seq_show(struct seq_file *psSeqFile, void *pv
 			seq_printf(psSeqFile, "Low power mode: %d\n", g_ui32EventStatus & GED_EVENT_LOW_POWER_MODE ? 1 : 0);
 			seq_printf(psSeqFile, "MHL4K Video: %d\n", g_ui32EventStatus & GED_EVENT_MHL4K_VID ? 1 : 0);
 			seq_printf(psSeqFile, "LCD: %d\n", g_ui32EventStatus & GED_EVENT_LCD ? 1 : 0);
-			seq_printf(psSeqFile, "Low latency mode: %d\n",
-			g_ui32EventStatus&GED_EVENT_LOW_LATENCY_MODE ? 1 : 0);
+			seq_printf(psSeqFile, "dHWC: %d\n",
+				g_ui32EventStatus & GED_EVENT_DHWC ? 1 : 0);
 		}
 	}
 
@@ -521,6 +534,9 @@ static ssize_t ged_vsync_offset_level_write_entry(
 
 	if (ged_copy_from_user(acBuffer, pszBuffer, uiCount))
 		return 0;
+
+	for (i = 0; i < NUM_TOKEN; i++)
+		aint32Indx[i] = 0;
 
 	acBuffer[uiCount] = '\n';
 	acBuffer[uiCount+1] = 0;
@@ -643,54 +659,6 @@ void ged_get_gpu_info(struct seq_file *psSeqFile, int i32Mode)
 	}
 }
 
-static ssize_t ged_gpu_info_write_entry(
-		const char __user *pszBuffer,
-		size_t uiCount,
-		loff_t uiPosition,
-		void *pvData)
-{
-#define GED_HAL_DEBUGFS_SIZE 64
-#define NUM_TOKEN 2
-
-	/*
-	 *  This proc node accept only: [CMD] [NUM]
-	 *  for ex: "touch 1"
-	 *
-	 */
-
-	char acBuffer[GED_HAL_DEBUGFS_SIZE];
-	int aint32Indx[NUM_TOKEN];
-	char *pcCMD;
-	char *pcValue;
-	int value;
-	int i;
-
-	if (uiCount >= GED_HAL_DEBUGFS_SIZE)
-		goto normal_exit;
-
-	if (ged_copy_from_user(acBuffer, pszBuffer, uiCount))
-		goto normal_exit;
-
-	acBuffer[uiCount] = '\0';
-	i = tokenizer(acBuffer, uiCount, aint32Indx, NUM_TOKEN);
-	if (i != NUM_TOKEN)
-		goto normal_exit;
-
-	pcCMD = acBuffer + aint32Indx[0];
-	pcValue = acBuffer + aint32Indx[1];
-
-	i = kstrtoint(pcValue, 0, &value);
-
-	if (strcmp(pcCMD, "query") == 0)
-		ged_get_gpu_info(NULL, value);
-	else
-		GED_LOGE("unknown command:%s %c", pcCMD, *pcValue);
-
-normal_exit:
-	return uiCount;
-}
-
-
 //-----------------------------------------------------------------------------
 
 static void *ged_gpu_info_seq_start(struct seq_file *psSeqFile,
@@ -741,11 +709,14 @@ size_t uiCount, loff_t uiPosition, void *pvData)
 		if (ged_copy_from_user(acBuffer, pszBuffer, uiCount) == 0) {
 			GED_DVFS_TUNING_MODE eTuningMode;
 			acBuffer[uiCount] = '\0';
-			if (kstrtoint(acBuffer, 0, (int *)&eTuningMode) == 0) {
-				if (eTuningMode >= GED_DVFS_DEFAULT &&
-				eTuningMode <= GED_DVFS_PERFORMANCE)
+			if (sscanf(acBuffer, "%u", &eTuningMode) == 1)
+			{
+				if( GED_DVFS_DEFAULT<=eTuningMode && eTuningMode<=GED_DVFS_PERFORMANCE)
 					ged_dvfs_set_tuning_mode(eTuningMode);
 			}
+			//else if (...) //for other commands
+			//{
+			//}
 		}
 	}
 
@@ -775,7 +746,8 @@ static void* ged_dvfs_tuning_mode_seq_next(struct seq_file *psSeqFile, void *pvD
 
 static int ged_dvfs_tuning_mode_seq_show(struct seq_file *psSeqFile, void *pvData)
 {
-	if (pvData != NULL) {
+	if (pvData != NULL)
+	{
 		GED_DVFS_TUNING_MODE eTuningMode;
 		eTuningMode = ged_dvfs_get_tuning_mode();
 		seq_printf(psSeqFile, "%u\n",eTuningMode);      
@@ -795,8 +767,10 @@ static struct seq_operations gsDvfs_tuning_mode_ReadOps =
 
 static void* ged_dvfs_cur_freq_seq_start(struct seq_file *psSeqFile, loff_t *puiPosition)
 {
-	if (*puiPosition == 0)
+	if (0 == *puiPosition)
+	{
 		return SEQ_START_TOKEN;
+	}
 
 	return NULL;
 }
@@ -814,7 +788,8 @@ static void* ged_dvfs_cur_freq_seq_next(struct seq_file *psSeqFile, void *pvData
 
 static int ged_dvfs_cur_freq_seq_show(struct seq_file *psSeqFile, void *pvData)
 {
-	if (pvData != NULL) {
+	if (pvData != NULL)
+	{
 		GED_DVFS_FREQ_DATA sFreqInfo;
 		ged_dvfs_get_gpu_cur_freq(&sFreqInfo);
 		seq_printf(psSeqFile, "%u %lu\n", sFreqInfo.ui32Idx, sFreqInfo.ulFreq);
@@ -836,8 +811,10 @@ static struct seq_operations gsDvfs_cur_freq_ReadOps =
 
 static void* ged_dvfs_pre_freq_seq_start(struct seq_file *psSeqFile, loff_t *puiPosition)
 {
-	if (*puiPosition == 0)
+	if (0 == *puiPosition)
+	{
 		return SEQ_START_TOKEN;
+	}
 
 	return NULL;
 }
@@ -855,7 +832,8 @@ static void* ged_dvfs_pre_freq_seq_next(struct seq_file *psSeqFile, void *pvData
 
 static int ged_dvfs_pre_freq_seq_show(struct seq_file *psSeqFile, void *pvData)
 {
-	if (pvData != NULL) {
+	if (pvData != NULL)
+	{
 		GED_DVFS_FREQ_DATA sFreqInfo;
 		ged_dvfs_get_gpu_pre_freq(&sFreqInfo);
 		seq_printf(psSeqFile, "%u %lu\n", sFreqInfo.ui32Idx, sFreqInfo.ulFreq);
@@ -877,8 +855,10 @@ static struct seq_operations gsDvfs_pre_freq_ReadOps =
 
 static void* ged_dvfs_gpu_util_seq_start(struct seq_file *psSeqFile, loff_t *puiPosition)
 {
-	if (*puiPosition == 0)
+	if (0 == *puiPosition)
+	{
 		return SEQ_START_TOKEN;
+	}
 
 	return NULL;
 }
@@ -896,7 +876,8 @@ static void* ged_dvfs_gpu_util_seq_next(struct seq_file *psSeqFile, void *pvData
 
 static int ged_dvfs_gpu_util_seq_show(struct seq_file *psSeqFile, void *pvData)
 {
-	if (pvData != NULL) {
+	if (pvData != NULL)
+	{
 		unsigned int loading;
 		unsigned int block;
 		unsigned int idle;
@@ -962,7 +943,8 @@ static ssize_t ged_fps_ub_write(const char __user *pszBuffer, size_t uiCount,
 {
 	char str_num[MAX_FPS_DIGITS + 1];
 
-	if (ged_copy_from_user(str_num, pszBuffer, MAX_FPS_DIGITS) == 0) {
+	if (0 == ged_copy_from_user(str_num, pszBuffer, MAX_FPS_DIGITS))
+	{
 		str_num[MAX_FPS_DIGITS] = 0;
 		_fps_upper_bound = simple_strtol(str_num, NULL, 10);
 		ged_dvfs_probe_signal(GED_FPS_CHANGE_SIGNAL_EVENT);
@@ -1063,7 +1045,8 @@ extern bool ged_gpu_power_on_notified;
 extern bool ged_gpu_power_off_notified;
 static int ged_dvfs_integration_report_seq_show(struct seq_file *psSeqFile, void *pvData)
 {
-	if (pvData != NULL) {
+	if (pvData != NULL)
+	{
 		seq_printf(psSeqFile, "GPU Utilization fp: %p\n", ged_dvfs_cal_gpu_utilization_fp);
 		seq_printf(psSeqFile, "GPU DVFS idx commit fp: %p\n", ged_dvfs_gpu_freq_commit_fp);
 		seq_printf(psSeqFile, "GPU clock notify on: %d\n", ged_gpu_power_on_notified);
@@ -1137,9 +1120,8 @@ static const struct seq_operations gsKpi_info_ReadOps = {
 	.show = ged_kpi_info_seq_show,
 };
 #endif
-
-#if (defined(GED_ENABLE_FB_DVFS) && defined(GED_ENABLE_DYNAMIC_DVFS_MARGIN))
 /* ------------------------------------------------------------------------- */
+#if (defined(GED_ENABLE_FB_DVFS) && defined(GED_ENABLE_DYNAMIC_DVFS_MARGIN))
 static ssize_t ged_dvfs_margin_value_write_entry
 (const char __user *pszBuffer, size_t uiCount, loff_t uiPosition, void *pvData)
 {
@@ -1279,6 +1261,151 @@ const struct seq_operations gsLoadingBaseDvfsStepReadOps = {
 };
 #endif
 
+#ifdef GED_ENABLE_TIMER_BASED_DVFS_MARGIN
+/* ------------------------------------------------------------------------- */
+static ssize_t ged_timer_base_dvfs_margin_write_entry
+(const char __user *pszBuffer, size_t uiCount, loff_t uiPosition, void *pvData)
+{
+#define GED_HAL_DEBUGFS_SIZE 64
+	char acBuffer[GED_HAL_DEBUGFS_SIZE];
+
+	int i32Value;
+
+	if ((uiCount > 0) && (uiCount < GED_HAL_DEBUGFS_SIZE)) {
+		if (ged_copy_from_user(acBuffer, pszBuffer, uiCount) == 0) {
+			acBuffer[uiCount] = '\0';
+			if (kstrtoint(acBuffer, 0, &i32Value) == 0)
+				mtk_timer_base_dvfs_margin(i32Value);
+		}
+	}
+
+	return uiCount;
+}
+//-------------------------------------------------------------------
+static void *ged_timer_base_dvfs_margin_seq_start(struct seq_file *psSeqFile,
+			loff_t *puiPosition)
+{
+	if (*puiPosition == 0)
+		return SEQ_START_TOKEN;
+
+	return NULL;
+}
+//-------------------------------------------------------------------
+static void ged_timer_base_dvfs_margin_seq_stop(struct seq_file *psSeqFile,
+			void *pvData)
+{
+
+}
+//-------------------------------------------------------------------
+static void *ged_timer_base_dvfs_margin_seq_next(struct seq_file *psSeqFile,
+			void *pvData, loff_t *puiPosition)
+{
+	return NULL;
+}
+//-------------------------------------------------------------------
+static int ged_timer_base_dvfs_margin_seq_show(struct seq_file *psSeqFile,
+			void *pvData)
+{
+	if (pvData != NULL) {
+		int i32DvfsMarginValue;
+
+	if (false == mtk_get_timer_base_dvfs_margin(&i32DvfsMarginValue)) {
+		i32DvfsMarginValue = 0;
+		seq_puts(psSeqFile,
+			"call mtk_get_timer_base_dvfs_margin false\n");
+	}
+
+	seq_printf(psSeqFile, "%d\n", i32DvfsMarginValue);
+	}
+
+	return 0;
+}
+/* --------------------------------------------------------------- */
+const struct seq_operations gsTimerBaseDvfsMarginReadOps = {
+	.start = ged_timer_base_dvfs_margin_seq_start,
+	.stop = ged_timer_base_dvfs_margin_seq_stop,
+	.next = ged_timer_base_dvfs_margin_seq_next,
+	.show = ged_timer_base_dvfs_margin_seq_show,
+};
+#endif
+
+
+/* -------------------------------------------------------------------------- */
+uint64_t reset_base_us;
+static ssize_t ged_dvfs_opp_cost_write_entry
+(const char __user *pszBuffer, size_t uiCount, loff_t uiPosition, void *pvData)
+{
+#define GED_HAL_DEBUGFS_SIZE 64
+	char acBuffer[GED_HAL_DEBUGFS_SIZE];
+
+	int i32Value;
+
+	if ((uiCount > 0) && (uiCount < GED_HAL_DEBUGFS_SIZE)) {
+		if (ged_copy_from_user(acBuffer, pszBuffer, uiCount) == 0) {
+			acBuffer[uiCount] = '\0';
+			if (kstrtoint(acBuffer, 0, &i32Value) == 0) {
+				ged_dvfs_reset_opp_cost(i32Value);
+				reset_base_us = ged_get_time();
+				reset_base_us = reset_base_us >> 10;
+			}
+		}
+	}
+
+	return uiCount;
+}
+//-------------------------------------------------------------------
+static void *ged_dvfs_opp_cost_seq_start(struct seq_file *psSeqFile,
+			loff_t *puiPosition)
+{
+	if (*puiPosition == 0)
+		return SEQ_START_TOKEN;
+
+	return NULL;
+}
+//-------------------------------------------------------------------
+static void ged_dvfs_opp_cost_seq_stop(struct seq_file *psSeqFile,
+			void *pvData)
+{
+
+}
+//-------------------------------------------------------------------
+static void *ged_dvfs_opp_cost_seq_next(struct seq_file *psSeqFile,
+			void *pvData, loff_t *puiPosition)
+{
+	return NULL;
+}
+//-------------------------------------------------------------------
+static int ged_dvfs_opp_cost_seq_show(struct seq_file *psSeqFile,
+			void *pvData)
+{
+	if (pvData != NULL) {
+		int i;
+		unsigned int ui32FqCount;
+		uint64_t curTS_us;
+		uint64_t *report;
+
+		curTS_us = ged_get_time();
+		curTS_us = curTS_us >> 10;
+		report = ged_dvfs_query_opp_cost(reset_base_us, curTS_us);
+		mtk_custom_get_gpu_freq_level_count(&ui32FqCount);
+		if (report) {
+			for (i = 0; i < ui32FqCount; i++)
+				seq_printf(psSeqFile, "%llu, ", report[i]);
+			seq_printf(psSeqFile, "| %llu\n", report[ui32FqCount]);
+		}
+	}
+
+	return 0;
+}
+/* --------------------------------------------------------------- */
+const struct seq_operations gsDvfsOppCostsReadOps = {
+	.start = ged_dvfs_opp_cost_seq_start,
+	.stop = ged_dvfs_opp_cost_seq_stop,
+	.next = ged_dvfs_opp_cost_seq_next,
+	.show = ged_dvfs_opp_cost_seq_show,
+};
+
+
 static struct notifier_block ged_fb_notifier;
 
 static int ged_fb_notifier_callback(struct notifier_block *self, unsigned long event, void *data)
@@ -1397,7 +1524,8 @@ GED_ERROR ged_hal_init(void)
 			NULL,
 			&gpsHALDir);
 
-	if (unlikely(err != GED_OK)) {
+	if (unlikely(err != GED_OK))
+	{
 		err = GED_ERROR_FAIL;
 		GED_LOGE("ged: failed to create hal dir!\n");
 		goto ERROR;
@@ -1412,7 +1540,8 @@ GED_ERROR ged_hal_init(void)
 			NULL,
 			&gpsTotalGPUFreqLevelCountEntry);
 
-	if (unlikely(err != GED_OK)) {
+	if (unlikely(err != GED_OK))
+	{
 		GED_LOGE("ged: failed to create total_gpu_freq_level_count entry!\n");
 		goto ERROR;
 	}
@@ -1426,7 +1555,8 @@ GED_ERROR ged_hal_init(void)
 			NULL,
 			&gpsCustomBoostGPUFreqEntry);
 
-	if (unlikely(err != GED_OK)) {
+	if (unlikely(err != GED_OK))
+	{
 		GED_LOGE("ged: failed to create custom_boost_gpu_freq entry!\n");
 		goto ERROR;
 	}
@@ -1473,20 +1603,6 @@ GED_ERROR ged_hal_init(void)
 			ged_vsync_offset_level_write_entry,
 			NULL,
 			&gpsVsyncOffsetLevelEntry);
-
-	/* Game SDK */
-	err = ged_debugFS_create_entry(
-			"gpu_info",
-			gpsHALDir,
-			&gsGPUInfoReadOps,
-			ged_gpu_info_write_entry,
-			NULL,
-			&gpsGPUInfoEntry);
-
-	if (unlikely(err != GED_OK)) {
-		GED_LOGE("ged: failed to create gpu_info entry!\n");
-		goto ERROR;
-	}
 
 	/* Control the dvfs policy threshold level */
 
@@ -1549,7 +1665,8 @@ GED_ERROR ged_hal_init(void)
 			&gpsBoostLevelEntry
 			);
 
-	if (unlikely(err != GED_OK)) {
+	if (unlikely(err != GED_OK))
+	{
 		GED_LOGE("ged: failed to create vsync_offset_level entry!\n");
 		goto ERROR;
 	}
@@ -1613,6 +1730,36 @@ GED_ERROR ged_hal_init(void)
 	}
 #endif
 
+#ifdef GED_ENABLE_TIMER_BASED_DVFS_MARGIN
+			/* Control the timer base gpu freq margin */
+	err = ged_debugFS_create_entry(
+			"timer_base_dvfs_margin",
+			gpsHALDir,
+			&gsTimerBaseDvfsMarginReadOps,
+			ged_timer_base_dvfs_margin_write_entry,
+			NULL,
+			&gpsTimerBaseDvfsMarginEntry);
+
+	if (unlikely(err != GED_OK)) {
+		GED_LOGE("ged: failed to create tb dvfs_margin entry!\n");
+		goto ERROR;
+	}
+#endif
+	/* Report Opp Cost */
+	err = ged_debugFS_create_entry(
+			"opp_logs",
+			gpsHALDir,
+			&gsDvfsOppCostsReadOps,
+			ged_dvfs_opp_cost_write_entry,
+			NULL,
+			&gpsOppCostsEntry);
+
+	if (unlikely(err != GED_OK)) {
+		GED_LOGE(
+		"ged: failed to create opp_logs entry!\n");
+		goto ERROR;
+	}
+
 	/* Report Integration Status */
 	err = ged_debugFS_create_entry(
 			"integration_report",
@@ -1626,7 +1773,8 @@ GED_ERROR ged_hal_init(void)
 	if (fb_register_client(&ged_fb_notifier))
 		GED_LOGE("register fb_notifier fail!\n");
 
-	if (unlikely(err != GED_OK)) {
+	if (unlikely(err != GED_OK))
+	{
 		GED_LOGE("ged: failed to create integration_report entry!\n");
 		goto ERROR;
 	}
@@ -1662,6 +1810,9 @@ void ged_hal_exit(void)
 #endif
 #ifdef GED_CONFIGURE_LOADING_BASE_DVFS_STEP
 	ged_debugFS_remove_entry(gpsLoadingBaseDvfsStepEntry);
+#endif
+#ifdef GED_ENABLE_TIMER_BASED_DVFS_MARGIN
+	ged_debugFS_remove_entry(gpsTimerBaseDvfsMarginEntry);
 #endif
 }
 //-----------------------------------------------------------------------------

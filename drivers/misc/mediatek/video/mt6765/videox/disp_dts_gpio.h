@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 MediaTek Inc.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -32,6 +33,16 @@ enum DTS_GPIO_STATE {
 	DTS_GPIO_STATE_LCM1_RST_OUT1,
 	DTS_GPIO_STATE_LCD_BIAS_ENN,
 	DTS_GPIO_STATE_LCD_BIAS_ENP,
+	DTS_GPIO_STATE_LCD_BIAS_ENP0,
+	DTS_GPIO_STATE_LCD_BIAS_ENP1,
+	DTS_GPIO_STATE_LCD_BIAS_ENN0,
+	DTS_GPIO_STATE_LCD_BIAS_ENN1,
+	DTS_GPIO_STATE_LCD_BL_OUT0,
+	DTS_GPIO_STATE_LCD_BL_OUT1,
+	DTS_GPIO_STATE_LCD_LDO18_OUT0,
+	DTS_GPIO_STATE_LCD_LDO18_OUT1,
+	DTS_GPIO_STATE_TP_RST_OUT0,
+	DTS_GPIO_STATE_TP_RST_OUT1,
 	DTS_GPIO_STATE_MAX,	/* for array size */
 };
 

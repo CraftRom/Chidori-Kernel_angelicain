@@ -39,9 +39,9 @@ enum {
 
 /* stune down thres */
 enum {
-	EAS_DOWN_THRES_KIR_PERF = 0,
-	EAS_DOWN_THRES_KIR_FPSGO,
-	EAS_DOWN_THRES_MAX_KIR
+	EAS_THRES_KIR_PERF = 0,
+	EAS_THRES_KIR_FPSGO,
+	EAS_THRES_MAX_KIR
 };
 
 enum {
@@ -56,7 +56,9 @@ extern int uclamp_min_for_perf_idx(int group_idx, int min_value);
 /* perfmgr */
 extern int update_eas_boost_value(int kicker, int cgroup_idx, int value);
 extern int update_eas_uclamp_min(int kicker, int cgroup_idx, int value);
+#if defined(CONFIG_CPU_FREQ_GOV_SCHEDPLUS)
 extern int update_schedplus_down_throttle_ns(int kicker, int nsec);
 extern int update_schedplus_sync_flag(int kicker, int enable);
+#endif
 
 #endif /* _EAS_CTRL_H */

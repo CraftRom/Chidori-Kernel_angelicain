@@ -86,7 +86,6 @@ struct imgsensor_struct {
 	kal_uint8 ihdr_mode; /* ihdr enable or disable */
 	kal_uint8 pdaf_mode; /* ihdr enable or disable */
 	kal_uint8 i2c_write_id; /* record current sensor's i2c write id */
-	kal_uint8 AE_binning_type;
 };
 
 /* SENSOR PRIVATE STRUCT FOR CONSTANT*/
@@ -116,7 +115,6 @@ struct imgsensor_info_struct {
 	kal_uint8 slim_video_delay_frame; /* enter slim video delay frame num */
 	kal_uint8 custom1_delay_frame; /* enter custom1 delay frame num */
 	kal_uint8 custom2_delay_frame; /* enter custom2 delay frame num */
-	kal_uint8  frame_time_delay_frame;
 	kal_uint8 margin; /* sensor framelength & shutter margin */
 	kal_uint32 min_shutter; /* min shutter */
 	kal_uint32 max_frame_length;

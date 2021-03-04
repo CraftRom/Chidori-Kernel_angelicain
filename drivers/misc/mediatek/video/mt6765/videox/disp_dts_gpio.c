@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2015 MediaTek Inc.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -29,8 +30,18 @@ static const char *this_state_name[DTS_GPIO_STATE_MAX] = {
 	"lcm_rst_out1_gpio",
 	"lcm1_rst_out0_gpio",
 	"lcm1_rst_out1_gpio",
+	"lcd_bias_enn_gpio",
+	"lcd_bias_enp_gpio",
 	"lcd_bias_enp0_gpio",
-	"lcd_bias_enp1_gpio"
+	"lcd_bias_enp1_gpio",
+	"lcd_bias_enn0_gpio",
+	"lcd_bias_enn1_gpio",
+	"lcd_bl_out0_gpio",
+	"lcd_bl_out1_gpio",
+	"lcd_ldo18_out0_gpio",
+	"lcd_ldo18_out1_gpio",
+	"tp_rst_out0_gpio",
+	"tp_rst_out1_gpio"
 };
 
 /* pinctrl implementation */

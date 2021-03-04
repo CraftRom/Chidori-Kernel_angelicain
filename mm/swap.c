@@ -2,7 +2,6 @@
  *  linux/mm/swap.c
  *
  *  Copyright (C) 1991, 1992, 1993, 1994  Linus Torvalds
- *  Copyright (C) 2019 XiaoMi, Inc.
  */
 
 /*
@@ -70,6 +69,7 @@ static void __page_cache_release(struct page *page)
 		del_page_from_lru_list(page, lruvec, page_off_lru(page));
 		spin_unlock_irqrestore(zone_lru_lock(zone), flags);
 	}
+	__ClearPageWaiters(page);
 	mem_cgroup_uncharge(page);
 }
 
@@ -468,12 +468,12 @@ void add_page_to_unevictable_list(struct page *page)
  * directly back onto it's zone's unevictable list, it does NOT use a
  * per cpu pagevec.
  */
-void __lru_cache_add_active_or_unevictable(struct page *page,
-					 unsigned long vma_flags)
+void lru_cache_add_active_or_unevictable(struct page *page,
+					 struct vm_area_struct *vma)
 {
 	VM_BUG_ON_PAGE(PageLRU(page), page);
 
-	if (likely((vma_flags & (VM_LOCKED | VM_SPECIAL)) != VM_LOCKED)) {
+	if (likely((vma->vm_flags & (VM_LOCKED | VM_SPECIAL)) != VM_LOCKED)) {
 		SetPageActive(page);
 		lru_cache_add(page);
 		return;
@@ -785,6 +785,7 @@ void release_pages(struct page **pages, int nr, bool cold)
 
 		/* Clear Active bit in case of parallel mark_page_accessed */
 		__ClearPageActive(page);
+		__ClearPageWaiters(page);
 
 		list_add(&page->lru, &pages_to_free);
 	}
@@ -955,15 +956,25 @@ unsigned pagevec_lookup(struct pagevec *pvec, struct address_space *mapping,
 }
 EXPORT_SYMBOL(pagevec_lookup);
 
-unsigned pagevec_lookup_tag(struct pagevec *pvec, struct address_space *mapping,
-		pgoff_t *index, int tag, unsigned nr_pages)
+unsigned pagevec_lookup_range_tag(struct pagevec *pvec,
+		struct address_space *mapping, pgoff_t *index, pgoff_t end,
+		int tag)
 {
-	pvec->nr = find_get_pages_tag(mapping, index, tag,
-					nr_pages, pvec->pages);
+	pvec->nr = find_get_pages_range_tag(mapping, index, end, tag,
+					PAGEVEC_SIZE, pvec->pages);
 	return pagevec_count(pvec);
 }
-EXPORT_SYMBOL(pagevec_lookup_tag);
+EXPORT_SYMBOL(pagevec_lookup_range_tag);
 
+unsigned pagevec_lookup_range_nr_tag(struct pagevec *pvec,
+		struct address_space *mapping, pgoff_t *index, pgoff_t end,
+		int tag, unsigned max_pages)
+{
+	pvec->nr = find_get_pages_range_tag(mapping, index, end, tag,
+		min_t(unsigned int, max_pages, PAGEVEC_SIZE), pvec->pages);
+	return pagevec_count(pvec);
+}
+EXPORT_SYMBOL(pagevec_lookup_range_nr_tag);
 /*
  * Perform any setup for the swap system
  */

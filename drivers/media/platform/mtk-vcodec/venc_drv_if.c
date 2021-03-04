@@ -47,6 +47,7 @@ int venc_if_init(struct mtk_vcodec_ctx *ctx, unsigned int fourcc)
 	switch (fourcc) {
 	case V4L2_PIX_FMT_H264:
 	case V4L2_PIX_FMT_H265:
+	case V4L2_PIX_FMT_HEIF:
 	case V4L2_PIX_FMT_MPEG4:
 	case V4L2_PIX_FMT_H263:
 		ctx->enc_if = get_enc_common_if();
@@ -117,6 +118,9 @@ int venc_if_set_param(struct mtk_vcodec_ctx *ctx,
 {
 	int ret = 0;
 
+	if (ctx->drv_handle == 0)
+		return -EIO;
+
 	if (ctx->oal_vcodec == 0) {
 		mtk_venc_lock(ctx);
 		mtk_vcodec_enc_clock_on(&ctx->dev->pm);
@@ -135,11 +139,12 @@ void venc_encode_prepare(void *ctx_prepare, unsigned long *flags)
 
 	mtk_venc_pmqos_prelock(ctx);
 	mtk_venc_lock(ctx);
-	mtk_venc_pmqos_begin_frame(ctx);
 	spin_lock_irqsave(&ctx->dev->irqlock, *flags);
 	ctx->dev->curr_ctx = ctx;
 	spin_unlock_irqrestore(&ctx->dev->irqlock, *flags);
 	mtk_vcodec_enc_clock_on(&ctx->dev->pm);
+	enable_irq(ctx->dev->enc_irq);
+	mtk_venc_pmqos_begin_frame(ctx);
 }
 EXPORT_SYMBOL_GPL(venc_encode_prepare);
 
@@ -147,11 +152,12 @@ void venc_encode_unprepare(void *ctx_unprepare, unsigned long *flags)
 {
 	struct mtk_vcodec_ctx *ctx = (struct mtk_vcodec_ctx *)ctx_unprepare;
 
+	mtk_venc_pmqos_end_frame(ctx);
+	disable_irq(ctx->dev->enc_irq);
 	mtk_vcodec_enc_clock_off(&ctx->dev->pm);
 	spin_lock_irqsave(&ctx->dev->irqlock, *flags);
 	ctx->dev->curr_ctx = NULL;
 	spin_unlock_irqrestore(&ctx->dev->irqlock, *flags);
-	mtk_venc_pmqos_end_frame(ctx);
 	mtk_venc_unlock(ctx);
 }
 EXPORT_SYMBOL_GPL(venc_encode_unprepare);
@@ -163,6 +169,9 @@ int venc_if_encode(struct mtk_vcodec_ctx *ctx,
 {
 	int ret = 0;
 	unsigned long flags;
+
+	if (ctx->drv_handle == 0)
+		return -EIO;
 
 	if (ctx->oal_vcodec == 0 && ctx->slowmotion == 0)
 		venc_encode_prepare(ctx, &flags);
@@ -179,20 +188,19 @@ int venc_if_encode(struct mtk_vcodec_ctx *ctx,
 int venc_if_deinit(struct mtk_vcodec_ctx *ctx)
 {
 	int ret = 0;
+	unsigned long flags;
 
 	if (ctx->drv_handle == 0)
-		return 0;
+		return -EIO;
 
-	if (ctx->oal_vcodec == 0) {
-		mtk_venc_lock(ctx);
-		mtk_vcodec_enc_clock_on(&ctx->dev->pm);
-	}
+	if (ctx->oal_vcodec == 0 && ctx->slowmotion == 0)
+		venc_encode_prepare(ctx, &flags);
+
 	ret = ctx->enc_if->deinit(ctx->drv_handle);
 
-	if (ctx->oal_vcodec == 0) {
-		mtk_vcodec_enc_clock_off(&ctx->dev->pm);
-		mtk_venc_unlock(ctx);
-	}
+	if (ctx->oal_vcodec == 0 && ctx->slowmotion == 0)
+		venc_encode_unprepare(ctx, &flags);
+
 	ctx->drv_handle = 0;
 
 	return ret;

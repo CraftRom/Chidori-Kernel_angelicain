@@ -15,6 +15,7 @@
 
 #include <linux/init.h>
 #include <linux/linkage.h>
+#include <asm/asm-uaccess.h>
 #include <asm/uaccess.h>
 
 	.text
@@ -280,7 +281,6 @@ ENTRY(dis_D_inner_flush_all)
 	__inner_dcache_all #DCCISW
 ENDPROC(dis_D_inner_flush_all)
 
-
 /*
  *	__xxxx_dcache_user_range(start,size)
  *
@@ -319,7 +319,7 @@ ENTRY(__inval_dcache_user_area)
 	b.eq    2f
 	dc      civac, x0                       // clean & invalidate D / U line
 	b       3f
-2:      dc      ivac, x0                        // invalidate D / U line
+2:      dc      civac, x0                        // invalidate D / U line
 3:      add     x0, x0, x2
 	cmp     x0, x1
 	b.lo    2b
@@ -327,4 +327,3 @@ ENTRY(__inval_dcache_user_area)
 	uaccess_ttbr0_disable x1, x2
 	ret
 ENDPROC(__inval_dcache_user_area)
-

@@ -103,6 +103,13 @@ int mtk_scp_ipi_send(int task_scene, int data_type, int ack_type,
 		return send_result;
 	}
 
+	if (get_task_attr(get_dspdaiid_by_dspscene(task_scene),
+			  ADSP_TASK_ATTR_DEFAULT) == 0) {
+		pr_info("%s() task_scene[%d] not enable\n",
+			__func__, task_scene);
+		return send_result;
+	}
+
 	send_result = audio_send_ipi_msg(
 		&ipi_msg, task_scene,
 		AUDIO_IPI_LAYER_TO_DSP, data_type,
@@ -135,6 +142,10 @@ int get_dspscene_by_dspdaiid(int id)
 		return TASK_SCENE_A2DP;
 	case AUDIO_TASK_DATAPROVIDER_ID:
 		return TASK_SCENE_DATAPROVIDER;
+	case AUDIO_TASK_CALL_FINAL_ID:
+		return TASK_SCENE_CALL_FINAL;
+	case AUDIO_TASK_KTV_ID:
+		return TASK_SCENE_KTV;
 	default:
 		pr_warn("%s() err\n", __func__);
 		return -1;
@@ -161,8 +172,12 @@ int get_dspdaiid_by_dspscene(int dspscene)
 		return AUDIO_TASK_A2DP_ID;
 	case TASK_SCENE_DATAPROVIDER:
 		return AUDIO_TASK_DATAPROVIDER_ID;
+	case TASK_SCENE_CALL_FINAL:
+		return AUDIO_TASK_CALL_FINAL_ID;
+	case TASK_SCENE_KTV:
+		return AUDIO_TASK_KTV_ID;
 	default:
-		pr_warn("%s() err\n", __func__);
+		pr_info("%s() dspscene[%d] err\n", __func__, dspscene);
 		return -1;
 	}
 	return 0;
@@ -209,6 +224,72 @@ int get_dsp_task_attr(int dsp_id, int task_attr)
 	return get_task_attr(dsp_id, task_attr);
 }
 
+
+static int set_aud_buf_attr(struct audio_hw_buffer *audio_hwbuf,
+			    struct snd_pcm_substream *substream,
+			    struct snd_pcm_hw_params *params,
+			    struct mtk_base_dsp_mem *dsp_memif,
+			    struct mtk_base_afe_memif *memif,
+			    struct snd_soc_dai *dai)
+{
+	int ret = 0;
+
+	ret = set_afe_audio_pcmbuf(&dsp_memif->audio_afepcm_buf,
+				   substream, params);
+	if (ret < 0) {
+		pr_info("set_afe_audio_pcmbuf fail\n");
+		return -1;
+	}
+	ret = set_audiobuffer_hw(&dsp_memif->audio_afepcm_buf,
+				 BUFFER_TYPE_HW_MEM);
+	if (ret < 0) {
+		pr_info("set_audiobuffer_hw fail\n");
+		return -1;
+	}
+
+	ret = set_audiobuffer_audio_irq_num(
+		&dsp_memif->audio_afepcm_buf,
+		memif->irq_usage);
+	if (ret < 0) {
+		pr_info("set_audiobuffer_audio_irq_num fail\n");
+		return -1;
+	}
+
+	ret = set_audiobuffer_audio_memiftype(
+		&dsp_memif->audio_afepcm_buf, dai->id);
+	if (ret < 0) {
+		pr_info("set_audiobuffer_audio_memiftype fail\n");
+		return -1;
+	}
+
+	ret = set_audiobuffer_memorytype(
+		&dsp_memif->audio_afepcm_buf,
+		get_audio_memery_type(substream));
+	if (ret < 0) {
+		pr_info("set_audiobuffer_memorytype fail\n");
+		return -1;
+	}
+
+	ret = set_audiobuffer_attribute(
+		&dsp_memif->audio_afepcm_buf,
+		substream, params,
+		afe_get_pcmdir(substream->stream,
+		dsp_memif->audio_afepcm_buf));
+	if (ret < 0) {
+		pr_info("set_audiobuffer_attribute fail\n");
+		return -1;
+	}
+
+	ret = set_audiobuffer_threshold(
+		&dsp_memif->audio_afepcm_buf, substream);
+	if (ret < 0) {
+		pr_info("set_audiobuffer_threshold fail\n");
+		return -1;
+	}
+	return 0;
+}
+
+
 /* function warp playback buffer information send to dsp */
 int afe_pcm_ipi_to_dsp(int command, struct snd_pcm_substream *substream,
 		       struct snd_pcm_hw_params *params,
@@ -239,37 +320,13 @@ int afe_pcm_ipi_to_dsp(int command, struct snd_pcm_substream *substream,
 	/* send msg by task , unsing common function*/
 	switch (command) {
 	case AUDIO_DSP_TASK_PCM_HWPARAM:
-		ret = set_afe_audio_pcmbuf(&dsp_memif->audio_afepcm_buf,
-					   substream, params);
-		if (ret < 0)
-			break;
-		ret = set_audiobuffer_hw(&dsp_memif->audio_afepcm_buf,
-					 BUFFER_TYPE_HW_MEM);
-		if (ret < 0)
-			break;
-		ret = set_audiobuffer_audio_irq_num(
-			&dsp_memif->audio_afepcm_buf,
-			memif->irq_usage);
-		if (ret < 0)
-			break;
-		ret = set_audiobuffer_audio_memiftype(
-			&dsp_memif->audio_afepcm_buf, dai->id);
-		if (ret < 0)
-			break;
-		ret = set_audiobuffer_memorytype(
-			&dsp_memif->audio_afepcm_buf,
-			get_audio_memery_type(substream));
-		if (ret < 0)
-			break;
-		ret = set_audiobuffer_attribute(
-			&dsp_memif->audio_afepcm_buf,
-			substream, params,
-			afe_get_pcmdir(substream->stream,
-			dsp_memif->audio_afepcm_buf));
-		if (ret < 0)
-			break;
+		set_aud_buf_attr(&dsp_memif->audio_afepcm_buf,
+				 substream,
+				 params,
+				 dsp_memif,
+				 memif,
+				 dai);
 
-		/* send audio_afepcm_buf to SCP side*/
 		ipi_audio_buf = (void *)
 				 dsp_memif->msg_atod_share_buf.va_addr;
 		memcpy((void *)ipi_audio_buf,
@@ -279,37 +336,26 @@ int afe_pcm_ipi_to_dsp(int command, struct snd_pcm_substream *substream,
 #ifdef DEBUG_VERBOSE
 		dump_audio_hwbuffer(ipi_audio_buf);
 #endif
-
 		/* send to task with hw_param information ,
 		 * buffer and pcm attribute
 		 */
 		ret = mtk_scp_ipi_send(get_dspscene_by_dspdaiid(task_id),
-				       AUDIO_IPI_PAYLOAD,
-				       AUDIO_IPI_MSG_NEED_ACK,
-				       AUDIO_DSP_TASK_PCM_HWPARAM,
-				       sizeof(unsigned int),
-				       (unsigned int)
-				       dsp_memif->msg_atod_share_buf.phy_addr,
-				       (char *)&dsp->dsp_mem[task_id].
-				       msg_atod_share_buf.phy_addr);
-		break;
-	case AUDIO_DSP_TASK_PCM_HWFREE:
-		pr_debug("%s AUDIO_DSP_TASK_PCM_HWFREE\n", __func__);
-		/* send to task with prepare status*/
-		ret = mtk_scp_ipi_send(get_dspscene_by_dspdaiid(task_id),
-				       AUDIO_IPI_MSG_ONLY,
-				       AUDIO_IPI_MSG_NEED_ACK,
-				       AUDIO_DSP_TASK_PCM_HWFREE,
-				       afe_get_pcmdir(substream->stream,
-				       dsp_memif->audio_afepcm_buf),
-				       0,
-				       NULL);
+				 AUDIO_IPI_PAYLOAD,
+				 AUDIO_IPI_MSG_NEED_ACK,
+				 AUDIO_DSP_TASK_PCM_HWPARAM,
+				 sizeof(unsigned int),
+				 (unsigned int)
+				 dsp_memif->msg_atod_share_buf.phy_addr,
+				 (char *)&dsp->dsp_mem[task_id].
+				 msg_atod_share_buf.phy_addr);
 		break;
 	case AUDIO_DSP_TASK_PCM_PREPARE:
-		ret = set_audiobuffer_threshold(
-			&dsp->dsp_mem[task_id].audio_afepcm_buf, substream);
-		if (ret < 0)
-			pr_warn("%s set_audiobuffer_attribute err\n", __func__);
+		set_aud_buf_attr(&dsp_memif->audio_afepcm_buf,
+				 substream,
+				 params,
+				 dsp_memif,
+				 memif,
+				 dai);
 
 		/* send audio_afepcm_buf to SCP side*/
 		ipi_audio_buf =
@@ -331,7 +377,24 @@ int afe_pcm_ipi_to_dsp(int command, struct snd_pcm_substream *substream,
 				       (unsigned int)
 				       dsp_memif->msg_atod_share_buf.phy_addr,
 				       (char *)&dsp->dsp_mem[task_id]
-					       .msg_atod_share_buf.phy_addr);
+				       .msg_atod_share_buf.phy_addr);
+		break;
+	case AUDIO_DSP_TASK_PCM_HWFREE:
+		set_aud_buf_attr(&dsp_memif->audio_afepcm_buf,
+				 substream,
+				 params,
+				 dsp_memif,
+				 memif,
+				 dai);
+		/* send to task with prepare status*/
+		ret = mtk_scp_ipi_send(get_dspscene_by_dspdaiid(task_id),
+				       AUDIO_IPI_MSG_ONLY,
+				       AUDIO_IPI_MSG_NEED_ACK,
+				       AUDIO_DSP_TASK_PCM_HWFREE,
+				       afe_get_pcmdir(substream->stream,
+				       dsp_memif->audio_afepcm_buf),
+				       0,
+				       NULL);
 		break;
 	default:
 		pr_warn("%s command = %d\n", __func__, command);

@@ -54,6 +54,7 @@
 #include <sdio_ops.h>
 
 #include "mtk_spm_resource_req.h"
+#include <mtk_sleep.h>
 
 #ifdef CONFIG_ARCH_MT6570
 #define CPU_BOOST y
@@ -121,6 +122,18 @@ void connectivity_export_tracing_record_cmdline(struct task_struct *tsk)
 }
 EXPORT_SYMBOL(connectivity_export_tracing_record_cmdline);
 
+unsigned int connectivity_export_slp_get_wake_reason(void)
+{
+	return slp_get_wake_reason();
+}
+EXPORT_SYMBOL(connectivity_export_slp_get_wake_reason);
+
+unsigned int connectivity_export_spm_get_last_wakeup_src(void)
+{
+	return spm_get_last_wakeup_src();
+}
+EXPORT_SYMBOL(connectivity_export_spm_get_last_wakeup_src);
+
 #ifdef CPU_BOOST
 bool connectivity_export_spm_resource_req(unsigned int user,
 					  unsigned int req_mask)
@@ -171,6 +184,34 @@ void connectivity_export_clk_buf_ctrl(enum clk_buf_id id, bool onoff)
 	clk_buf_ctrl(id, onoff);
 }
 EXPORT_SYMBOL(connectivity_export_clk_buf_ctrl);
+
+bool connectivity_export_is_clk_buf_from_pmic(void)
+{
+	return is_clk_buf_from_pmic();
+}
+EXPORT_SYMBOL(connectivity_export_is_clk_buf_from_pmic);
+
+void connectivity_export_clk_buf_show_status_info(void)
+{
+#if defined(CONFIG_MACH_MT6765) || \
+	defined(CONFIG_MACH_MT6761) || \
+	defined(CONFIG_MACH_MT6779)
+	clk_buf_show_status_info();
+#endif
+}
+EXPORT_SYMBOL(connectivity_export_clk_buf_show_status_info);
+
+int connectivity_export_clk_buf_get_xo_en_sta(/*enum xo_id id*/ int id)
+{
+#if defined(CONFIG_MACH_MT6765) || \
+	defined(CONFIG_MACH_MT6761) || \
+	defined(CONFIG_MACH_MT6779)
+	return clk_buf_get_xo_en_sta(id);
+#else
+	return KERNEL_CLK_BUF_CHIP_NOT_SUPPORT;
+#endif
+}
+EXPORT_SYMBOL(connectivity_export_clk_buf_get_xo_en_sta);
 #endif
 
 /*******************************************************************************

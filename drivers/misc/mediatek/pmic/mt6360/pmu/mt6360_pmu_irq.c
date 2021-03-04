@@ -85,7 +85,8 @@ static void mt6360_pmu_irq_bus_lock(struct irq_data *data)
 	/* mask all irq indicator mask */
 	ret = mt6360_pmu_reg_write(mpi, MT6360_PMU_IRQ_MASK, 0xff);
 	if (ret < 0)
-		dev_err(mpi->dev, "%s: fail to write irq ind_mask\n", __func__);
+		dev_notice(mpi->dev, "%s: fail to write irq ind_mask\n",
+			__func__);
 }
 
 static void mt6360_pmu_irq_bus_sync_unlock(struct irq_data *data)
@@ -97,7 +98,7 @@ static void mt6360_pmu_irq_bus_sync_unlock(struct irq_data *data)
 	ret = mt6360_pmu_reg_write(mpi, MT6360_PMU_CHG_IRQ1 + offset / 8,
 				   1 << (offset % 8));
 	if (ret < 0)
-		dev_err(mpi->dev, "%s: fail to write clr irq\n", __func__);
+		dev_notice(mpi->dev, "%s: fail to write clr irq\n", __func__);
 	/* unmask current irq */
 	ret = mt6360_pmu_reg_write(mpi, MT6360_PMU_CHG_MASK1 + offset / 8,
 				   mpi->cache_irq_masks[offset / 8]);
@@ -106,7 +107,8 @@ static void mt6360_pmu_irq_bus_sync_unlock(struct irq_data *data)
 	/* unmask all irq indicator mask */
 	ret = mt6360_pmu_reg_write(mpi, MT6360_PMU_IRQ_MASK, 0);
 	if (ret < 0)
-		dev_err(mpi->dev, "%s: fail to write irq ind_mask\n", __func__);
+		dev_notice(mpi->dev, "%s: fail to write irq ind_mask\n",
+			__func__);
 }
 
 static void mt6360_pmu_irq_enable(struct irq_data *data)
@@ -166,7 +168,7 @@ static int mt6360_pmu_gpio_irq_init(struct mt6360_pmu_info *mpi)
 	int ret;
 
 	ret = devm_gpio_request_one(mpi->dev, pdata->irq_gpio, GPIOF_IN,
-				    kasprintf(GFP_KERNEL,
+				    devm_kasprintf(mpi->dev, GFP_KERNEL,
 				    "%s.irq", dev_name(mpi->dev)));
 	if (ret < 0) {
 		dev_err(mpi->dev, "gpio reqeuest [%d] fail\n", pdata->irq_gpio);
@@ -214,7 +216,7 @@ static int mt6360_pmu_irq_maskall(struct mt6360_pmu_info *mpi)
 	ret = mt6360_pmu_reg_block_read(mpi,
 					MT6360_PMU_FAULTB_MASK, 2, faultb_mask);
 	if (ret < 0) {
-		dev_err(mpi->dev, "read faultb mask fail\n");
+		dev_notice(mpi->dev, "read faultb mask fail\n");
 		return ret;
 	}
 	/* keep faultb default value */

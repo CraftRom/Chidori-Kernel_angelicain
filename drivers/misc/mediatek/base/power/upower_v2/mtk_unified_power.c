@@ -47,11 +47,7 @@
 #if UPOWER_ENABLE_TINYSYS_SSPM
 //#include <mtk_spm_vcore_dvfs_ipi.h>
 #include <mtk_vcorefs_governor.h>
-#ifdef CONFIG_MTK_QOS_FRAMEWORK
-#include <mtk_qos_ipi.h>
-#else
 #include <helio-dvfsrc-ipi.h>
-#endif
 #endif
 #endif
 
@@ -530,6 +526,7 @@ static int upower_update_tbl_ref(void)
 
 static void get_L_pwr_efficiency(void)
 {
+#ifndef DISABLE_TP
 	int i;
 	unsigned int max = 0;
 	unsigned int min = ~0U;
@@ -564,10 +561,13 @@ static void get_L_pwr_efficiency(void)
 
 	tbl->max_efficiency = max;
 	tbl->min_efficiency = min;
+#endif
 }
 
 static void get_LL_pwr_efficiency(void)
 {
+
+#ifndef DISABLE_TP
 	int i;
 	unsigned int max = 0;
 	unsigned int min = ~0U;
@@ -608,27 +608,39 @@ static void get_LL_pwr_efficiency(void)
 
 	tbl->max_efficiency = max;
 	tbl->min_efficiency = min;
+#endif
 }
 static int upower_cal_turn_point(void)
 {
 	int i;
+#ifndef DISABLE_TP
 	struct upower_tbl *L_tbl, *LL_tbl;
 	int tempLL;
+	int find_flag = 0;
 
 	L_tbl = &upower_tbl_ref[UPOWER_BANK_L];
 	LL_tbl = &upower_tbl_ref[UPOWER_BANK_LL];
 	/* calculate turn point */
-	for (i = 0; i < UPOWER_OPP_NUM ; i++) {
+	for (i = UPOWER_OPP_NUM - 1; i >= 0 ; i--) {
 		tempLL = LL_tbl->row[i].pwr_efficiency;
 		upower_debug("@@LL_effi[%d] = %d , L_min_effi = %d\n",
 				i, tempLL, L_tbl->min_efficiency);
-		if (tempLL > L_tbl->min_efficiency) {
-			L_tbl->turn_point = i;
-			LL_tbl->turn_point = i;
+		if (tempLL <= L_tbl->min_efficiency) {
+			L_tbl->turn_point = i + 1;
+			LL_tbl->turn_point = i + 1;
+			find_flag = 1;
 			break;
 		}
 
 	}
+	if (!find_flag) {
+		L_tbl->turn_point = UPOWER_OPP_NUM;
+		LL_tbl->turn_point = UPOWER_OPP_NUM;
+		i = UPOWER_OPP_NUM;
+	}
+#else
+	i = -1;
+#endif
 	return i;
 
 }

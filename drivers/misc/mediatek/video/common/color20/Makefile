@@ -63,7 +63,7 @@ ifeq (y, $(filter y, $(CONFIG_MACH_MT6757) $(CONFIG_MACH_MT6759) \
     ccflags-y += -DCOLOR_3_0
 endif
 
-ifeq (y, $(filter y, $(CONFIG_MACH_MT6799) $(CONFIG_MACH_MT3967) $(CONFIG_MACH_MT6779)))
+ifeq (y, $(filter y, $(CONFIG_MACH_MT6799)))
     ccflags-y += -DSUPPORT_HDR
     ifeq (y, $(filter y, $(CONFIG_MACH_MT6799)))
         ccflags-y += -DHDR_IN_RDMA

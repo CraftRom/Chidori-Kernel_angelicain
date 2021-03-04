@@ -816,7 +816,7 @@ static void mmprofile_log_int(mmp_event event, enum mmp_log_type type,
 	 */
 	if (unlikely(event < 2))
 		return;
-	index = (atomic_inc_return((atomic_t *)
+	index = ((unsigned int)atomic_inc_return((atomic_t *)
 			&(mmprofile_globals.write_pointer)) - 1)
 	    % (mmprofile_globals.buffer_size_record);
 	/*check vmalloc address is valid or not*/
@@ -829,7 +829,7 @@ static void mmprofile_log_int(mmp_event event, enum mmp_log_type type,
 			mmprofile_globals.new_buffer_size_record);
 		return;
 	}
-	lock = atomic_inc_return((atomic_t *)
+	lock = (unsigned int)atomic_inc_return((atomic_t *)
 		&(p_mmprofile_ring_buffer[index].lock));
 	/*atomic_t is INT, write_pointer is UINT, avoid convert error*/
 	if (mmprofile_globals.write_pointer ==
@@ -841,7 +841,7 @@ static void mmprofile_log_int(mmp_event event, enum mmp_log_type type,
 		 */
 		while (1) {
 			index =
-				(atomic_inc_return((atomic_t *)
+				((unsigned int)atomic_inc_return((atomic_t *)
 				&(mmprofile_globals.write_pointer)) - 1) %
 				(mmprofile_globals.buffer_size_record);
 			if (!pfn_valid(vmalloc_to_pfn
@@ -856,7 +856,7 @@ static void mmprofile_log_int(mmp_event event, enum mmp_log_type type,
 				return;
 			}
 			lock =
-			    atomic_inc_return((atomic_t *) &
+			    (unsigned int)atomic_inc_return((atomic_t *) &
 					(p_mmprofile_ring_buffer[index].lock));
 			/*avoid convert error*/
 			if (mmprofile_globals.write_pointer ==
@@ -1557,14 +1557,12 @@ static ssize_t mmprofile_dbgfs_global_read(struct file *file, char __user *buf,
 		MMPROFILE_GLOBALS_SIZE);
 }
 
-#if 0
 static ssize_t mmprofile_dbgfs_global_write(struct file *file,
 	const char __user *buf, size_t size, loff_t *ppos)
 {
 	return simple_write_to_buffer(&mmprofile_globals,
 		MMPROFILE_GLOBALS_SIZE, ppos, buf, size);
 }
-#endif
 
 static const struct file_operations mmprofile_dbgfs_enable_fops = {
 	.read = mmprofile_dbgfs_enable_read,
@@ -1590,9 +1588,7 @@ static const struct file_operations mmprofile_dbgfs_buffer_fops = {
 
 static const struct file_operations mmprofile_dbgfs_global_fops = {
 	.read = mmprofile_dbgfs_global_read,
-#if 0
 	.write = mmprofile_dbgfs_global_write,
-#endif
 	.llseek = generic_file_llseek,
 };
 
@@ -2328,23 +2324,23 @@ static int mmprofile_probe(void)
 	if (g_p_debug_fs_dir) {
 		/* Create debugfs files. */
 		g_p_debug_fs_enable =
-		    debugfs_create_file("enable", 0x600,
+		    debugfs_create_file("enable", 0600,
 				g_p_debug_fs_dir, NULL,
 				&mmprofile_dbgfs_enable_fops);
 		g_p_debug_fs_start =
-		    debugfs_create_file("start", 0x600,
+		    debugfs_create_file("start", 0600,
 				g_p_debug_fs_dir, NULL,
 				&mmprofile_dbgfs_start_fops);
 		g_p_debug_fs_buffer =
-		    debugfs_create_file("buffer", 0x400,
+		    debugfs_create_file("buffer", 0400,
 				g_p_debug_fs_dir, NULL,
 				&mmprofile_dbgfs_buffer_fops);
 		g_p_debug_fs_global =
-		    debugfs_create_file("global", 0x400,
+		    debugfs_create_file("global", 0400,
 				g_p_debug_fs_dir, NULL,
 				&mmprofile_dbgfs_global_fops);
 		g_p_debug_fs_reset =
-		    debugfs_create_file("reset", 0x200,
+		    debugfs_create_file("reset", 0200,
 				g_p_debug_fs_dir, NULL,
 				&mmprofile_dbgfs_reset_fops);
 	}

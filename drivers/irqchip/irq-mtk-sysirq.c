@@ -364,21 +364,15 @@ static int __init mtk_sysirq_of_init(struct device_node *node,
 
 			chip_data->need_unmask = 1;
 			if (of_property_read_u32(node,
-					"indirect_base", &indirect_base)) {
-				ret = -EINVAL;
-				goto out_free_chip;
-			}
+					"indirect_base", &indirect_base))
+				return -EINVAL;
 			if (of_property_read_u32(node,
-					"indirect_en_base", &en_base)) {
-				ret = -EINVAL;
-				goto out_free_chip;
-			}
+					"indirect_en_base", &en_base))
+				return -EINVAL;
 			/* get int polarity number */
 			if (of_property_read_u32(node,
-					"intpol_num", &intpol_num)) {
-				ret = -EINVAL;
-				goto out_free_chip;
-			}
+					"intpol_num", &intpol_num))
+				return -EINVAL;
 
 			pr_info("[%s] indirect : 0x%x, indirect_en : 0x%x\n",
 					__func__, indirect_base, en_base);
@@ -387,10 +381,8 @@ static int __init mtk_sysirq_of_init(struct device_node *node,
 				ioremap(indirect_base, 0x4);
 			chip_data->direct_access_en = ioremap(en_base, 0x4);
 			if (!chip_data->indirect_access
-					|| !chip_data->direct_access_en) {
-				ret = -EINVAL;
-				goto out_free_chip;
-			}
+					|| !chip_data->direct_access_en)
+				return -EINVAL;
 		}
 
 	} else {
@@ -408,20 +400,25 @@ static int __init mtk_sysirq_of_init(struct device_node *node,
 			unsigned int tmp_base, offset;
 
 			if (of_property_read_u32(node,
-						"mask_base", &tmp_base))
-				return -EINVAL;
+						"mask_base", &tmp_base)) {
+				ret = -EINVAL;
+				goto out_free_all;
+			}
 			if (of_property_read_u32(node,
-						"mask_offset", &offset))
-				return -EINVAL;
-
+						"mask_offset", &offset)) {
+				ret = -EINVAL;
+				goto out_free_all;
+			}
 			pr_info("[%s] mask_base : 0x%x, offset : 0x%x\n",
 					__func__, tmp_base, offset);
 
 			chip_data->int_msk_ctl0 = ioremap(tmp_base, offset);
 			pr_info("[%s] mask_base : 0x%p\n",
 					__func__, chip_data->int_msk_ctl0);
-			if (!chip_data->int_msk_ctl0)
-				return -EINVAL;
+			if (!chip_data->int_msk_ctl0) {
+				ret = -EINVAL;
+				goto out_free_all;
+			}
 #endif
 			chip_data->need_unmask = 1;
 			/* hook mask callback */

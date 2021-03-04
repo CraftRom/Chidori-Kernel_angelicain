@@ -245,7 +245,8 @@ int dramc_dram_address_get(phys_addr_t phys_addr,
 	unsigned int ch_pos, channel_num;
 	unsigned int ch_width, col_width, row_width;
 	unsigned int bit_shift;
-	unsigned int temp, rank_max;
+	phys_addr_t temp;
+	unsigned int rank_max;
 	unsigned int ddr_type;
 	int r;
 	phys_addr_t rank_base;
@@ -306,8 +307,11 @@ int dramc_dram_address_get(phys_addr_t phys_addr,
 			ch_width++;
 		}
 
-		temp = (phys_addr & ~(((0x1<<ch_width)-1)<<ch_pos)) >> ch_width;
-		phys_addr = temp | (phys_addr & ((0x1<<ch_pos)-1));
+		temp = (phys_addr &
+			~(((((phys_addr_t)0x1 << ch_width) - 1) << ch_pos) - 1))
+			>> ch_width;
+		phys_addr = temp |
+			(phys_addr & (((phys_addr_t)0x1 << ch_pos) - 1));
 	}
 
 	col_width = mt_dramc_col_size_get(emi_cona, *rank);
@@ -384,6 +388,9 @@ static ssize_t read_dram_addr_write(struct file *file,
 	if (len) {
 		sz = simple_write_to_buffer(buf, sizeof(buf), offset,
 			user_buf, len);
+
+		if (sz < 0)
+			return sz;
 
 		if (sz != len)
 			return -EIO;
@@ -470,6 +477,9 @@ static ssize_t test_result_write(struct file *file,
 	int ret, sz, region;
 
 	sz =  simple_write_to_buffer(buf, sizeof(buf), offset, user_buf, len);
+
+	if (sz < 0)
+		return sz;
 
 	if (sz != len)
 		return -EIO;

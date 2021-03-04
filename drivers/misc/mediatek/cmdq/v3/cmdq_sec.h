@@ -104,7 +104,6 @@ int32_t cmdq_sec_destroy_shared_memory(
  */
 typedef int32_t(*CmdqSecFillIwcCB) (int32_t, void *, int32_t, void *, void *);
 
-
 /*
  * Entry secure world to handle secure path jobs
  * .submit task
@@ -127,6 +126,7 @@ s32 cmdq_sec_handle_error_result(struct cmdqRecStruct *task, s32 thread,
 struct cmdqSecContextStruct *cmdq_sec_context_handle_create(uint32_t tgid);
 s32 cmdq_sec_insert_backup_cookie_instr(struct cmdqRecStruct *task, s32 thread);
 void cmdq_sec_dump_secure_thread_cookie(s32 thread);
+s32 cmdq_mbox_sec_chan_id(void *chan);
 
 /*
  * secure path control

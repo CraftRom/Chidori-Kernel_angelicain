@@ -284,7 +284,7 @@ static int mt635x_auxadc_read_raw(struct iio_dev *indio_dev,
 			auxadc_chan->ch_name, auxadc_chan->ch_num,
 			auxadc_out, *val);
 	} else {
-		HKLOG("name:%s, channel=%d, adc_out=0x%x, adc_result=%d\n",
+		PMICLOG("name:%s, channel=%d, adc_out=0x%x, adc_result=%d\n",
 			auxadc_chan->ch_name, auxadc_chan->ch_num,
 			auxadc_out, *val);
 	}
@@ -315,7 +315,7 @@ static int auxadc_get_data_from_dt(struct mt635x_auxadc_device *adc_dev,
 	struct device_node *node)
 {
 	struct auxadc_channels *auxadc_chan;
-	unsigned int value, val_arr[2];
+	unsigned int value = 0, val_arr[2] = {0};
 	int ret;
 
 	ret = of_property_read_u32(node, "channel", channel);

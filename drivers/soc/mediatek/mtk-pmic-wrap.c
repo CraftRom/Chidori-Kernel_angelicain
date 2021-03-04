@@ -1106,7 +1106,7 @@ static struct of_dev_auxdata pwrap_auxdata_lookup[] = {
 
 static u32 pwrap_readl(struct pmic_wrapper *wrp, enum pwrap_regs reg);
 static void pwrap_writel(struct pmic_wrapper *wrp, u32 val,
-			       enum pwrap_regs reg);
+	enum pwrap_regs reg);
 static int pwrap_read(struct pmic_wrapper *wrp, u32 adr, u32 *rdata);
 static int pwrap_write(struct pmic_wrapper *wrp, u32 adr, u32 wdata);
 
@@ -1163,9 +1163,9 @@ static inline void pwrap_dump_ap_register(void)
 	"MD_ADCINF_1_STA_1=0x%x\n", pwrap_readl(wrp, PWRAP_MD_ADCINF_1_STA_1));
 
 	if (HAS_CAP(wrp->master->caps, PWRAP_CAP_MONITOR_V2)) {
-		dev_dbg(wrp->dev,
+	dev_dbg(wrp->dev,
 		"WACS0_CMD=0x%x\n", pwrap_readl(wrp, PWRAP_WACS0_CMD));
-		dev_dbg(wrp->dev,
+	dev_dbg(wrp->dev,
 		"WACS0_RDATA=0x%x\n", pwrap_readl(wrp, PWRAP_WACS0_RDATA));
 		dev_dbg(wrp->dev,
 		"WACS0_VLDCLR=0x%x\n", pwrap_readl(wrp, PWRAP_WACS0_VLDCLR));
@@ -1208,8 +1208,8 @@ static inline void pwrap_dump_ap_register(void)
 	pwrap_writel(wrp, 0x0, PWRAP_WACS2_EN);
 
 	if (HAS_CAP(wrp->master->caps, PWRAP_CAP_MONITOR_V1)) {
-		pwrap_writel(wrp, 0x8, PWRAP_MONITOR_CTRL_0);
-		pwrap_writel(wrp, 0x5, PWRAP_MONITOR_CTRL_0);
+	pwrap_writel(wrp, 0x8, PWRAP_MONITOR_CTRL_0);
+	pwrap_writel(wrp, 0x5, PWRAP_MONITOR_CTRL_0);
 	} else if (HAS_CAP(wrp->master->caps, PWRAP_CAP_MONITOR_V2)) {
 		pwrap_writel(wrp, 0x800, PWRAP_MONITOR_CTRL);
 		pwrap_writel(wrp, 0x5, PWRAP_MONITOR_CTRL);
@@ -1291,22 +1291,22 @@ static void pwrap_logging_at_isr(void)
 	}
 
 	if (HAS_CAP(wrp->master->caps, PWRAP_CAP_MONITOR_V1)) {
-		dev_dbg(wrp->dev,
-		"CMD_SEQ_0=0x%x\n", pwrap_readl(wrp, PWRAP_CMD_SEQUENCE_0));
-		dev_dbg(wrp->dev,
-		"CMD_SEQ_1=0x%x\n", pwrap_readl(wrp, PWRAP_CMD_SEQUENCE_1));
-		dev_dbg(wrp->dev,
-		"CMD_SEQ_2=0x%x\n", pwrap_readl(wrp, PWRAP_CMD_SEQUENCE_2));
-		dev_dbg(wrp->dev,
-		"CMD_SEQ_3=0x%x\n", pwrap_readl(wrp, PWRAP_CMD_SEQUENCE_3));
-		dev_dbg(wrp->dev,
-		"CMD_SEQ_4=0x%x\n", pwrap_readl(wrp, PWRAP_CMD_SEQUENCE_4));
-		dev_dbg(wrp->dev,
-		"CMD_SEQ_5=0x%x\n", pwrap_readl(wrp, PWRAP_CMD_SEQUENCE_5));
-		dev_dbg(wrp->dev,
-		"CMD_SEQ_6=0x%x\n", pwrap_readl(wrp, PWRAP_CMD_SEQUENCE_6));
-		dev_dbg(wrp->dev,
-		"CMD_SEQ_7=0x%x\n", pwrap_readl(wrp, PWRAP_CMD_SEQUENCE_7));
+	dev_dbg(wrp->dev,
+	"CMD_SEQ_0=0x%x\n", pwrap_readl(wrp, PWRAP_CMD_SEQUENCE_0));
+	dev_dbg(wrp->dev,
+	"CMD_SEQ_1=0x%x\n", pwrap_readl(wrp, PWRAP_CMD_SEQUENCE_1));
+	dev_dbg(wrp->dev,
+	"CMD_SEQ_2=0x%x\n", pwrap_readl(wrp, PWRAP_CMD_SEQUENCE_2));
+	dev_dbg(wrp->dev,
+	"CMD_SEQ_3=0x%x\n", pwrap_readl(wrp, PWRAP_CMD_SEQUENCE_3));
+	dev_dbg(wrp->dev,
+	"CMD_SEQ_4=0x%x\n", pwrap_readl(wrp, PWRAP_CMD_SEQUENCE_4));
+	dev_dbg(wrp->dev,
+	"CMD_SEQ_5=0x%x\n", pwrap_readl(wrp, PWRAP_CMD_SEQUENCE_5));
+	dev_dbg(wrp->dev,
+	"CMD_SEQ_6=0x%x\n", pwrap_readl(wrp, PWRAP_CMD_SEQUENCE_6));
+	dev_dbg(wrp->dev,
+	"CMD_SEQ_7=0x%x\n", pwrap_readl(wrp, PWRAP_CMD_SEQUENCE_7));
 	} else if (HAS_CAP(wrp->master->caps, PWRAP_CAP_MONITOR_V2)) {
 		dev_dbg(wrp->dev,
 		"ADR_SEQ_0=0x%x\n", pwrap_readl(wrp, PWRAP_ADR_SEQUENCE_0));
@@ -1379,8 +1379,8 @@ static void pwrap_logging_at_isr(void)
 	}
 
 	if (HAS_CAP(wrp->master->caps, PWRAP_CAP_MONITOR_V1)) {
-		pwrap_writel(wrp, 0x8, PWRAP_MONITOR_CTRL_0);
-		pwrap_writel(wrp, 0x5, PWRAP_MONITOR_CTRL_0);
+	pwrap_writel(wrp, 0x8, PWRAP_MONITOR_CTRL_0);
+	pwrap_writel(wrp, 0x5, PWRAP_MONITOR_CTRL_0);
 	} else if (HAS_CAP(wrp->master->caps, PWRAP_CAP_MONITOR_V2)) {
 		pwrap_writel(wrp, 0x800, PWRAP_MONITOR_CTRL);
 		pwrap_writel(wrp, 0x5, PWRAP_MONITOR_CTRL);
@@ -2086,21 +2086,21 @@ static int pwrap_mt2701_init_soc_specific(struct pmic_wrapper *wrp)
 static int pwrap_set_starvation(struct pmic_wrapper *wrp)
 {
 	if (HAS_CAP(wrp->master->caps, PWRAP_CAP_MONITOR_V1)) {
-		pwrap_writel(wrp, 0x0007, PWRAP_HARB_HPRIO);
-		pwrap_writel(wrp, 0x0402, PWRAP_STARV_COUNTER_0);
-		pwrap_writel(wrp, 0x0402, PWRAP_STARV_COUNTER_1);
-		pwrap_writel(wrp, 0x0403, PWRAP_STARV_COUNTER_2);
-		pwrap_writel(wrp, 0x0414, PWRAP_STARV_COUNTER_3);
-		pwrap_writel(wrp, 0x0420, PWRAP_STARV_COUNTER_4);
-		pwrap_writel(wrp, 0x0420, PWRAP_STARV_COUNTER_5);
-		pwrap_writel(wrp, 0x0420, PWRAP_STARV_COUNTER_6);
-		pwrap_writel(wrp, 0x0428, PWRAP_STARV_COUNTER_7);
-		pwrap_writel(wrp, 0x0428, PWRAP_STARV_COUNTER_8);
-		pwrap_writel(wrp, 0x0417, PWRAP_STARV_COUNTER_9);
-		pwrap_writel(wrp, 0x0563, PWRAP_STARV_COUNTER_10);
-		pwrap_writel(wrp, 0x047c, PWRAP_STARV_COUNTER_11);
-		pwrap_writel(wrp, 0x0740, PWRAP_STARV_COUNTER_12);
-		pwrap_writel(wrp, 0x0740, PWRAP_STARV_COUNTER_13);
+	pwrap_writel(wrp, 0x0007, PWRAP_HARB_HPRIO);
+	pwrap_writel(wrp, 0x0402, PWRAP_STARV_COUNTER_0);
+	pwrap_writel(wrp, 0x0402, PWRAP_STARV_COUNTER_1);
+	pwrap_writel(wrp, 0x0403, PWRAP_STARV_COUNTER_2);
+	pwrap_writel(wrp, 0x0414, PWRAP_STARV_COUNTER_3);
+	pwrap_writel(wrp, 0x0420, PWRAP_STARV_COUNTER_4);
+	pwrap_writel(wrp, 0x0420, PWRAP_STARV_COUNTER_5);
+	pwrap_writel(wrp, 0x0420, PWRAP_STARV_COUNTER_6);
+	pwrap_writel(wrp, 0x0428, PWRAP_STARV_COUNTER_7);
+	pwrap_writel(wrp, 0x0428, PWRAP_STARV_COUNTER_8);
+	pwrap_writel(wrp, 0x0417, PWRAP_STARV_COUNTER_9);
+	pwrap_writel(wrp, 0x0563, PWRAP_STARV_COUNTER_10);
+	pwrap_writel(wrp, 0x047c, PWRAP_STARV_COUNTER_11);
+	pwrap_writel(wrp, 0x0740, PWRAP_STARV_COUNTER_12);
+	pwrap_writel(wrp, 0x0740, PWRAP_STARV_COUNTER_13);
 	} else if (HAS_CAP(wrp->master->caps, PWRAP_CAP_MONITOR_V2)) {
 		pwrap_writel(wrp, 0x0001, PWRAP_HARB_HPRIO);
 		pwrap_writel(wrp, 0x0400, PWRAP_STARV_COUNTER_0);
@@ -2266,7 +2266,7 @@ static irqreturn_t pwrap_interrupt(int irqno, void *dev_id)
 				pwrap_dump_ap_register();
 				aee_kernel_warning("PWRAP:MPU Violation",
 						   "PWRAP");
-				pwrap_writel(wrp, int1_flg, PWRAP_INT1_CLR);
+			pwrap_writel(wrp, int1_flg, PWRAP_INT1_CLR);
 			} else {
 				pwrap_dump_all_register();
 				pwrap_writel(wrp, 0xffffe7ff, PWRAP_INT1_CLR);
@@ -2691,7 +2691,7 @@ static int pwrap_probe(struct platform_device *pdev)
 
 	/* Initialize watchdog, may not be done by the bootloader */
 	if (HAS_CAP(wrp->master->caps, PWRAP_CAP_MONITOR_V1))
-		pwrap_writel(wrp, 0xf, PWRAP_WDT_UNIT);
+	pwrap_writel(wrp, 0xf, PWRAP_WDT_UNIT);
 	else if (HAS_CAP(wrp->master->caps, PWRAP_CAP_MONITOR_V2))
 		pwrap_writel(wrp, 0x3f, PWRAP_WDT_CTRL);
 
@@ -2702,7 +2702,7 @@ static int pwrap_probe(struct platform_device *pdev)
 	pwrap_writel(wrp, wrp->master->wdt_src, PWRAP_WDT_SRC_EN);
 
 	if (HAS_CAP(wrp->master->caps, PWRAP_CAP_MONITOR_V1))
-		pwrap_writel(wrp, 0x3, PWRAP_TIMER_EN);
+	pwrap_writel(wrp, 0x3, PWRAP_TIMER_EN);
 	else if (HAS_CAP(wrp->master->caps, PWRAP_CAP_MONITOR_V2))
 		pwrap_writel(wrp, 0x1, PWRAP_TIMER_CTRL);
 

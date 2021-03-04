@@ -30,7 +30,9 @@ static int fsm_md_data_ioctl(int md_id, unsigned int cmd, unsigned long arg)
 {
 	int ret = 0, retry;
 	int data;
+#if (MD_GENERATION >= 6292)
 	char buffer[64];
+#endif
 	unsigned int sim_slot_cfg[4];
 	struct ccci_per_md *per_md_data = ccci_get_per_md_data(md_id);
 	struct ccci_per_md *other_per_md_data
@@ -401,6 +403,20 @@ static int fsm_md_data_ioctl(int md_id, unsigned int cmd, unsigned long arg)
 	return ret;
 }
 
+static long ccci_fsm_get_mdinit_killed(unsigned long arg)
+{
+	unsigned int mdinit_killed = 0;
+
+	mdinit_killed = (unsigned int)get_mdinit_killed();
+	if (put_user(mdinit_killed, (unsigned int __user *)arg)) {
+		CCCI_ERROR_LOG(-1, CHAR, "[%s] error: put_user fail!\n",
+			__func__);
+		return -EFAULT;
+	}
+
+	return 0;
+}
+
 long ccci_fsm_ioctl(int md_id, unsigned int cmd, unsigned long arg)
 {
 	struct ccci_fsm_ctl *ctl = fsm_get_entity_by_md_id(md_id);
@@ -481,8 +497,7 @@ long ccci_fsm_ioctl(int md_id, unsigned int cmd, unsigned long arg)
 			VALID_USER, strlen(VALID_USER)) == 0) {
 			CCCI_NORMAL_LOG(md_id, FSM,
 				"MD start ioctl called by %s\n", current->comm);
-			ret = fsm_append_command(ctl, CCCI_COMMAND_START,
-				FSM_CMD_FLAG_WAIT_FOR_COMPLETE);
+			ret = fsm_append_command(ctl, CCCI_COMMAND_START, 0);
 		} else {
 			CCCI_ERROR_LOG(md_id, FSM,
 			"drop invalid user:%s call MD start ioctl\n",
@@ -500,11 +515,10 @@ long ccci_fsm_ioctl(int md_id, unsigned int cmd, unsigned long arg)
 				"MD stop ioctl called by %s %d\n",
 				current->comm, data);
 			ret = fsm_append_command(ctl, CCCI_COMMAND_STOP,
-					FSM_CMD_FLAG_WAIT_FOR_COMPLETE |
-					((data ? MD_FLIGHT_MODE_ENTER
+					(data ? MD_FLIGHT_MODE_ENTER
 					: MD_FLIGHT_MODE_NONE)
 					== MD_FLIGHT_MODE_ENTER ?
-					FSM_CMD_FLAG_FLIGHT_MODE : 0));
+					FSM_CMD_FLAG_FLIGHT_MODE : 0);
 		}
 		break;
 	case CCCI_IOC_ENTER_DEEP_FLIGHT:
@@ -569,6 +583,11 @@ long ccci_fsm_ioctl(int md_id, unsigned int cmd, unsigned long arg)
 	case CCCI_IOC_RESET_MD1_MD3_PCCIF:
 		ccci_md_reset_pccif(md_id);
 		break;
+
+	case CCCI_IOC_GET_MDINIT_KILLED:
+		ret = ccci_fsm_get_mdinit_killed(arg);
+		break;
+
 	case CCCI_IOC_GET_MD_EX_TYPE:
 		ret = put_user((unsigned int)ctl->ee_ctl.ex_type,
 				(unsigned int __user *)arg);

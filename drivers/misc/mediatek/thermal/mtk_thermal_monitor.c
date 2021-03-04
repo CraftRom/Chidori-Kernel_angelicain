@@ -678,8 +678,10 @@ static int _mtkthermal_tz_read(struct seq_file *m, void *v)
 			int fake_temp = 0;
 
 			tzdata = tz->devdata;
-			if (!tzdata)
+			if (!tzdata) {
 				WARN_ON_ONCE(1);
+				return 0;
+			}
 
 #if (MAX_STEP_MA_LEN > 1)
 			mutex_lock(&tzdata->ma_lock);
@@ -745,8 +747,10 @@ static ssize_t _mtkthermal_tz_write
 			struct mtk_thermal_tz_data *tzdata = NULL;
 
 			tzdata = tz->devdata;
-			if (!tzdata)
+			if (!tzdata) {
 				WARN_ON_ONCE(1);
+				return -EINVAL;
+			}
 
 			/* THRML_ERROR_LOG(
 			 * "%s trailing=%s\n", __func__, trailing);
@@ -802,8 +806,10 @@ static ssize_t _mtkthermal_tz_write
 			struct mtk_thermal_tz_data *tzdata = NULL;
 
 			tzdata = tz->devdata;
-			if (!tzdata)
+			if (!tzdata) {
 				WARN_ON_ONCE(1);
+				return -EINVAL;
+			}
 
 			mutex_lock(&tzdata->ma_lock);
 			tzdata->fake_temp = (long)arg_val;
@@ -1813,11 +1819,40 @@ static int mtk_cooling_wrapper_set_cur_state
 	return ret;
 }
 
+/* .get_available */
+static int mtk_cooling_wrapper_get_available
+(struct thermal_cooling_device *cdev, char *available)
+{
+	int ret = 0;
+	struct thermal_cooling_device_ops *ops;
+	struct mtk_thermal_cooler_data *mcdata;
+
+	mutex_lock(&MTM_COOLER_LOCK);
+
+	/* Recovery client's devdata */
+	ops = recoveryClientCooler(cdev, &mcdata);
+
+	if (ops->get_available)
+		ret = ops->get_available(cdev, available);
+	else
+		snprintf(available, 1, "\n");
+
+	THRML_LOG("[.get_available] cdev_type:%s available:%s\n",
+						cdev->type, available);
+
+	cdev->devdata = mcdata;
+
+	mutex_unlock(&MTM_COOLER_LOCK);
+
+	return ret;
+}
+
 /* Cooling callbacks OPS */
 static struct thermal_cooling_device_ops mtk_cooling_wrapper_dev_ops = {
 	.get_max_state = mtk_cooling_wrapper_get_max_state,
 	.get_cur_state = mtk_cooling_wrapper_get_cur_state,
 	.set_cur_state = mtk_cooling_wrapper_set_cur_state,
+	.get_available = mtk_cooling_wrapper_get_available,
 };
 
 /*

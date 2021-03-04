@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2017 MediaTek Inc.
- * Copyright (C) 2019 XiaoMi, Inc.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -37,6 +37,13 @@
 #define EINT_PIN_PLUG_OUT       (0)
 #define EINT_PIN_MOISTURE_DETECED (2)
 #define ANALOG_FASTDISCHARGE_SUPPORT
+
+/* 2020.4.1 longcheer puqirui add for headset button start */
+#ifdef CONFIG_CUSTOM_HEADSET_FEATURE
+#define MEDIA_PREVIOUS_SCAN_CODE 257
+#define MEDIA_NEXT_SCAN_CODE 258
+#endif
+/* 2020.4.1 longcheer puqirui add for headset button end */
 
 #ifdef CONFIG_ACCDET_EINT_IRQ
 enum pmic_eint_ID {
@@ -134,6 +141,7 @@ static int accdet_auxadc_offset;
 static struct wakeup_source *accdet_irq_lock;
 static struct wakeup_source *accdet_timer_lock;
 static DEFINE_MUTEX(accdet_eint_irq_sync_mutex);
+static int s_button_status;
 
 static u32 accdet_eint_type = IRQ_TYPE_LEVEL_LOW;
 static u32 button_press_debounce = 0x400;
@@ -691,33 +699,46 @@ static u32 key_check(u32 v)
 static void send_key_event(u32 keycode, u32 flag)
 {
 	switch (keycode) {
-       #ifdef WT_COMPILE_FACTORY_VERSION
 	case DW_KEY:
+/* 2020.4.1 longcheer puqirui add for headset button start */
+#ifdef CONFIG_CUSTOM_HEADSET_FEATURE
+		input_report_key(accdet_input_dev, MEDIA_NEXT_SCAN_CODE, flag);
+#else
 		input_report_key(accdet_input_dev, KEY_VOLUMEDOWN, flag);
+#endif
 		input_sync(accdet_input_dev);
+#ifdef CONFIG_CUSTOM_HEADSET_FEATURE
+		pr_debug("accdet MEDIA_NEXT_SCAN_CODE %d\n", flag);
+#else
 		pr_debug("accdet KEY_VOLUMEDOWN %d\n", flag);
+#endif
 		break;
 	case UP_KEY:
+#ifdef CONFIG_CUSTOM_HEADSET_FEATURE
+		input_report_key(accdet_input_dev, MEDIA_PREVIOUS_SCAN_CODE, flag);
+#else
 		input_report_key(accdet_input_dev, KEY_VOLUMEUP, flag);
+#endif
 		input_sync(accdet_input_dev);
+#ifdef CONFIG_CUSTOM_HEADSET_FEATURE
+		pr_debug("accdet MEDIA_PREVIOUS_SCAN_CODE %d\n", flag);
+#else
 		pr_debug("accdet KEY_VOLUMEUP %d\n", flag);
+#endif
 		break;
-       #else
-        case DW_KEY:
-		input_report_key(accdet_input_dev, KEY_VOLUMEDOWN_NEW, flag);
-		input_sync(accdet_input_dev);
-		pr_debug("accdet KEY_VOLUMEDOWN_NEW %d\n", flag);
-		break;
-	case UP_KEY:
-		input_report_key(accdet_input_dev, KEY_VOLUMEUP_NEW, flag);
-		input_sync(accdet_input_dev);
-		pr_debug("accdet KEY_VOLUMEUP_NEW %d\n", flag);
-		break;
-       #endif
 	case MD_KEY:
+#ifdef CONFIG_CUSTOM_HEADSET_FEATURE
+		input_report_key(accdet_input_dev, KEY_MEDIA, flag);
+#else
 		input_report_key(accdet_input_dev, KEY_PLAYPAUSE, flag);
+#endif
 		input_sync(accdet_input_dev);
+#ifdef CONFIG_CUSTOM_HEADSET_FEATURE
+		pr_debug("accdet KEY_MEDIA %d\n", flag);
+#else
 		pr_debug("accdet KEY_PLAYPAUSE %d\n", flag);
+#endif
+/* 2020.4.1 longcheer puqirui add for headset button end */
 		break;
 	case AS_KEY:
 		input_report_key(accdet_input_dev, KEY_VOICECOMMAND, flag);
@@ -1114,6 +1135,7 @@ static inline void check_cable_type(void)
 	pr_notice("accdet %s(), cur_status:%s current AB = %d\n", __func__,
 		     accdet_status_str[accdet_status], cur_AB);
 
+	s_button_status = 0;
 	pre_status = accdet_status;
 
 	switch (accdet_status) {
@@ -1177,6 +1199,7 @@ static inline void check_cable_type(void)
 				cust_pwm_deb->debounce0);
 			mutex_lock(&accdet_eint_irq_sync_mutex);
 			if (eint_accdet_sync_flag) {
+				s_button_status = 1;
 				accdet_status = HOOK_SWITCH;
 				multi_key_detection(cur_AB);
 			} else
@@ -1964,14 +1987,17 @@ int mt_accdet_probe(struct platform_device *dev)
 	}
 
 	__set_bit(EV_KEY, accdet_input_dev->evbit);
+/* 2020.4.1 longcheer puqirui add for headset button start */
+#ifdef CONFIG_CUSTOM_HEADSET_FEATURE
+	__set_bit(KEY_MEDIA, accdet_input_dev->keybit);
+	__set_bit(MEDIA_NEXT_SCAN_CODE, accdet_input_dev->keybit);
+	__set_bit(MEDIA_PREVIOUS_SCAN_CODE, accdet_input_dev->keybit);
+#else
 	__set_bit(KEY_PLAYPAUSE, accdet_input_dev->keybit);
-      #ifdef WT_COMPILE_FACTORY_VERSION
 	__set_bit(KEY_VOLUMEDOWN, accdet_input_dev->keybit);
 	__set_bit(KEY_VOLUMEUP, accdet_input_dev->keybit);
-      #else 
-        __set_bit(KEY_VOLUMEDOWN_NEW, accdet_input_dev->keybit);
-	__set_bit(KEY_VOLUMEUP_NEW, accdet_input_dev->keybit);
-      #endif
+#endif
+/* 2020.4.1 longcheer puqirui add for headset button end */
 	__set_bit(KEY_VOICECOMMAND, accdet_input_dev->keybit);
 
 	__set_bit(EV_SW, accdet_input_dev->evbit);
@@ -2114,5 +2140,22 @@ void mt_accdet_remove(void)
 	cdev_del(accdet_cdev);
 	unregister_chrdev_region(accdet_devno, 1);
 	pr_debug("%s done!\n", __func__);
+}
+
+long mt_accdet_unlocked_ioctl(struct file *file, unsigned int cmd,
+	unsigned long arg)
+{
+	switch (cmd) {
+	case ACCDET_INIT:
+		break;
+	case SET_CALL_STATE:
+		break;
+	case GET_BUTTON_STATUS:
+		return s_button_status;
+	default:
+		pr_debug("[Accdet]accdet_ioctl : default\n");
+		break;
+	}
+	return 0;
 }
 

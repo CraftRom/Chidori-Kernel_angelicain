@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2015 MediaTek Inc.
- * Copyright (C) 2019 XiaoMi, Inc.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -54,6 +54,26 @@ const struct flashlight_device_id flashlight_id[] = {
 	{0, 0, 0, "flashlights-rt5081", 0, 0},
 	{0, 1, 0, "flashlights-rt5081", 1, 0},
 };
+#elif defined(mt6761)
+	#ifdef CONFIG_MTK_FLASHLIGHT_AW3644
+	const struct flashlight_device_id flashlight_id[] = {
+	/* {TYPE, CT, PART, "NAME", CHANNEL, DECOUPLE} */
+		{0, 0, 0, "flashlights-aw3644", 0, 1},
+		{1, 0, 0, "flashlights-aw3644", 1, 1},
+	};
+	#else
+	const struct flashlight_device_id flashlight_id[] = {
+	/* {TYPE, CT, PART, "NAME", CHANNEL, DECOUPLE} */
+		{0, 0, 0, "flashlights-none", -1, 0},
+		{0, 1, 0, "flashlights-none", -1, 0},
+		{1, 0, 0, "flashlights-none", -1, 0},
+		{1, 1, 0, "flashlights-none", -1, 0},
+		{0, 0, 1, "flashlights-none", -1, 0},
+		{0, 1, 1, "flashlights-none", -1, 0},
+		{1, 0, 1, "flashlights-none", -1, 0},
+		{1, 1, 1, "flashlights-none", -1, 0},
+	};
+	#endif
 #elif defined(mt6763)
 const struct flashlight_device_id flashlight_id[] = {
 	/* {TYPE, CT, PART, "NAME", CHANNEL, DECOUPLE} */
@@ -63,9 +83,9 @@ const struct flashlight_device_id flashlight_id[] = {
 #elif defined(mt6765)
 const struct flashlight_device_id flashlight_id[] = {
 	/* {TYPE, CT, PART, "NAME", CHANNEL, DECOUPLE} */
-	{0, 0, 0, "flashlights-mt6370", 0, 0},
-	{0, 1, 0, "flashlights-mt6370", 1, 0},
+	{0, 0, 0, "flashlights-sy7803", 0, 1},
 };
+
 #elif defined(mt6799)
 const struct flashlight_device_id flashlight_id[] = {
 	/* {TYPE, CT, PART, "NAME", CHANNEL, DECOUPLE} */
@@ -76,6 +96,11 @@ const struct flashlight_device_id flashlight_id[] = {
 const struct flashlight_device_id flashlight_id[] = {
 	/* {TYPE, CT, PART, "NAME", CHANNEL, DECOUPLE} */
 	{0, 0, 0, "flashlights-lm3642", 0, 0},
+};
+#elif defined(CONFIG_MTK_FLASHLIGHT_SYWT78)
+const struct flashlight_device_id flashlight_id[] = {
+	/* {TYPE, CT, PART, "NAME", CHANNEL, DECOUPLE} */
+	{0, 0, 0, "flashlights-sywt78", 0, 0},
 };
 #else
 const struct flashlight_device_id flashlight_id[] = {

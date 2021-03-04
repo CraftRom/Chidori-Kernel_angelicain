@@ -3,6 +3,7 @@
  * drivers/staging/android/ion/ion.c
  *
  * Copyright (C) 2011 Google, Inc.
+ * Copyright (C) 2021 XiaoMi, Inc.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -44,6 +45,7 @@
 #include "mtk/ion_profile.h"
 #include "mtk/mtk_ion.h"
 #include "mtk/ion_drv_priv.h"
+atomic64_t page_sz_cnt = ATOMIC64_INIT(0);
 
 bool ion_buffer_fault_user_mappings(struct ion_buffer *buffer)
 {
@@ -153,6 +155,13 @@ static struct ion_buffer *ion_buffer_create(struct ion_heap *heap,
 		goto err1;
 	}
 
+	spin_lock(&heap->stat_lock);
+	heap->num_of_buffers++;
+	heap->num_of_alloc_bytes += len;
+	if (heap->num_of_alloc_bytes > heap->alloc_bytes_wm)
+		heap->alloc_bytes_wm = heap->num_of_alloc_bytes;
+	spin_unlock(&heap->stat_lock);
+
 	table = buffer->sg_table;
 	buffer->dev = dev;
 	buffer->size = len;
@@ -236,6 +245,12 @@ void ion_buffer_destroy(struct ion_buffer *buffer)
 		buffer->heap->ops->unmap_kernel(buffer->heap, buffer);
 	}
 	buffer->heap->ops->free(buffer);
+
+	spin_lock(&buffer->heap->stat_lock);
+	buffer->heap->num_of_buffers--;
+	buffer->heap->num_of_alloc_bytes -= buffer->size;
+	spin_unlock(&buffer->heap->stat_lock);
+
 	vfree(buffer->pages);
 	kfree(buffer);
 }
@@ -397,7 +412,7 @@ struct ion_handle *ion_handle_get_by_id_nolock(struct ion_client *client,
 }
 
 struct ion_handle *ion_handle_get_by_id(struct ion_client *client,
-					       int id)
+					int id)
 {
 	struct ion_handle *handle;
 
@@ -458,9 +473,17 @@ struct ion_handle *ion_alloc(struct ion_client *client, size_t len,
 	struct ion_heap *heap;
 	int ret;
 	unsigned long long start, end;
+	unsigned int heap_mask = ~0;
 
 	pr_debug("%s: len %zu align %zu heap_id_mask %u flags %x\n", __func__,
 		 len, align, heap_id_mask, flags);
+
+	/* For some case(C2 audio decoder), it can not set heap id in AOSP,
+	 * so mtk ion will set this heap to ion_mm_heap.
+	 */
+	if (heap_id_mask == heap_mask)
+		heap_id_mask = ION_HEAP_MULTIMEDIA_MASK;
+
 	/*
 	 * traverse the list of heaps available in this system in priority
 	 * order.  If the heap type is supported by the client, and matches the
@@ -1461,6 +1484,8 @@ static int ion_debug_heap_show(struct seq_file *s, void *unused)
 	size_t camera_total_size = 0;
 	size_t va2mva_total_size = 0;
 	size_t total_orphaned_size = 0;
+	size_t cam_orphaned_size = 0;
+	unsigned long long current_ts = 0;
 	unsigned int cam_id = ION_HEAP_TYPE_MULTIMEDIA_FOR_CAMERA;
 	unsigned int map_mva_id = ION_HEAP_TYPE_MULTIMEDIA_MAP_MVA;
 
@@ -1469,6 +1494,11 @@ static int ion_debug_heap_show(struct seq_file *s, void *unused)
 	seq_puts(s, "----------------------------------------------------\n");
 
 	down_read(&dev->lock);
+
+	current_ts = sched_clock();
+	do_div(current_ts, 1000000);
+	seq_printf(s, "time 1 %lld ms\n", current_ts);
+
 	for (n = rb_first(&dev->clients); n; n = rb_next(n)) {
 		struct ion_client *client = rb_entry(n, struct ion_client,
 						     node);
@@ -1481,7 +1511,9 @@ static int ion_debug_heap_show(struct seq_file *s, void *unused)
 
 			get_task_comm(task_comm, client->task);
 			seq_printf(s, "%16.s(%16.s) %16u %16zu 0x%p\n",
-				   task_comm, client->dbg_name,
+				   task_comm,
+				   (*client->dbg_name) ? client->
+					dbg_name : client->name,
 				   client->pid, size, client);
 		} else {
 			seq_printf(s, "%16.s(%16.s) %16u %16zu 0x%p\n",
@@ -1494,6 +1526,11 @@ static int ion_debug_heap_show(struct seq_file *s, void *unused)
 	seq_puts(s, "----------------------------------------------------\n");
 	seq_puts(s, "orphaned allocation (info is from last known client):\n");
 	mutex_lock(&dev->buffer_lock);
+
+	current_ts = sched_clock();
+	do_div(current_ts, 1000000);
+	seq_printf(s, "time 2 %lld ms\n", current_ts);
+
 	for (n = rb_first(&dev->buffers); n; n = rb_next(n)) {
 		struct ion_buffer *buffer = rb_entry(n, struct ion_buffer,
 						     node);
@@ -1514,17 +1551,18 @@ static int ion_debug_heap_show(struct seq_file *s, void *unused)
 		}
 		total_size += buffer->size;
 		if (!buffer->handle_count) {
-			seq_printf(s, "%16.s %16u %16zu %d %d\n",
+			seq_printf(s, "%16.s %16u %16zu\n",
 				   buffer->task_comm, buffer->pid,
-				   buffer->size, buffer->kmap_cnt,
-				   atomic_read(&buffer->ref.refcount));
+				   buffer->size);
 			total_orphaned_size += buffer->size;
+			if (buffer->heap->id == cam_id)
+				cam_orphaned_size +=  buffer->size;
 		}
 	}
 	mutex_unlock(&dev->buffer_lock);
 	seq_puts(s, "----------------------------------------------------\n");
-	seq_printf(s, "%16.s %16zu\n", "total orphaned",
-		   total_orphaned_size);
+	seq_printf(s, "%16.s %16zu, %16zu\n", "total orphaned, cam orphaned",
+		   total_orphaned_size, cam_orphaned_size);
 	seq_printf(s, "%16.s %16zu\n", "total ", total_size);
 	if (heap->id == ION_HEAP_TYPE_MULTIMEDIA)
 		seq_printf(s, "%16.s %16zu %16zu\n", "cam-va2mva total",
@@ -1545,6 +1583,14 @@ static int ion_debug_heap_show(struct seq_file *s, void *unused)
 			   "map_mva_heap deferred free heap_id",
 				map_mva_heap->id, map_mva_heap->free_list_size);
 	}
+
+	seq_puts(s, "----------------------------------------------------\n");
+	seq_printf(s, "%16.s %16zu\n", "num_of_alloc_bytes ",
+		   heap->num_of_alloc_bytes);
+	seq_printf(s, "%16.s %16zu\n", "num_of_buffers ",
+		   heap->num_of_buffers);
+	seq_printf(s, "%16.s %16zu\n", "alloc_bytes_wm ",
+		   heap->alloc_bytes_wm);
 	seq_puts(s, "----------------------------------------------------\n");
 
 	if (heap->debug_show)
@@ -1603,12 +1649,15 @@ DEFINE_SIMPLE_ATTRIBUTE(debug_shrink_fops, debug_shrink_get,
 void ion_device_add_heap(struct ion_device *dev, struct ion_heap *heap)
 {
 	struct dentry *debug_file;
+	struct dentry *heap_root;
+	char debug_name[64];
 
 	if (!heap->ops->allocate || !heap->ops->free)
 		pr_err("%s: can not add heap with invalid ops struct.\n",
 		       __func__);
 
 	spin_lock_init(&heap->free_lock);
+	spin_lock_init(&heap->stat_lock);
 	heap->free_list_size = 0;
 
 	if (heap->flags & ION_HEAP_FLAG_DEFER_FREE)
@@ -1618,6 +1667,33 @@ void ion_device_add_heap(struct ion_device *dev, struct ion_heap *heap)
 		ion_heap_init_shrinker(heap);
 
 	heap->dev = dev;
+	heap->num_of_buffers = 0;
+	heap->num_of_alloc_bytes = 0;
+	heap->alloc_bytes_wm = 0;
+
+	heap_root = debugfs_create_dir(heap->name, dev->debug_root);
+	debugfs_create_u64("num_of_buffers",
+			   0444, heap_root,
+			   &heap->num_of_buffers);
+	debugfs_create_u64("num_of_alloc_bytes",
+			   0444,
+			   heap_root,
+			   &heap->num_of_alloc_bytes);
+	debugfs_create_u64("alloc_bytes_wm",
+			   0444,
+			   heap_root,
+			   &heap->alloc_bytes_wm);
+
+	if (heap->shrinker.count_objects &&
+	    heap->shrinker.scan_objects) {
+		snprintf(debug_name, 64, "%s_shrink", heap->name);
+		debugfs_create_file(debug_name,
+				    0644,
+				    heap_root,
+				    heap,
+				    &debug_shrink_fops);
+	}
+
 	down_write(&dev->lock);
 	/*
 	 * use negative heap->id to reverse the priority -- when traversing

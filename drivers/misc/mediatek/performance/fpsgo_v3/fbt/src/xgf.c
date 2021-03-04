@@ -23,6 +23,7 @@
 #include <linux/vmalloc.h>
 #include <linux/trace_events.h>
 #include <linux/module.h>
+#include <linux/cpumask.h>
 
 #include <mt-plat/fpsgo_common.h>
 
@@ -35,8 +36,8 @@
 #include "xgf.h"
 #include "fpsgo_base.h"
 
-FPSFO_DECLARE_SYSTRACE(x, irq_entry)
-FPSFO_DECLARE_SYSTRACE(x, irq_exit)
+FPSFO_DECLARE_SYSTRACE(x, irq_handler_entry)
+FPSFO_DECLARE_SYSTRACE(x, irq_handler_exit)
 FPSFO_DECLARE_SYSTRACE(x, softirq_entry)
 FPSFO_DECLARE_SYSTRACE(x, softirq_exit)
 FPSFO_DECLARE_SYSTRACE(x, ipi_raise)
@@ -150,6 +151,18 @@ void xgf_atomic_set(atomic_t *val, int i)
 }
 EXPORT_SYMBOL(xgf_atomic_set);
 
+unsigned int xgf_cpumask_next(int cpu,  const struct cpumask *srcp)
+{
+	return cpumask_next(cpu, srcp);
+}
+EXPORT_SYMBOL(xgf_cpumask_next);
+
+int xgf_num_possible_cpus(void)
+{
+	return num_possible_cpus();
+}
+EXPORT_SYMBOL(xgf_num_possible_cpus);
+
 int xgf_get_task_wake_cpu(struct task_struct *t)
 {
 	return t->wake_cpu;
@@ -167,6 +180,12 @@ long xgf_get_task_state(struct task_struct *t)
 	return t->state;
 }
 EXPORT_SYMBOL(xgf_get_task_state);
+
+unsigned long xgf_lookup_name(const char *name)
+{
+	return kallsyms_lookup_name(name);
+}
+EXPORT_SYMBOL(xgf_lookup_name);
 
 static inline int xgf_ko_is_ready(void)
 {
@@ -614,7 +633,7 @@ static int xgf_hw_event_end(int event_type, int tid,
 	struct xgf_render *r_iter;
 	struct hlist_node *tmp, *r_tmp;
 	unsigned long long now_ts = xgf_get_time();
-	int ret = BACKGROUND;
+	int ret = PER_FRAME;
 
 	xgf_lockprove(__func__);
 
@@ -640,7 +659,7 @@ static int xgf_hw_event_end(int event_type, int tid,
 static int xgf_hw_event_collect(int event_type, int tid,
 				unsigned long long mid, int cmd)
 {
-	int ret = BACKGROUND;
+	int ret = PER_FRAME;
 
 	xgf_lock(__func__);
 
@@ -985,7 +1004,7 @@ void fpsgo_ctrl2xgf_nn_job_begin(unsigned int tid, unsigned long long mid)
 
 int fpsgo_ctrl2xgf_nn_job_end(unsigned int tid, unsigned long long mid)
 {
-	int hw_type = BACKGROUND;
+	int hw_type = PER_FRAME;
 
 	hw_type = xgf_hw_event_collect(HW_AI, tid, mid, 0);
 
@@ -1258,13 +1277,24 @@ int fpsgo_comp2xgf_qudeq_notify(int rpid, int cmd,
 			ret = XGF_THREAD_NOT_FOUND;
 			goto qudeq_notify_err;
 		}
+		r->queue.start_ts = ts;
+		xgf_reset_render_sector(r);
+		break;
+
+	case XGF_QUEUE_END:
+		rrender = &r;
+		if (xgf_get_render(rpid, rrender, 1)) {
+			ret = XGF_THREAD_NOT_FOUND;
+			goto qudeq_notify_err;
+		}
+		r->queue.end_ts = ts;
+
 		new_spid = xgf_get_spid(r);
 		if (new_spid != -1) {
 			xgf_trace("xgf spid:%d => %d", r->spid, new_spid);
 			r->spid = new_spid;
 		}
 		ret = xgf_enter_est_runtime(rpid, r, &raw_runtime, ts);
-		r->queue.start_ts = ts;
 
 		if (!raw_runtime)
 			*run_time = raw_runtime;
@@ -1285,16 +1315,7 @@ int fpsgo_comp2xgf_qudeq_notify(int rpid, int cmd,
 			hr_iter->mid, hr_iter->event_type, hr_iter->hw_type);
 		}
 
-		xgf_print_debug_log(rpid, r, *run_time);
-		break;
-
-	case XGF_QUEUE_END:
-		rrender = &r;
-		if (xgf_get_render(rpid, rrender, 1)) {
-			ret = XGF_THREAD_NOT_FOUND;
-			goto qudeq_notify_err;
-		}
-		r->queue.end_ts = ts;
+		xgf_print_debug_log(rpid, r, raw_runtime);
 		break;
 
 	case XGF_DEQUEUE_START:
@@ -1304,7 +1325,6 @@ int fpsgo_comp2xgf_qudeq_notify(int rpid, int cmd,
 			goto qudeq_notify_err;
 		}
 		r->deque.start_ts = ts;
-		xgf_reset_render_sector(r);
 		break;
 
 	case XGF_DEQUEUE_END:

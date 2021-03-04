@@ -840,6 +840,8 @@ int pmic_thread_kthread(void *x)
 		set_current_state(TASK_INTERRUPTIBLE);
 		enable_irq(g_pmic_irq);
 		schedule();
+		if (g_pmic_irq < 0)
+			break;
 	}
 
 	return 0;
@@ -884,9 +886,10 @@ void PMIC_EINT_SETTING(struct platform_device *pdev)
 	unsigned int enable_reg;
 	struct device_node *node = pdev->dev.of_node;
 
-	/* MT6359 disable VIO18_PG to debug VIO18 OC, must check!! */
+	/* MT6359 disable VIO18_PG/OC to debug VIO18 OC, must check!! */
+	pmic_set_register_value(PMIC_RG_LDO_VIO18_OCFB_EN, 0x0);
 	pmic_set_register_value(PMIC_RG_STRUP_VIO18_PG_ENB, 0x1);
-	pmic_set_register_value(PMIC_RG_STRUP_VIO18_OC_ENB, 0x0);
+	pmic_set_register_value(PMIC_RG_STRUP_VIO18_OC_ENB, 0x1);
 
 	/* unmask PMIC TOP interrupt */
 	pmic_set_register_value(PMIC_TOP_INT_MASK_CON0_CLR, 0x1FF);

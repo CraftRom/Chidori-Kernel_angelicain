@@ -17,7 +17,6 @@
 #include <linux/kernel.h>
 #include <linux/printk.h>
 #include <linux/soc/mediatek/mtk-cmdq.h>
-#include <mt-plat/mtk_lpae.h>
 #include <linux/trace_events.h>
 
 #include "cmdq_def.h"
@@ -51,8 +50,17 @@ enum TASK_STATE_ENUM {
 #define CMDQ_DELAY_RELEASE_RESOURCE_MS (1000)
 
 #define CMDQ_THREAD_SEC_PRIMARY_DISP	(CMDQ_MIN_SECURE_THREAD_ID)
+
+#if IS_ENABLED(CONFIG_MACH_MT6779)
 #define CMDQ_THREAD_SEC_SUB_DISP	(CMDQ_MIN_SECURE_THREAD_ID + 1)
 #define CMDQ_THREAD_SEC_MDP		(CMDQ_MIN_SECURE_THREAD_ID + 2)
+#define CMDQ_THREAD_SEC_ISP		(CMDQ_MIN_SECURE_THREAD_ID + 3)
+#else
+/* for only 16 thread case mt6761 isp share second disp */
+#define CMDQ_THREAD_SEC_SUB_DISP	(CMDQ_MIN_SECURE_THREAD_ID + 1)
+#define CMDQ_THREAD_SEC_ISP		(CMDQ_MIN_SECURE_THREAD_ID + 1)
+#define CMDQ_THREAD_SEC_MDP		(CMDQ_MIN_SECURE_THREAD_ID + 2)
+#endif
 
 /* max count of input */
 #define CMDQ_MAX_COMMAND_SIZE		(0x80000000)
@@ -317,6 +325,20 @@ struct CmdqDebugCBkStruct {
 	/* Debug Register Dump */
 	CmdqDebugRegDumpBeginCB beginDebugRegDump;
 	CmdqDebugRegDumpEndCB endDebugRegDump;
+};
+
+enum CMDQ_CLT_ENUM {
+	CMDQ_CLT_UNKN,
+	CMDQ_CLT_MDP,
+	CMDQ_CLT_CMDQ,
+	CMDQ_CLT_GNRL,
+	CMDQ_CLT_DISP,
+	CMDQ_CLT_MAX	/* ALWAYS keep at the end */
+};
+
+/* sync with request in atf */
+enum cmdq_smc_request {
+	CMDQ_ENABLE_DEBUG,
 };
 
 /* handle to gce life cycle callback */
@@ -609,6 +631,8 @@ struct ContextStruct {
 	/* Delay set CPR start information */
 	u32 delay_cpr_start;
 
+	void *inst_check_buffer;
+
 #ifdef CMDQ_INSTRUCTION_COUNT
 	/* GCE instructions count information */
 	s32 instructionCountLevel;
@@ -661,6 +685,15 @@ enum CMDQ_SPM_MODE {
 	CMDQ_PD_MODE,
 };
 
+/* secure world wsm metadata type in message ex,
+ * must sync with cmdq_sec_meta_type in cmdq_sec_iwc_common.h
+ */
+enum cmdq_sec_rec_meta_type {
+	CMDQ_SEC_METAEX_NONE,
+	CMDQ_SEC_METAEX_FD,
+	CMDQ_SEC_METAEX_CQ,
+};
+
 struct cmdqRecStruct {
 	struct list_head list_entry;
 	struct cmdq_pkt *pkt;
@@ -671,6 +704,7 @@ struct cmdqRecStruct {
 	void *running_task;
 	bool jump_replace;	/* jump replace or not */
 	bool finalized;		/* set to true after flush() or startLoop() */
+	bool force_inorder;
 	CmdqInterruptCB loop_cb;
 	unsigned long loop_user_data;
 	CmdqAsyncFlushCB async_callback;
@@ -732,6 +766,7 @@ struct cmdqRecStruct {
 	/* debug information */
 	u32 error_irq_pc;
 	bool dumpAllocTime;	/* flag to print static info to kernel log. */
+	bool profile_exec;
 	s32 reorder;
 	CMDQ_TIME submit;
 	CMDQ_TIME trigger;
@@ -751,6 +786,9 @@ struct cmdqRecStruct {
 	/* secure world */
 	struct iwcCmdqSecStatus_t *secStatus;
 	u32 irq;
+	void *sec_client_meta;
+	enum cmdq_sec_rec_meta_type sec_meta_type;
+	u32 sec_meta_size;
 
 	u32 check_list_del;
 };
@@ -788,6 +826,8 @@ struct cmdq_event_table *cmdq_event_get_table(void);
 u32 cmdq_event_get_table_size(void);
 
 /* CMDQ core feature functions */
+
+bool cmdq_core_check_user_valid(void *src, u32 size);
 
 void cmdq_core_deinit_group_cb(void);
 
@@ -854,6 +894,10 @@ s32 cmdq_core_save_first_dump(const char *string, ...);
 const char *cmdq_core_query_first_err_mod(void);
 
 /* Allocate/Free HW use buffer, e.g. command buffer forCMDQ HW */
+void *cmdq_core_alloc_hw_buffer_clt(struct device *dev, size_t size,
+	dma_addr_t *dma_handle, const gfp_t flag, enum CMDQ_CLT_ENUM clt);
+void cmdq_core_free_hw_buffer_clt(struct device *dev, size_t size,
+	void *cpu_addr, dma_addr_t dma_handle, enum CMDQ_CLT_ENUM clt);
 void *cmdq_core_alloc_hw_buffer(struct device *dev,
 	size_t size, dma_addr_t *dma_handle, const gfp_t flag);
 void cmdq_core_free_hw_buffer(struct device *dev, size_t size,
@@ -869,11 +913,12 @@ size_t cmdq_core_get_cpr_cnt(void);
 void cmdq_delay_dump_thread(bool dump_sram);
 u32 cmdq_core_get_delay_start_cpr(void);
 s32 cmdq_delay_get_id_by_scenario(enum CMDQ_SCENARIO_ENUM scenario);
-int cmdqCoreAllocWriteAddress(u32 count, dma_addr_t *paStart);
+int cmdqCoreAllocWriteAddress(u32 count, dma_addr_t *paStart,
+	enum CMDQ_CLT_ENUM clt);
 u32 cmdqCoreReadWriteAddress(dma_addr_t pa);
 void cmdqCoreReadWriteAddressBatch(u32 *addrs, u32 count, u32 *val_out);
 u32 cmdqCoreWriteWriteAddress(dma_addr_t pa, u32 value);
-int cmdqCoreFreeWriteAddress(dma_addr_t paStart);
+int cmdqCoreFreeWriteAddress(dma_addr_t paStart, enum CMDQ_CLT_ENUM clt);
 
 /* Get and HW information from device tree */
 void cmdq_core_init_dts_data(void);

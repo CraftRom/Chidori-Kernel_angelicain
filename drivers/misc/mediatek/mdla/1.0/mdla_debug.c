@@ -259,6 +259,8 @@ void mdla_debugfs_init(void)
 {
 	int ret;
 
+	mdla_klog = 0x40; /* print timeout info by default */
+
 	mdla_droot = debugfs_create_dir("mdla", NULL);
 
 	ret = IS_ERR_OR_NULL(mdla_droot);

@@ -259,7 +259,6 @@ static void mcdi_set_timer(int cpu)
 static void mcdi_cancel_timer(int cpu)
 {
 	unsigned long flags;
-	int ret = -1;
 
 	if (!mcdi_cluster.tmr_en)
 		return;
@@ -272,9 +271,7 @@ static void mcdi_cancel_timer(int cpu)
 	if (mcdi_cluster.tmr_running) {
 		mcdi_cluster.tmr_running = false;
 		mcdi_cluster.owner = -1;
-		RCU_NONIDLE(ret = hrtimer_try_to_cancel(&mcdi_cluster.timer));
-		if (ret < 0)
-			pr_info("[mcdi] timer cancel fail\n");
+		RCU_NONIDLE(hrtimer_try_to_cancel(&mcdi_cluster.timer));
 	}
 
 	spin_unlock_irqrestore(&mcdi_cluster_spin_lock, flags);
@@ -478,7 +475,6 @@ int any_core_deepidle_sodi_check(int cpu)
 {
 	int state;
 	int mtk_idle_state;
-	bool pre_lock_single_core;
 
 	state = MCDI_STATE_CPU_OFF;
 
@@ -492,29 +488,19 @@ int any_core_deepidle_sodi_check(int cpu)
 		return state;
 	}
 
-	pre_lock_single_core = !mcdi_is_cpc_mode()
-					|| !mcdi_cluster.chk_res_each_core;
-
-	if (pre_lock_single_core && acquire_last_core_prot(cpu) != 0)
+	if (acquire_last_core_prot(cpu) != 0)
 		return state;
+
+	any_core_cpu_cond_inc(LAST_CORE_CNT);
 
 	/* Check other deepidle/SODI criteria */
 	mtk_idle_state = mtk_idle_select(cpu);
 
-	trace_mtk_idle_select_rcuidle(cpu, mtk_idle_state);
-
 	state = mcdi_get_mcdi_idle_state(mtk_idle_state);
 
-	if (pre_lock_single_core) {
-
-		if (!is_anycore_dpidle_sodi_state(state))
-			release_last_core_prot();
-
-	} else {
-
-		if (is_anycore_dpidle_sodi_state(state)
-			&& acquire_last_core_prot(cpu) != 0)
-			state = MCDI_STATE_CLUSTER_OFF;
+	if (!is_anycore_dpidle_sodi_state(state)) {
+		release_last_core_prot();
+		trace_mtk_idle_select_rcuidle(cpu, mtk_idle_state);
 	}
 
 	return state;
@@ -597,8 +583,6 @@ int mcdi_governor_select(int cpu, int cluster_idx)
 
 	/* Check if any core deepidle/SODI can entered */
 	if (mcdi_feature_stat.any_core && last_core_token_get) {
-
-		any_core_cpu_cond_inc(LAST_CORE_CNT);
 
 		if (tbl->states[MCDI_STATE_CLUSTER_OFF + 1].exit_latency
 				< latency_req) {
@@ -761,6 +745,9 @@ void set_mcdi_s_state(int state)
 	bool cluster_off = false;
 	bool any_core = false;
 
+	if (!(state >= MCDI_STATE_CPU_OFF && state <= MCDI_STATE_SODI3))
+		return;
+
 	switch (state) {
 	case MCDI_STATE_CPU_OFF:
 		cluster_off = false;
@@ -796,14 +783,12 @@ static void mcdi_cluster_init(void)
 	mcdi_cluster.timer.function = mcdi_hrtimer_func;
 	mcdi_cluster.use_max_remain = true;
 	mcdi_cluster.owner = -1;
+	mcdi_cluster.chk_res_each_core = false;
 
-	if (mcdi_is_cpc_mode()) {
-		mcdi_cluster.chk_res_each_core = true;
+	if (mcdi_is_cpc_mode())
 		mcdi_cluster.tmr_en = true;
-	} else {
-		mcdi_cluster.chk_res_each_core = false;
+	else
 		mcdi_cluster.tmr_en = false;
-	}
 
 	hrtimer_init(&mcdi_cluster.timer,
 			CLOCK_MONOTONIC, HRTIMER_MODE_REL);

@@ -22,11 +22,13 @@
 /* scp config reg. definition*/
 #define SCP_TCM_SIZE		(scpreg.total_tcmsize)
 #define SCP_A_TCM_SIZE		(scpreg.scp_tcmsize)
-#define SCP_TCM		(scpreg.sram)
+#define SCP_TCM			(scpreg.sram)	/* virtual address */
 #define SCP_REGION_INFO_OFFSET	0x400
 #define SCP_RTOS_START		0x800
 #define SCP_A_SHARE_BUFFER	(scpreg.sram + \
-					SCP_RTOS_START -  SHARE_BUF_SIZE*2)
+				SCP_RTOS_START - SHARE_BUF_SIZE * 2)
+
+#define OFF_PARAM_START         0x30
 
 /* scp dvfs return status flag */
 #define SET_PLL_FAIL		(1)
@@ -49,10 +51,10 @@ enum SCP_NOTIFY_EVENT {
 };
 
 /* reset ID */
-#define SCP_ALL_ENABLE	0x00
-#define SCP_ALL_REBOOT	0x01
-#define SCP_A_ENABLE	0x10
-#define SCP_A_REBOOT	0x11
+#define SCP_ALL_ENABLE		0x00
+#define SCP_ALL_REBOOT		0x01
+#define SCP_A_ENABLE		0x10
+#define SCP_A_REBOOT		0x11
 
 
 /* scp semaphore definition*/
@@ -113,7 +115,7 @@ enum scp_reserve_mem_id_t {
 	FLP_MEM_ID,
 	SCP_A_LOGGER_MEM_ID,
 	AUDIO_IPI_MEM_ID,
-#ifdef CONFIG_SND_SOC_MTK_SCP_SMARTPA
+#ifdef CONFIG_MTK_AUDIO_SCP_SPKPROTECT_SUPPORT
 	SPK_PROTECT_MEM_ID,
 	SPK_PROTECT_DUMP_MEM_ID,
 #endif
@@ -206,6 +208,7 @@ extern phys_addr_t scp_mem_base_phys;
 extern phys_addr_t scp_mem_base_virt;
 extern phys_addr_t scp_mem_size;
 extern atomic_t scp_reset_status;
+extern spinlock_t scp_awake_spinlock;
 
 /*extern scp notify*/
 extern void scp_send_reset_wq(enum SCP_RESET_TYPE type);
@@ -230,3 +233,4 @@ __attribute__((weak))
 int sensor_params_to_scp(phys_addr_t addr_vir, size_t size);
 
 #endif
+

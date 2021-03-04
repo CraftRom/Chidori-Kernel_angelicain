@@ -39,6 +39,7 @@ struct ccu_device_s {
 	unsigned int irq_num;
 	struct mutex user_mutex;
 	struct mutex ion_client_mutex;
+	struct mutex dev_mutex;
 	u8 *i2c_dma_vaddr;
 	dma_addr_t i2c_dma_paddr;
 	uint32_t i2c_dma_mva;
@@ -66,8 +67,8 @@ struct ccu_user_s {
 /*type must be struct*/
 /*#define DECLARE_VLIST(type) \*/
 /*typedef struct { \*/
-		/*type node; \*/
-		/*struct list_head link; \*/
+/*type node; \*/
+/*struct list_head link; \*/
 /*} type ## _list*/
 
 /*
@@ -115,10 +116,11 @@ struct ccu_cmd_s_list {
 	struct list_head link;
 };
 
-/* =============================== define in ccu_hw.c  ================================ */
+/* ================= define in ccu_hw.c  =================== */
 
 /**
- * ccu_init_hw - init the procedure related to hw, include irq register and enque thread
+ * ccu_init_hw - init the procedure related to hw, include irq
+ * register and enque thread
  * @device:     the pointer of ccu_device.
  */
 int ccu_init_hw(struct ccu_device_s *device);
@@ -160,7 +162,7 @@ int ccu_run(void);
  * @s:          wait mode.
  */
 int ccu_waitirq(struct CCU_WAIT_IRQ_STRUCT *WaitIrq);
-int ccu_AFwaitirq(struct CCU_WAIT_IRQ_STRUCT *WaitIrq, int tg_num);
+int ccu_AFwaitirq(struct CCU_WAIT_IRQ_STRUCT *WaitIrq, int sensoridx);
 
 /**
  * ccu_irq - interrupt wait.
@@ -179,7 +181,7 @@ int ccu_read_info_reg(int regNo);
 int ccu_query_power_status(void);
 
 
-/* =============================== define in ccu_drv.c  =============================== */
+/* ================ define in ccu_drv.c  ================ */
 
 /**
  * ccu_create_user - create ccu user, and add to user list
@@ -206,7 +208,8 @@ int ccu_unlock_ion_client_mutex(void);
  * @user:       the pointer to user.
  * @cmd:        the command to be added to user's queue.
  */
-int ccu_push_command_to_queue(struct ccu_user_s *user, struct ccu_cmd_s *cmd);
+int ccu_push_command_to_queue(struct ccu_user_s *user,
+			      struct ccu_cmd_s *cmd);
 
 
 /**
@@ -214,7 +217,8 @@ int ccu_push_command_to_queue(struct ccu_user_s *user, struct ccu_cmd_s *cmd);
  * @user:       the pointer to user.
  * @rcmd:      return the command to be removed.
  */
-int ccu_pop_command_from_queue(struct ccu_user_s *user, struct ccu_cmd_s **rcmd);
+int ccu_pop_command_from_queue(struct ccu_user_s *user,
+			       struct ccu_cmd_s **rcmd);
 
 
 /**
@@ -239,13 +243,18 @@ void ccu_clock_disable(void);
 /* LOG & AEE */
 #define CCU_TAG "[ccu]"
 
-#define LOG_DBG_MUST(format, args...)    pr_debug(CCU_TAG "[%s] " format, __func__, ##args)
-#define LOG_INF_MUST(format, args...)    pr_info(CCU_TAG "[%s] " format, __func__, ##args)
+#define LOG_DBG_MUST(format, args...) \
+		pr_debug(CCU_TAG "[%s] " format, __func__, ##args)
+#define LOG_INF_MUST(format, args...) \
+		pr_info(CCU_TAG "[%s] " format, __func__, ##args)
 #define LOG_DBG(format, args...)
 #define LOG_INF(format, args...)
-#define LOG_WARN(format, args...)    pr##_##warn(CCU_TAG "[%s] " format, __func__, ##args)
-#define LOG_ERR(format, args...)    pr##_##err(CCU_TAG "[%s] " format, __func__, ##args)
-#define LOG_DERR(device, format, args...)    dev##_##err(device, CCU_TAG "[%s] " format, __func__, ##args)
+#define LOG_WARN(format, args...) \
+		pr##_##warn(CCU_TAG "[%s] " format, __func__, ##args)
+#define LOG_ERR(format, args...)  \
+		pr##_##err(CCU_TAG "[%s] " format, __func__, ##args)
+#define LOG_DERR(device, format, args...) \
+		dev##_##err(device, CCU_TAG "[%s] " format, __func__, ##args)
 
 #define ccu_print_seq(seq_file, fmt, args...) \
 		do {\
@@ -265,7 +274,8 @@ void ccu_clock_disable(void);
 		do {\
 			char ccu_name[100];\
 			snprintf(ccu_name, 100, CCU_TAG format, ##args); \
-			aee_kernel_warning_api(__FILE__, __LINE__, DB_OPT_MMPROFILE_BUFFER | DB_OPT_DUMP_DISPLAY, \
+			aee_kernel_warning_api(__FILE__, __LINE__, \
+			DB_OPT_MMPROFILE_BUFFER | DB_OPT_DUMP_DISPLAY, \
 			ccu_name, CCU_TAG "error" format, ##args); \
 			LOG_ERR(CCU_TAG " error:" format, ##args);  \
 		} while (0)

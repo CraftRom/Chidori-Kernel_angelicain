@@ -238,6 +238,8 @@ static void get_max_min_opp(int cpu, int *min_opp, int *max_opp, int max_idx)
 			break;
 		}
 	}
+
+	cpufreq_cpu_put(policy);
 }
 
 static void check_freq_limit(int cpu, int *cap_idx, int max_idx)
@@ -359,21 +361,6 @@ bool is_share_buck(int cid, int *co_buck_cid)
 	return ret;
 }
 
-int get_cci_cap_idx(void)
-{
-	const struct sched_group_energy *_sge;
-	static int CCI_nr_cap_stats;
-
-	if (CCI_nr_cap_stats == 0) {
-#ifdef CONFIG_MTK_UNIFY_POWER
-		_sge = cci_energy();
-		CCI_nr_cap_stats = _sge->nr_cap_states;
-#endif
-	}
-
-	return CCI_nr_cap_stats - 1 - mt_cpufreq_get_cur_cci_freq_idx();
-}
-
 int share_buck_cap_idx(struct energy_env *eenv, int cpu_idx,
 			int cid, int *co_buck_cid)
 {
@@ -386,8 +373,6 @@ int share_buck_cap_idx(struct energy_env *eenv, int cpu_idx,
 		if (*co_buck_cid < num_cluster)
 			co_buck_cap_idx =
 				eenv->cpu[cpu_idx].cap_idx[*co_buck_cid];
-		else if (*co_buck_cid ==  CCI_ID)    /* CCI + DSU */
-			co_buck_cap_idx = get_cci_cap_idx();
 
 		trace_sched_share_buck(cpu_idx, cid, cap_idx, *co_buck_cid,
 					co_buck_cap_idx);
@@ -469,19 +454,6 @@ mtk_idle_power(int cpu_idx, int idle_state, int cpu, void *argu, int sd_level)
 		pwr_tbl =  &_sge->cap_states[cap_idx];
 		lkg_pwr = pwr_tbl->lkg_pwr[_sge->lkg_idx];
 		energy_cost = lkg_pwr;
-
-		trace_sched_idle_power(sd_level, cap_idx, lkg_pwr, energy_cost);
-	}
-
-	if ((sd_level != 0) && (co_buck_cid == CCI_ID)) {
-		struct upower_tbl_row *CCI_pwr_tbl;
-		unsigned long lkg_pwr;
-
-		_sge = cci_energy();
-
-		CCI_pwr_tbl = &_sge->cap_states[cap_idx];
-		lkg_pwr = CCI_pwr_tbl->lkg_pwr[_sge->lkg_idx];
-		energy_cost += lkg_pwr;
 
 		trace_sched_idle_power(sd_level, cap_idx, lkg_pwr, energy_cost);
 	}
@@ -658,15 +630,6 @@ int mtk_busy_power(int cpu_idx, int cpu, void *argu, int sd_level)
 		energy_cost = calc_busy_power(_sge, cap_idx, co_cap_idx,
 							sd_level);
 
-	}
-
-	if ((sd_level != 0) && (co_buck_cid == CCI_ID)) {
-		/* CCI + DSU */
-		const struct sched_group_energy *_sge;
-
-		_sge = cci_energy();
-		energy_cost += calc_busy_power(_sge, co_cap_idx, cap_idx,
-							sd_level);
 	}
 
 	return energy_cost;
