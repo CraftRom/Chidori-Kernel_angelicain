@@ -68,6 +68,7 @@ jiffies = jiffies_64;
 #define TRAMP_TEXT					\
 	. = ALIGN(PAGE_SIZE);				\
 	VMLINUX_SYMBOL(__entry_tramp_text_start) = .;	\
+	*(.entry.tramp.text)				\
 	KEEP(*(.entry.tramp.text))			\
 	. = ALIGN(PAGE_SIZE);				\
 	VMLINUX_SYMBOL(__entry_tramp_text_end) = .;
@@ -122,8 +123,7 @@ SECTIONS
 		*(.discard)
 		*(.discard.*)
 		*(.interp .dynamic)
-		*(.dynsym .dynstr .hash .gnu.hash)
-		*(.eh_frame)
+		*(.dynsym .dynstr .hash)
 	}
 
 	. = KIMAGE_VADDR + TEXT_OFFSET;
@@ -194,21 +194,12 @@ SECTIONS
 	.altinstr_replacement : {
 		KEEP(*(.altinstr_replacement))
 	}
-	.rela.dyn : ALIGN(8) {
+	.rela : ALIGN(8) {
 		*(.rela .rela*)
 	}
 
-	__rela_offset	= ABSOLUTE(ADDR(.rela.dyn) - KIMAGE_VADDR);
-	__rela_size	= SIZEOF(.rela.dyn);
-
-#ifdef CONFIG_RELR
-	.relr.dyn : ALIGN(8) {
-		*(.relr.dyn)
-	}
-
-	__relr_offset	= ABSOLUTE(ADDR(.relr.dyn) - KIMAGE_VADDR);
-	__relr_size	= SIZEOF(.relr.dyn);
-#endif
+	__rela_offset	= ABSOLUTE(ADDR(.rela) - KIMAGE_VADDR);
+	__rela_size	= SIZEOF(.rela);
 
 	. = ALIGN(SEGMENT_ALIGN);
 	__init_end = .;

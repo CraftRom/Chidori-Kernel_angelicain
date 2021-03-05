@@ -29,7 +29,6 @@
 #include <asm/cpu_ops.h>
 #include <asm/mmu_context.h>
 #include <asm/processor.h>
-#include <asm/scs.h>
 #include <asm/sysreg.h>
 #include <asm/virt.h>
 
@@ -116,21 +115,9 @@ static const struct arm64_ftr_bits ftr_id_aa64pfr0[] = {
 
 static const struct arm64_ftr_bits ftr_id_aa64mmfr0[] = {
 	ARM64_FTR_BITS(FTR_STRICT, FTR_EXACT, 32, 32, 0),
-#ifdef CONFIG_ARM64_4K_PAGES
 	S_ARM64_FTR_BITS(FTR_STRICT, FTR_EXACT, ID_AA64MMFR0_TGRAN4_SHIFT, 4, ID_AA64MMFR0_TGRAN4_NI),
-#else
-	S_ARM64_FTR_BITS(FTR_NONSTRICT, FTR_EXACT, ID_AA64MMFR0_TGRAN4_SHIFT, 4, ID_AA64MMFR0_TGRAN4_NI),
-#endif
-#ifdef CONFIG_AARM64_64K_PAGES
 	S_ARM64_FTR_BITS(FTR_STRICT, FTR_EXACT, ID_AA64MMFR0_TGRAN64_SHIFT, 4, ID_AA64MMFR0_TGRAN64_NI),
-#else
-	S_ARM64_FTR_BITS(FTR_NONSTRICT, FTR_EXACT, ID_AA64MMFR0_TGRAN64_SHIFT, 4, ID_AA64MMFR0_TGRAN64_NI),
-#endif
-#ifdef CONFIG_AARM64_16K_PAGES
 	ARM64_FTR_BITS(FTR_STRICT, FTR_EXACT, ID_AA64MMFR0_TGRAN16_SHIFT, 4, ID_AA64MMFR0_TGRAN16_NI),
-#else
-	ARM64_FTR_BITS(FTR_NONSTRICT, FTR_EXACT, ID_AA64MMFR0_TGRAN16_SHIFT, 4, ID_AA64MMFR0_TGRAN16_NI),
-#endif
 	ARM64_FTR_BITS(FTR_STRICT, FTR_EXACT, ID_AA64MMFR0_BIGENDEL0_SHIFT, 4, 0),
 	/* Linux shouldn't care about secure memory */
 	ARM64_FTR_BITS(FTR_NONSTRICT, FTR_EXACT, ID_AA64MMFR0_SNSMEM_SHIFT, 4, 0),
@@ -745,11 +732,13 @@ static bool has_useable_gicv3_cpuif(const struct arm64_cpu_capabilities *entry, 
 static bool has_no_hw_prefetch(const struct arm64_cpu_capabilities *entry, int __unused)
 {
 	u32 midr = read_cpuid_id();
+	u32 rv_min, rv_max;
 
 	/* Cavium ThunderX pass 1.x and 2.x */
-	return MIDR_IS_CPU_MODEL_RANGE(midr, MIDR_THUNDERX,
-		MIDR_CPU_VAR_REV(0, 0),
-		MIDR_CPU_VAR_REV(1, MIDR_REVISION_MASK));
+	rv_min = 0;
+	rv_max = (1 << MIDR_VARIANT_SHIFT) | MIDR_REVISION_MASK;
+
+	return MIDR_IS_CPU_MODEL_RANGE(midr, MIDR_THUNDERX, rv_min, rv_max);
 }
 
 static bool runs_at_el2(const struct arm64_cpu_capabilities *entry, int __unused)
@@ -778,6 +767,19 @@ static bool unmap_kernel_at_el0(const struct arm64_cpu_capabilities *entry,
 {
 	char const *str = "command line option";
 	u64 pfr0 = read_system_reg(SYS_ID_AA64PFR0_EL1);
+
+	/* List of CPUs that are not vulnerable and don't need KPTI */
+	static const struct midr_range kpti_safe_list[] = {
+		_MIDR_ALL_VERSIONS(MIDR_CAVIUM_THUNDERX2),
+		_MIDR_ALL_VERSIONS(MIDR_BRCM_VULCAN),
+		_MIDR_ALL_VERSIONS(MIDR_CORTEX_A35),
+		_MIDR_ALL_VERSIONS(MIDR_CORTEX_A53),
+		_MIDR_ALL_VERSIONS(MIDR_CORTEX_A55),
+		_MIDR_ALL_VERSIONS(MIDR_CORTEX_A57),
+		_MIDR_ALL_VERSIONS(MIDR_CORTEX_A72),
+		_MIDR_ALL_VERSIONS(MIDR_CORTEX_A73),
+		{ /* sentinel */ }
+	};
 
 	/*
 	 * For reasons that aren't entirely clear, enabling KPTI on Cavium
@@ -810,7 +812,6 @@ static bool unmap_kernel_at_el0(const struct arm64_cpu_capabilities *entry,
 	case MIDR_CORTEX_A72:
 	case MIDR_CORTEX_A73:
 		return false;
-	}
 
 	/* Defer to CPU feature registers */
 	return !cpuid_feature_extract_unsigned_field(pfr0,
@@ -831,13 +832,9 @@ static int __nocfi kpti_install_ng_mappings(void *__unused)
 
 	remap_fn = (void *)__pa_symbol(idmap_kpti_install_ng_mappings);
 
-	scs_save(current);
-
 	cpu_install_idmap();
 	remap_fn(cpu, num_online_cpus(), __pa_symbol(swapper_pg_dir));
 	cpu_uninstall_idmap();
-
-	scs_load(current);
 
 	if (!cpu)
 		kpti_applied = true;
