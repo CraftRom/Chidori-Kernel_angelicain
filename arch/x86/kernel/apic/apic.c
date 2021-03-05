@@ -797,7 +797,6 @@ static int __init calibrate_APIC_clock(void)
 			}
 			cpu_relax();
 		}
-<<<<<<< HEAD
 
 		/* Invoke the calibration routine */
 		local_irq_disable();
@@ -805,15 +804,6 @@ static int __init calibrate_APIC_clock(void)
 		local_irq_enable();
 	}
 
-=======
-
-		/* Invoke the calibration routine */
-		local_irq_disable();
-		lapic_cal_handler(NULL);
-		local_irq_enable();
-	}
-
->>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 	local_irq_disable();
 
 	/* Build delta t1-t2 as apic timer counts down */

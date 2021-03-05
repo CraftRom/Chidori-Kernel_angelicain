@@ -999,29 +999,18 @@ static void __init cpu_set_bug_bits(struct cpuinfo_x86 *c)
 	u64 ia32_cap = x86_read_arch_cap_msr();
 
 	/* Set ITLB_MULTIHIT bug if cpu is not in the whitelist and not mitigated */
-<<<<<<< HEAD
-	if (!cpu_matches(NO_ITLB_MULTIHIT) && !(ia32_cap & ARCH_CAP_PSCHANGE_MC_NO))
-		setup_force_cpu_bug(X86_BUG_ITLB_MULTIHIT);
-
-	if (cpu_matches(NO_SPECULATION))
-=======
 	if (!cpu_matches(cpu_vuln_whitelist, NO_ITLB_MULTIHIT) &&
 	    !(ia32_cap & ARCH_CAP_PSCHANGE_MC_NO))
 		setup_force_cpu_bug(X86_BUG_ITLB_MULTIHIT);
 
 	if (cpu_matches(cpu_vuln_whitelist, NO_SPECULATION))
->>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 		return;
 
 	setup_force_cpu_bug(X86_BUG_SPECTRE_V1);
 	setup_force_cpu_bug(X86_BUG_SPECTRE_V2);
 
-<<<<<<< HEAD
-	if (!cpu_matches(NO_SSB) && !(ia32_cap & ARCH_CAP_SSB_NO) &&
-=======
 	if (!cpu_matches(cpu_vuln_whitelist, NO_SSB) &&
 	    !(ia32_cap & ARCH_CAP_SSB_NO) &&
->>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 	   !cpu_has(c, X86_FEATURE_AMD_SSB_NO))
 		setup_force_cpu_bug(X86_BUG_SPEC_STORE_BYPASS);
 
@@ -1053,9 +1042,6 @@ static void __init cpu_set_bug_bits(struct cpuinfo_x86 *c)
 	     (ia32_cap & ARCH_CAP_TSX_CTRL_MSR)))
 		setup_force_cpu_bug(X86_BUG_TAA);
 
-<<<<<<< HEAD
-	if (cpu_matches(NO_MELTDOWN))
-=======
 	/*
 	 * SRBDS affects CPUs which support RDRAND or RDSEED and are listed
 	 * in the vulnerability blacklist.
@@ -1066,7 +1052,6 @@ static void __init cpu_set_bug_bits(struct cpuinfo_x86 *c)
 		    setup_force_cpu_bug(X86_BUG_SRBDS);
 
 	if (cpu_matches(cpu_vuln_whitelist, NO_MELTDOWN))
->>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 		return;
 
 	/* Rogue Data Cache Load? No! */

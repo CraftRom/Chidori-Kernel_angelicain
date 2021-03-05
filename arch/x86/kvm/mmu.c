@@ -5321,10 +5321,7 @@ static void kvm_recover_nx_lpages(struct kvm *kvm)
 				cond_resched_lock(&kvm->mmu_lock);
 		}
 	}
-<<<<<<< HEAD
-=======
 	kvm_mmu_commit_zap_page(kvm, &invalid_list);
->>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 
 	spin_unlock(&kvm->mmu_lock);
 	srcu_read_unlock(&kvm->srcu, rcu_idx);

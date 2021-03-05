@@ -3536,11 +3536,7 @@ static int em_rdpid(struct x86_emulate_ctxt *ctxt)
 	u64 tsc_aux = 0;
 
 	if (ctxt->ops->get_msr(ctxt, MSR_TSC_AUX, &tsc_aux))
-<<<<<<< HEAD
-		return emulate_gp(ctxt, 0);
-=======
 		return emulate_ud(ctxt);
->>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 	ctxt->dst.val = tsc_aux;
 	return X86EMUL_CONTINUE;
 }

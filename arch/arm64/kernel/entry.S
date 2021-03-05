@@ -152,6 +152,11 @@ alternative_cb_end
 1:
 
 	mov	x29, xzr			// fp pointed to user-space
+
+#ifdef CONFIG_SHADOW_CALL_STACK
+	ldr	x18, [tsk, #TSK_TI_SCS]		// Restore shadow call stack
+	str	xzr, [tsk, #TSK_TI_SCS]
+#endif
 	.else
 	add	x21, sp, #S_FRAME_SIZE
 	get_thread_info tsk
@@ -230,6 +235,12 @@ alternative_else_nop_endif
 	.if	\el == 0
 	ct_user_enter
 	.endif
+
+#ifdef CONFIG_SHADOW_CALL_STACK
+	.if	\el == 0
+	str	x18, [tsk, #TSK_TI_SCS]		// Save shadow call stack
+	.endif
+#endif
 
 #ifdef CONFIG_ARM64_SW_TTBR0_PAN
 	/*
@@ -321,6 +332,9 @@ alternative_insn eret, nop, ARM64_UNMAP_KERNEL_AT_EL0
 
 	.macro	irq_stack_entry
 	mov	x19, sp			// preserve the original sp
+#ifdef CONFIG_SHADOW_CALL_STACK
+	mov	x20, x18		// preserve the original shadow stack
+#endif
 
 	/*
 	 * Compare sp with the base of the task stack.
@@ -339,6 +353,11 @@ alternative_insn eret, nop, ARM64_UNMAP_KERNEL_AT_EL0
 	/* switch to the irq stack */
 	mov	sp, x26
 
+#ifdef CONFIG_SHADOW_CALL_STACK
+	/* also switch to the irq shadow stack */
+	adr_this_cpu x18, irq_shadow_call_stack, x26
+#endif
+
 	/*
 	 * Add a dummy stack frame, this non-standard format is fixed up
 	 * by unwind_frame()
@@ -355,6 +374,10 @@ alternative_insn eret, nop, ARM64_UNMAP_KERNEL_AT_EL0
 	 */
 	.macro	irq_stack_exit
 	mov	sp, x19
+#ifdef CONFIG_SHADOW_CALL_STACK
+	/* x20 is also preserved */
+	mov	x18, x20
+#endif
 	.endm
 
 /*
@@ -475,26 +498,6 @@ ENDPROC(el1_error_invalid)
 	.align	6
 el1_sync:
 	kernel_entry 1
-	mov	x0, sp
-	get_thread_info x20	// top of stack
-	ldr	w4, [x20, #TI_CPU_EXCP]
-	add	w4, w4, #0x1
-	str	w4, [x20, #TI_CPU_EXCP]
-	cmp	w4, #0x1
-	b.ne	el1_sync_nest
-	str	x0, [x20, #TI_REGS_ON_EXCP]
-el1_sync_nest:
-	mrs	x1, esr_el1			// read the syndrome register
-	lsr	x24, x1, #ESR_ELx_EC_SHIFT	// exception class
-	cmp	x24, #ESR_ELx_EC_DABT_CUR	// data abort in EL1
-	b.ne	el1_sync_nest_skip_dec
-	sub	w4, w4, #0x1
-	str	w4, [x20, #TI_CPU_EXCP]
-el1_sync_nest_skip_dec:
-	cmp	w4, #0x2
-	b.lt	el1_sync_nest_skip
-	bl	aee_stop_nested_panic
-el1_sync_nest_skip:
 	mrs	x1, esr_el1			// read the syndrome register
 	lsr	x24, x1, #ESR_ELx_EC_SHIFT	// exception class
 	cmp	x24, #ESR_ELx_EC_DABT_CUR	// data abort in EL1
@@ -530,14 +533,6 @@ el1_da:
 	clear_address_tag x0, x3
 	mov	x2, sp				// struct pt_regs
 	bl	do_mem_abort
-	cmp	x24, #ESR_ELx_EC_DABT_CUR	// data abort in EL1
-	b.eq	el1_da_nest_skip_dec
-	mov	x5, sp
-	get_thread_info x20	// top of stack
-	ldr	w4, [x20, #TI_CPU_EXCP]
-	sub	w4, w4, #0x1
-	str	w4, [x20, #TI_CPU_EXCP]
-el1_da_nest_skip_dec:
 
 	// disable interrupts before pulling preserved data off the stack
 	disable_irq
@@ -567,12 +562,6 @@ el1_dbg:
 	mrs	x0, far_el1
 	mov	x2, sp				// struct pt_regs
 	bl	do_debug_exception
-	mov	x5, sp
-	get_thread_info x20	// top of stack
-	ldr	w4, [x20, #TI_CPU_EXCP]
-	sub	w4, w4, #0x1
-	str	w4, [x20, #TI_CPU_EXCP]
-
 	kernel_exit 1
 el1_inv:
 	// TODO: add support for undefined instructions in kernel mode
@@ -667,9 +656,9 @@ el0_sync_compat:
 	cmp	x24, #ESR_ELx_EC_UNKNOWN	// unknown exception in EL0
 	b.eq	el0_undef
 	cmp	x24, #ESR_ELx_EC_CP15_32	// CP15 MRC/MCR trap
-	b.eq	el0_undef
+	b.eq	el0_cp15_32_compat
 	cmp	x24, #ESR_ELx_EC_CP15_64	// CP15 MRRC/MCRR trap
-	b.eq	el0_undef
+	b.eq	el0_cp15_64_compat
 	cmp	x24, #ESR_ELx_EC_CP14_MR	// CP14 MRC/MCR trap
 	b.eq	el0_undef
 	cmp	x24, #ESR_ELx_EC_CP14_LS	// CP14 LDC/STC trap
@@ -687,6 +676,28 @@ el0_svc_compat:
 	uxtw	scno, w7			// syscall number in w7 (r7)
 	mov     sc_nr, #__NR_compat_syscalls
 	b	el0_svc_naked
+
+el0_cp15_32_compat:
+	/*
+	 * AArch32 CP15 MRC/MCR trap handling
+	 */
+	enable_dbg_and_irq
+	ct_user_exit
+	mov	x0, x25
+	mov	x1, sp
+	bl	do_cp15_32_instr_compat
+	b	ret_to_user
+
+el0_cp15_64_compat:
+	/*
+	 * AArch32 CP15 MRRC/MCRR trap handling
+	 */
+	enable_dbg_and_irq
+	ct_user_exit
+	mov	x0, x25
+	mov	x1, sp
+	bl	do_cp15_64_instr_compat
+	b	ret_to_user
 
 	.align	6
 el0_irq_compat:

@@ -40,10 +40,7 @@ static void __init l1tf_select_mitigation(void);
 static void __init mds_select_mitigation(void);
 static void __init mds_print_mitigation(void);
 static void __init taa_select_mitigation(void);
-<<<<<<< HEAD
-=======
 static void __init srbds_select_mitigation(void);
->>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 
 /* The base value of the SPEC_CTRL MSR that always has to be preserved. */
 u64 x86_spec_ctrl_base;
@@ -111,10 +108,7 @@ void __init check_bugs(void)
 	l1tf_select_mitigation();
 	mds_select_mitigation();
 	taa_select_mitigation();
-<<<<<<< HEAD
-=======
 	srbds_select_mitigation();
->>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 
 	/*
 	 * As MDS and TAA mitigations are inter-related, print MDS
@@ -398,8 +392,6 @@ static int __init tsx_async_abort_parse_cmdline(char *str)
 early_param("tsx_async_abort", tsx_async_abort_parse_cmdline);
 
 #undef pr_fmt
-<<<<<<< HEAD
-=======
 #define pr_fmt(fmt)	"SRBDS: " fmt
 
 enum srbds_mitigations {
@@ -491,7 +483,6 @@ static int __init srbds_parse_cmdline(char *str)
 early_param("srbds", srbds_parse_cmdline);
 
 #undef pr_fmt
->>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 #define pr_fmt(fmt)     "Spectre V1 : " fmt
 
 enum spectre_v1_mitigation {
@@ -1695,12 +1686,9 @@ static ssize_t cpu_show_common(struct device *dev, struct device_attribute *attr
 	case X86_BUG_ITLB_MULTIHIT:
 		return itlb_multihit_show_state(buf);
 
-<<<<<<< HEAD
-=======
 	case X86_BUG_SRBDS:
 		return srbds_show_state(buf);
 
->>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 	default:
 		break;
 	}
@@ -1747,12 +1735,9 @@ ssize_t cpu_show_itlb_multihit(struct device *dev, struct device_attribute *attr
 {
 	return cpu_show_common(dev, attr, buf, X86_BUG_ITLB_MULTIHIT);
 }
-<<<<<<< HEAD
-=======
 
 ssize_t cpu_show_srbds(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	return cpu_show_common(dev, attr, buf, X86_BUG_SRBDS);
 }
->>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 #endif

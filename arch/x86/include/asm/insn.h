@@ -208,8 +208,6 @@ static inline int insn_offset_immediate(struct insn *insn)
 	return insn_offset_displacement(insn) + insn->displacement.nbytes;
 }
 
-<<<<<<< HEAD
-=======
 /**
  * for_each_insn_prefix() -- Iterate prefixes in the instruction
  * @insn: Pointer to struct insn.
@@ -225,7 +223,6 @@ static inline int insn_offset_immediate(struct insn *insn)
 #define for_each_insn_prefix(insn, idx, prefix)	\
 	for (idx = 0; idx < ARRAY_SIZE(insn->prefixes.bytes) && (prefix = insn->prefixes.bytes[idx]) != 0; idx++)
 
->>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 #define POP_SS_OPCODE 0x1f
 #define MOV_SREG_OPCODE 0x8e
 

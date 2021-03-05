@@ -11350,25 +11350,11 @@ static int vmx_check_intercept(struct kvm_vcpu *vcpu,
 	struct vmcs12 *vmcs12 = get_vmcs12(vcpu);
 	struct x86_emulate_ctxt *ctxt = &vcpu->arch.emulate_ctxt;
 
-<<<<<<< HEAD
-=======
 	switch (info->intercept) {
->>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 	/*
 	 * RDPID causes #UD if disabled through secondary execution controls.
 	 * Because it is marked as EmulateOnUD, we need to intercept it here.
 	 */
-<<<<<<< HEAD
-	if (info->intercept == x86_intercept_rdtscp &&
-	    !nested_cpu_has2(vmcs12, SECONDARY_EXEC_RDTSCP)) {
-		ctxt->exception.vector = UD_VECTOR;
-		ctxt->exception.error_code_valid = false;
-		return X86EMUL_PROPAGATE_FAULT;
-	}
-
-	/* TODO: check more intercepts... */
-	return X86EMUL_CONTINUE;
-=======
 	case x86_intercept_rdtscp:
 		if (!nested_cpu_has2(vmcs12, SECONDARY_EXEC_RDTSCP)) {
 			ctxt->exception.vector = UD_VECTOR;
@@ -11389,7 +11375,6 @@ static int vmx_check_intercept(struct kvm_vcpu *vcpu,
 	}
 
 	return X86EMUL_UNHANDLEABLE;
->>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 }
 
 #ifdef CONFIG_X86_64
