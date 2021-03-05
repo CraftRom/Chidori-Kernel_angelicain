@@ -58,10 +58,7 @@ struct vdso_data *vdso_data = &vdso_data_store.data;
 /*
  * Create and map the vectors page for AArch32 tasks.
  */
-<<<<<<< HEAD
 #if !defined(CONFIG_VDSO32) || defined(CONFIG_KUSER_HELPERS)
-=======
->>>>>>> 49a120110b98... FROMLIST: [PATCH v3 1/3] arm64: compat: Split the sigreturn trampolines and kuser helpers (C sources)
 static struct page *vectors_page[] __ro_after_init;
 static const struct vm_special_mapping compat_vdso_spec[] = {
 	{
@@ -69,23 +66,15 @@ static const struct vm_special_mapping compat_vdso_spec[] = {
 		.name	= "[sigpage]",
 		.pages	= &vectors_page[0],
 	},
-<<<<<<< HEAD
 #ifdef CONFIG_KUSER_HELPERS
-=======
->>>>>>> 49a120110b98... FROMLIST: [PATCH v3 1/3] arm64: compat: Split the sigreturn trampolines and kuser helpers (C sources)
 	{
 		.name	= "[kuserhelpers]",
 		.pages	= &vectors_page[1],
 	},
-<<<<<<< HEAD
 #endif
 };
 static struct page *vectors_page[ARRAY_SIZE(compat_vdso_spec)] __ro_after_init;
 #endif
-=======
-};
-static struct page *vectors_page[ARRAY_SIZE(compat_vdso_spec)] __ro_after_init;
->>>>>>> 49a120110b98... FROMLIST: [PATCH v3 1/3] arm64: compat: Split the sigreturn trampolines and kuser helpers (C sources)
 
 static int __init alloc_vectors_page(void)
 {
@@ -93,13 +82,9 @@ static int __init alloc_vectors_page(void)
 	extern char __kuser_helper_start[], __kuser_helper_end[];
 	size_t kuser_sz = __kuser_helper_end - __kuser_helper_start;
 	unsigned long kuser_vpage;
-<<<<<<< HEAD
 #endif
 
 #ifndef CONFIG_VDSO32
-=======
-
->>>>>>> 49a120110b98... FROMLIST: [PATCH v3 1/3] arm64: compat: Split the sigreturn trampolines and kuser helpers (C sources)
 	extern char __aarch32_sigret_code_start[], __aarch32_sigret_code_end[];
 	size_t sigret_sz =
 		__aarch32_sigret_code_end - __aarch32_sigret_code_start;
@@ -120,36 +105,20 @@ static int __init alloc_vectors_page(void)
 	}
 #endif
 
-<<<<<<< HEAD
 #ifndef CONFIG_VDSO32
-=======
-	kuser_vpage = get_zeroed_page(GFP_ATOMIC);
-	if (!kuser_vpage) {
-		free_page(sigret_vpage);
-		return -ENOMEM;
-	}
-
->>>>>>> 49a120110b98... FROMLIST: [PATCH v3 1/3] arm64: compat: Split the sigreturn trampolines and kuser helpers (C sources)
 	/* sigreturn code */
 	memcpy((void *)sigret_vpage, __aarch32_sigret_code_start, sigret_sz);
 	flush_icache_range(sigret_vpage, sigret_vpage + PAGE_SIZE);
 	vectors_page[0] = virt_to_page(sigret_vpage);
-<<<<<<< HEAD
 #endif
 
 #ifdef CONFIG_KUSER_HELPERS
-=======
-
->>>>>>> 49a120110b98... FROMLIST: [PATCH v3 1/3] arm64: compat: Split the sigreturn trampolines and kuser helpers (C sources)
 	/* kuser helpers */
 	memcpy((void *)kuser_vpage + 0x1000 - kuser_sz, __kuser_helper_start,
 		kuser_sz);
 	flush_icache_range(kuser_vpage, kuser_vpage + PAGE_SIZE);
 	vectors_page[1] = virt_to_page(kuser_vpage);
-<<<<<<< HEAD
 #endif
-=======
->>>>>>> 49a120110b98... FROMLIST: [PATCH v3 1/3] arm64: compat: Split the sigreturn trampolines and kuser helpers (C sources)
 
 	return 0;
 }
@@ -176,25 +145,16 @@ int aarch32_setup_vectors_page(struct linux_binprm *bprm, int uses_interp)
 				       &compat_vdso_spec[0]);
 	if (IS_ERR(ret))
 		goto out;
-<<<<<<< HEAD
 
 	current->mm->context.vdso = (void *)addr;
 
 #ifdef CONFIG_KUSER_HELPERS
-=======
-
-	current->mm->context.vdso = (void *)addr;
-
->>>>>>> 49a120110b98... FROMLIST: [PATCH v3 1/3] arm64: compat: Split the sigreturn trampolines and kuser helpers (C sources)
 	/* Map the kuser helpers at the ABI-defined high address. */
 	ret = _install_special_mapping(mm, AARCH32_KUSER_HELPERS_BASE,
 				       PAGE_SIZE,
 				       VM_READ|VM_EXEC|VM_MAYREAD|VM_MAYEXEC,
 				       &compat_vdso_spec[1]);
-<<<<<<< HEAD
 #endif
-=======
->>>>>>> 49a120110b98... FROMLIST: [PATCH v3 1/3] arm64: compat: Split the sigreturn trampolines and kuser helpers (C sources)
 out:
 	up_write(&mm->mmap_sem);
 
