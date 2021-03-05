@@ -300,6 +300,12 @@ EXPORT_SYMBOL(sysctl_tcp_wmem);
 atomic_long_t tcp_memory_allocated;	/* Current allocated memory. */
 EXPORT_SYMBOL(tcp_memory_allocated);
 
+int sysctl_tcp_delack_seg __read_mostly = TCP_DELACK_SEG;
+EXPORT_SYMBOL(sysctl_tcp_delack_seg);
+
+int sysctl_tcp_use_userconfig __read_mostly;
+EXPORT_SYMBOL(sysctl_tcp_use_userconfig);
+
 /*
  * Current number of TCP sockets.
  */
@@ -671,9 +677,9 @@ static void tcp_push(struct sock *sk, int flags, int mss_now,
 	if (tcp_should_autocork(sk, skb, size_goal)) {
 
 		/* avoid atomic op if TSQ_THROTTLED bit is already set */
-		if (!test_bit(TSQ_THROTTLED, &tp->tsq_flags)) {
+		if (!test_bit(TSQ_THROTTLED, &sk->sk_tsq_flags)) {
 			NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPAUTOCORKING);
-			set_bit(TSQ_THROTTLED, &tp->tsq_flags);
+			set_bit(TSQ_THROTTLED, &sk->sk_tsq_flags);
 		}
 		/* It is possible TX completion already happened
 		 * before we set TSQ_THROTTLED.
@@ -1463,8 +1469,11 @@ static void tcp_cleanup_rbuf(struct sock *sk, int copied)
 		   /* Delayed ACKs frequently hit locked sockets during bulk
 		    * receive. */
 		if (icsk->icsk_ack.blocked ||
-		    /* Once-per-two-segments ACK was not sent by tcp_input.c */
-		    tp->rcv_nxt - tp->rcv_wup > icsk->icsk_ack.rcv_mss ||
+		/* Once-per-sysctl_tcp_delack_seg segments
+		 * ACK was not sent by tcp_input.c
+		 */
+		    tp->rcv_nxt - tp->rcv_wup > (icsk->icsk_ack.rcv_mss) *
+						sysctl_tcp_delack_seg ||
 		    /*
 		     * If this read emptied read buffer, we send ACK, if
 		     * connection is not bidirectional, user drained
@@ -2322,7 +2331,6 @@ int tcp_disconnect(struct sock *sk, int flags)
 	tp->snd_cwnd_cnt = 0;
 	tp->window_clamp = 0;
 	tp->delivered = 0;
-
 	if (icsk->icsk_ca_ops->release)
 		icsk->icsk_ca_ops->release(sk);
 	memset(icsk->icsk_ca_priv, 0, sizeof(icsk->icsk_ca_priv));
@@ -2347,6 +2355,10 @@ int tcp_disconnect(struct sock *sk, int flags)
 	tp->bytes_received = 0;
 	tp->data_segs_in = 0;
 	tp->data_segs_out = 0;
+
+	/* Clean up fastopen related fields */
+	tcp_free_fastopen_req(tp);
+	inet->defer_connect = 0;
 
 	WARN_ON(inet->inet_num && !icsk->icsk_bind_hash);
 

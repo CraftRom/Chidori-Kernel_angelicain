@@ -21,6 +21,7 @@
 #include <linux/writeback.h>
 #include <linux/frontswap.h>
 #include <linux/blkdev.h>
+#include <linux/psi.h>
 #include <linux/uio.h>
 #include <asm/pgtable.h>
 
@@ -56,7 +57,7 @@ void end_swap_bio_write(struct bio *bio)
 		 * Also clear PG_reclaim to avoid rotate_reclaimable_page()
 		 */
 		set_page_dirty(page);
-		pr_alert("Write-error on swap-device (%u:%u:%llu)\n",
+		pr_alert_ratelimited("Write-error on swap-device (%u:%u:%llu)\n",
 			 imajor(bio->bi_bdev->bd_inode),
 			 iminor(bio->bi_bdev->bd_inode),
 			 (unsigned long long)bio->bi_iter.bi_sector);
@@ -284,7 +285,6 @@ int __swap_writepage(struct page *page, struct writeback_control *wbc,
 		unlock_page(page);
 		ret = mapping->a_ops->direct_IO(&kiocb, &from);
 		if (ret == PAGE_SIZE) {
-			current->swap_out++;
 			count_vm_event(PSWPOUT);
 			ret = 0;
 		} else {
@@ -309,7 +309,6 @@ int __swap_writepage(struct page *page, struct writeback_control *wbc,
 
 	ret = bdev_write_page(sis->bdev, swap_page_sector(page), page, wbc);
 	if (!ret) {
-		current->swap_out++;
 		count_vm_event(PSWPOUT);
 		return 0;
 	}
@@ -326,8 +325,6 @@ int __swap_writepage(struct page *page, struct writeback_control *wbc,
 		bio_set_op_attrs(bio, REQ_OP_WRITE, REQ_SYNC);
 	else
 		bio_set_op_attrs(bio, REQ_OP_WRITE, 0);
-
-	current->swap_out++;
 	count_vm_event(PSWPOUT);
 	set_page_writeback(page);
 	unlock_page(page);
@@ -341,10 +338,19 @@ int swap_readpage(struct page *page)
 	struct bio *bio;
 	int ret = 0;
 	struct swap_info_struct *sis = page_swap_info(page);
+	unsigned long pflags;
 
 	VM_BUG_ON_PAGE(!PageSwapCache(page), page);
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
 	VM_BUG_ON_PAGE(PageUptodate(page), page);
+
+	/*
+	 * Count submission time as memory stall. When the device is congested,
+	 * or the submitting cgroup IO-throttled, submission can be a
+	 * significant part of overall IO time.
+	 */
+	psi_memstall_enter(&pflags);
+
 	if (frontswap_load(page) == 0) {
 		SetPageUptodate(page);
 		unlock_page(page);
@@ -358,7 +364,7 @@ int swap_readpage(struct page *page)
 		ret = mapping->a_ops->readpage(swap_file, page);
 		if (!ret)
 			count_vm_event(PSWPIN);
-		return ret;
+		goto out;
 	}
 
 	ret = bdev_read_page(sis->bdev, swap_page_sector(page), page);
@@ -369,7 +375,7 @@ int swap_readpage(struct page *page)
 		}
 
 		count_vm_event(PSWPIN);
-		return 0;
+		goto out;
 	}
 
 	ret = 0;
@@ -383,6 +389,7 @@ int swap_readpage(struct page *page)
 	count_vm_event(PSWPIN);
 	submit_bio(bio);
 out:
+	psi_memstall_leave(&pflags);
 	return ret;
 }
 

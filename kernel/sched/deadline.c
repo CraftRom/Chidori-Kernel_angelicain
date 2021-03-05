@@ -15,10 +15,9 @@
  *                    Fabio Checconi <fchecconi@gmail.com>
  */
 #include "sched.h"
+#include "walt.h"
 
 #include <linux/slab.h>
-
-#include "walt.h"
 
 struct dl_bandwidth def_dl_bandwidth;
 
@@ -1140,7 +1139,8 @@ static void yield_task_dl(struct rq *rq)
 static int find_later_rq(struct task_struct *task);
 
 static int
-select_task_rq_dl(struct task_struct *p, int cpu, int sd_flag, int flags)
+select_task_rq_dl(struct task_struct *p, int cpu, int sd_flag, int flags,
+		  int sibling_count_hint)
 {
 	struct task_struct *curr;
 	struct rq *rq;
@@ -1631,11 +1631,11 @@ retry:
 		goto retry;
 	}
 
-	deactivate_task(rq, next_task, 0);
 	next_task->on_rq = TASK_ON_RQ_MIGRATING;
+	deactivate_task(rq, next_task, 0);
 	set_task_cpu(next_task, later_rq->cpu);
-	next_task->on_rq = TASK_ON_RQ_QUEUED;
 	activate_task(later_rq, next_task, 0);
+	next_task->on_rq = TASK_ON_RQ_QUEUED;
 	ret = 1;
 
 	resched_curr(later_rq);
@@ -1721,11 +1721,11 @@ static void pull_dl_task(struct rq *this_rq)
 
 			resched = true;
 
-			deactivate_task(src_rq, p, 0);
 			p->on_rq = TASK_ON_RQ_MIGRATING;
+			deactivate_task(src_rq, p, 0);
 			set_task_cpu(p, this_cpu);
-			p->on_rq = TASK_ON_RQ_QUEUED;
 			activate_task(this_rq, p, 0);
+			p->on_rq = TASK_ON_RQ_QUEUED;
 			dmin = p->dl.deadline;
 
 			/* Is there any other task even earlier? */
@@ -1937,6 +1937,10 @@ const struct sched_class dl_sched_class = {
 	.switched_to		= switched_to_dl,
 
 	.update_curr		= update_curr_dl,
+#ifdef CONFIG_SCHED_WALT
+	.fixup_walt_sched_stats	= fixup_walt_sched_stats_common,
+	.fixup_cumulative_runnable_avg = walt_fixup_cumulative_runnable_avg,
+#endif
 };
 
 #ifdef CONFIG_SCHED_DEBUG

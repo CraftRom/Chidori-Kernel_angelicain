@@ -25,7 +25,6 @@
 #include <linux/posix-timers.h>
 #include <linux/workqueue.h>
 #include <linux/freezer.h>
-#include <linux/ratelimit.h>
 
 /**
  * struct alarm_base - Alarm timer bases
@@ -53,6 +52,18 @@ static struct rtc_timer		rtctimer;
 static struct rtc_device	*rtcdev;
 static DEFINE_SPINLOCK(rtcdev_lock);
 
+static void alarmtimer_triggered_func(void *p)
+{
+	struct rtc_device *rtc = rtcdev;
+
+	if (!(rtc->irq_data & RTC_AF))
+		return;
+	__pm_wakeup_event(ws, 2 * MSEC_PER_SEC);
+}
+
+static struct rtc_task alarmtimer_rtc_task = {
+	.func = alarmtimer_triggered_func
+};
 /**
  * alarmtimer_get_rtcdev - Return selected rtcdevice
  *
@@ -63,7 +74,7 @@ static DEFINE_SPINLOCK(rtcdev_lock);
 struct rtc_device *alarmtimer_get_rtcdev(void)
 {
 	unsigned long flags;
-	struct rtc_device *ret;
+	struct rtc_device *ret = NULL;
 
 	spin_lock_irqsave(&rtcdev_lock, flags);
 	ret = rtcdev;
@@ -77,24 +88,36 @@ static int alarmtimer_rtc_add_device(struct device *dev,
 				struct class_interface *class_intf)
 {
 	unsigned long flags;
+	int err = 0;
 	struct rtc_device *rtc = to_rtc_device(dev);
-
 	if (rtcdev)
 		return -EBUSY;
-
 	if (!rtc->ops->set_alarm)
-		return -1;
-	if (!device_may_wakeup(rtc->dev.parent))
 		return -1;
 
 	spin_lock_irqsave(&rtcdev_lock, flags);
 	if (!rtcdev) {
+		err = rtc_irq_register(rtc, &alarmtimer_rtc_task);
+		if (err)
+			goto rtc_irq_reg_err;
 		rtcdev = rtc;
 		/* hold a reference so it doesn't go away */
 		get_device(dev);
 	}
+
+rtc_irq_reg_err:
 	spin_unlock_irqrestore(&rtcdev_lock, flags);
-	return 0;
+	return err;
+
+}
+
+static void alarmtimer_rtc_remove_device(struct device *dev,
+				struct class_interface *class_intf)
+{
+	if (rtcdev && dev == &rtcdev->dev) {
+		rtc_irq_unregister(rtcdev, &alarmtimer_rtc_task);
+		rtcdev = NULL;
+	}
 }
 
 static inline void alarmtimer_rtc_timer_init(void)
@@ -104,6 +127,7 @@ static inline void alarmtimer_rtc_timer_init(void)
 
 static struct class_interface alarmtimer_rtc_interface = {
 	.add_dev = &alarmtimer_rtc_add_device,
+	.remove_dev = &alarmtimer_rtc_remove_device,
 };
 
 static int alarmtimer_rtc_interface_setup(void)
@@ -137,15 +161,8 @@ static inline void alarmtimer_rtc_timer_init(void) { }
  */
 static void alarmtimer_enqueue(struct alarm_base *base, struct alarm *alarm)
 {
-	static DEFINE_RATELIMIT_STATE(ratelimit, HZ - 1, 5);
-
 	if (alarm->state & ALARMTIMER_STATE_ENQUEUED)
 		timerqueue_del(&base->timerqueue, &alarm->node);
-
-	if (__ratelimit(&ratelimit)) {
-		ratelimit.begin = jiffies;
-		pr_notice("%s, %lld\n", __func__, alarm->node.expires.tv64);
-	}
 
 	timerqueue_add(&base->timerqueue, &alarm->node);
 	alarm->state |= ALARMTIMER_STATE_ENQUEUED;
@@ -226,8 +243,8 @@ EXPORT_SYMBOL_GPL(alarm_expires_remaining);
  */
 static int alarmtimer_suspend(struct device *dev)
 {
-	struct rtc_time tm, time;
-	ktime_t min, now, temp;
+	struct rtc_time tm;
+	ktime_t min, now;
 	unsigned long flags;
 	struct rtc_device *rtc;
 	int i;
@@ -255,10 +272,8 @@ static int alarmtimer_suspend(struct device *dev)
 		if (!next)
 			continue;
 		delta = ktime_sub(next->expires, base->gettime());
-		if (!min.tv64 || (delta.tv64 < min.tv64)) {
+		if (!min.tv64 || (delta.tv64 < min.tv64))
 			min = delta;
-			temp = next->expires;
-		}
 	}
 	if (min.tv64 == 0)
 		return 0;
@@ -273,14 +288,6 @@ static int alarmtimer_suspend(struct device *dev)
 	rtc_read_time(rtc, &tm);
 	now = rtc_tm_to_ktime(tm);
 	now = ktime_add(now, min);
-
-	time = rtc_ktime_to_tm(now);
-	pr_notice_ratelimited("%s convert %lld to %04d/%02d/%02d %02d:%02d:%02d (now = %04d/%02d/%02d %02d:%02d:%02d)\n",
-			__func__, temp.tv64,
-			time.tm_year+1900, time.tm_mon+1, time.tm_mday,
-			time.tm_hour, time.tm_min, time.tm_sec,
-			tm.tm_year+1900, tm.tm_mon+1, tm.tm_mday,
-			tm.tm_hour, tm.tm_min, tm.tm_sec);
 
 	/* Set alarm, if in the past reject suspend briefly to handle */
 	ret = rtc_timer_start(rtc, &rtctimer, now, ktime_set(0, 0));
@@ -341,6 +348,10 @@ void alarm_init(struct alarm *alarm, enum alarmtimer_type type,
 	alarm->timer.function = alarmtimer_fired;
 	alarm->function = function;
 	alarm->type = type;
+	if (type >= ALARM_NUMTYPE) {
+		/* use ALARM_BOOTTIME as the default */
+		alarm->type = ALARM_BOOTTIME;
+	}
 	alarm->state = ALARMTIMER_STATE_INACTIVE;
 }
 EXPORT_SYMBOL_GPL(alarm_init);

@@ -498,12 +498,8 @@ static int usblp_release(struct inode *inode, struct file *file)
 	usb_autopm_put_interface(usblp->intf);
 
 	if (!usblp->present)		/* finish cleanup from disconnect */
-<<<<<<< HEAD
-		usblp_cleanup(usblp);
-=======
 		usblp_cleanup(usblp);	/* any URBs must be dead */
 
->>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 	mutex_unlock(&usblp_mutex);
 	return 0;
 }

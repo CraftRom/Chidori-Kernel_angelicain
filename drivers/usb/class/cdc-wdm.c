@@ -632,24 +632,6 @@ static int wdm_wait_for_response(struct file *file, long timeout)
 
 	return usb_translate_errors(rv);
 
-<<<<<<< HEAD
-	wait_event(desc->wait,
-			/*
-			 * needs both flags. We cannot do with one
-			 * because resetting it would cause a race
-			 * with write() yet we need to signal
-			 * a disconnect
-			 */
-			!test_bit(WDM_IN_USE, &desc->flags) ||
-			test_bit(WDM_DISCONNECTING, &desc->flags));
-
-	/* cannot dereference desc->intf if WDM_DISCONNECTING */
-	if (test_bit(WDM_DISCONNECTING, &desc->flags))
-		return -ENODEV;
-	if (desc->werr < 0)
-		dev_err(&desc->intf->dev, "Error in flush path: %d\n",
-			desc->werr);
-=======
 }
 
 /*
@@ -661,7 +643,6 @@ static int wdm_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 {
 	return wdm_wait_for_response(file, MAX_SCHEDULE_TIMEOUT);
 }
->>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 
 /*
  * Same with wdm_fsync(), except it uses finite timeout in order to react to

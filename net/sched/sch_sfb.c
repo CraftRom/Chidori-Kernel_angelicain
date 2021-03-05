@@ -2,7 +2,6 @@
  * net/sched/sch_sfb.c	  Stochastic Fair Blue
  *
  * Copyright (c) 2008-2011 Juliusz Chroboczek <jch@pps.jussieu.fr>
- * Copyright (C) 2021 XiaoMi, Inc.
  * Copyright (c) 2011 Eric Dumazet <eric.dumazet@gmail.com>
  *
  * This program is free software; you can redistribute it and/or

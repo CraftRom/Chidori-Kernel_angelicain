@@ -16,6 +16,9 @@ config DEFCONFIG_LIST
 	default "$ARCH_DEFCONFIG"
 	default "arch/$ARCH/defconfig"
 
+config TOOLS_SUPPORT_RELR
+	bool "Declare tool support for RELR"
+
 config CONSTRUCTORS
 	bool
 	depends on !UML
@@ -312,15 +315,20 @@ config AUDIT
 	help
 	  Enable auditing infrastructure that can be used with another
 	  kernel subsystem, such as SELinux (which requires this for
-	  logging of avc messages output).  System call auditing is included
-	  on architectures which support it.
+	  logging of avc messages output). Does not do system-call
+	  auditing without CONFIG_AUDITSYSCALL.
 
 config HAVE_ARCH_AUDITSYSCALL
 	bool
 
 config AUDITSYSCALL
-	def_bool y
+	bool "Enable system-call auditing support"
 	depends on AUDIT && HAVE_ARCH_AUDITSYSCALL
+	default y if SECURITY_SELINUX
+	help
+	  Enable low-overhead system-call auditing infrastructure that
+	  can be used independently or with another kernel subsystem,
+	  such as SELinux.
 
 config AUDIT_WATCH
 	def_bool y
@@ -829,19 +837,6 @@ config RCU_NOCB_CPU_ALL
 
 endchoice
 
-config RCU_EXPEDITE_BOOT
-	bool
-	default n
-	help
-	  This option enables expedited grace periods at boot time,
-	  as if rcu_expedite_gp() had been invoked early in boot.
-	  The corresponding rcu_unexpedite_gp() is invoked from
-	  rcu_end_inkernel_boot(), which is intended to be invoked
-	  at the end of the kernel-only boot sequence, just before
-	  init is exec'ed.
-
-	  Accept the default if unsure.
-
 endmenu # "RCU Subsystem"
 
 config BUILD_BIN2C
@@ -868,6 +863,15 @@ config IKCONFIG_PROC
 	  This option enables access to the kernel configuration file
 	  through /proc/config.gz.
 
+config IKHEADERS
+	tristate "Enable kernel headers through /sys/kernel/kheaders.tar.xz"
+	depends on SYSFS
+	help
+	  This option enables access to the in-kernel headers that are generated during
+	  the build process. These can be used to build eBPF tracing programs,
+	  or similar programs.  If you build the headers as a module, a module called
+	  kheaders.ko is built which can be loaded on-demand to get access to headers.
+
 config LOG_BUF_SHIFT
 	int "Kernel log buffer size (16 => 64KB, 17 => 128KB)"
 	range 12 25 if !H8300
@@ -887,6 +891,16 @@ config LOG_BUF_SHIFT
 		     14 => 16 KB
 		     13 =>  8 KB
 		     12 =>  4 KB
+
+config CONSOLE_FLUSH_ON_HOTPLUG
+	bool "Enable console flush configurable in hot plug code path"
+	depends on HOTPLUG_CPU
+	def_bool n
+	help
+	In cpu hot plug path console lock acquire and release causes the
+	console to flush. If console lock is not free hot plug latency
+	increases. So make console flush configurable in hot plug path
+	and default disabled to help in cpu hot plug latencies.
 
 config LOG_CPU_MAX_BUF_SHIFT
 	int "CPU kernel log buffer size contribution (13 => 8 KB, 17 => 128KB)"
@@ -955,46 +969,6 @@ config HAVE_UNSTABLE_SCHED_CLOCK
 config GENERIC_SCHED_CLOCK
 	bool
 
-menu "Scheduler features"
-
-config UCLAMP_TASK
-	bool "Enable utilization clamping for RT/FAIR tasks"
-	default false
-	help
-	  This feature enables the scheduler to track the clamped utilization
-	  of each CPU based on RUNNABLE tasks currently scheduled on that CPU.
-
-	  When this option is enabled, the user can specify a min and max CPU
-          bandwidth which is allowed for a task.
-	  The max bandwidth allows to clamp the maximum frequency a task can
-	  use, while the min bandwidth allows to define a minimum frequency a
-          task will always use.
-
-	  If in doubt, say N.
-
-config UCLAMP_GROUPS_COUNT
-	int "Number of different utilization clamp values supported"
-	range 0 127
-	default 2
-	depends on UCLAMP_TASK
-	help
-	  This defines the maximum number of different utilization clamp
-	  values which can be concurrently enforced for each utilization
-	  clamp index (i.e. minimum and maximum utilization).
-
-	  Only a limited number of clamp values are supported because:
-	    1. there are usually only few classes of workloads for which it
-	       makes sense to boost/cap for different frequencies,
-	       e.g. background vs foreground, interactive vs low-priority.
-	    2. it allows a simpler and more memory/time efficient tracking of
-	       the per-CPU clamp values.
-
-	  Set to 0 (default value) to disable the utilization clamping feature.
-
-	  If in doubt, use the default value.
-
-endmenu
-
 #
 # For architectures that want to enable the support for NUMA-affine scheduler
 # balancing logic:
@@ -1059,104 +1033,6 @@ menuconfig CGROUPS
 	  Say N if unsure.
 
 if CGROUPS
-
-config CGROUP_DEBUG
-	bool "Example debug cgroup subsystem"
-	default n
-	help
-	  This option enables a simple cgroup subsystem that
-	  exports useful debugging information about the cgroups
-	  framework.
-
-	  Say N if unsure.
-
-config CGROUP_FREEZER
-	bool "Freezer cgroup subsystem"
-	help
-	  Provides a way to freeze and unfreeze all tasks in a
-	  cgroup.
-
-config UCLAMP_TASK_GROUP
-	bool "Utilization clamping per group of tasks"
-	depends on CGROUP_SCHED
-	depends on UCLAMP_TASK
-	default n
-	help
-	  This feature enables the scheduler to track the clamped utilization
-	  of each CPU based on RUNNABLE tasks currently scheduled on that CPU.
-
-	  When this option is enabled, the user can specify a min and max
-	  CPU bandwidth which is allowed for each single task in a group.
-	  The max bandwidth allows to clamp the maximum frequency a task
-	  can use, while the min bandwidth allows to define a minimum
-	  frequency a task will always use.
-
-	  When task group based utilization clamping is enabled, an eventually
-          specified task-specific clamp value is constrained by the cgroup
-	  specified clamp value. Both minimum and maximum task clamping cannot
-          be bigger than the corresponding clamping defined at task group level.
-
-	  If in doubt, say N.
-
-config CGROUP_PIDS
-	bool "PIDs cgroup subsystem"
-	help
-	  Provides enforcement of process number limits in the scope of a
-	  cgroup. Any attempt to fork more processes than is allowed in the
-	  cgroup will fail. PIDs are fundamentally a global resource because it
-	  is fairly trivial to reach PID exhaustion before you reach even a
-	  conservative kmemcg limit. As a result, it is possible to grind a
-	  system to halt without being limited by other cgroup policies. The
-	  PIDs cgroup subsystem is designed to stop this from happening.
-
-	  It should be noted that organisational operations (such as attaching
-	  to a cgroup hierarchy will *not* be blocked by the PIDs subsystem),
-	  since the PIDs limit only affects a process's ability to fork, not to
-	  attach to a cgroup.
-
-config CGROUP_DEVICE
-	bool "Device controller for cgroups"
-	help
-	  Provides a cgroup implementing whitelists for devices which
-	  a process in the cgroup can mknod or open.
-
-config CPUSETS
-	bool "Cpuset support"
-	help
-	  This option will let you create and manage CPUSETs which
-	  allow dynamically partitioning a system into sets of CPUs and
-	  Memory Nodes and assigning tasks to run only within those sets.
-	  This is primarily useful on large SMP or NUMA systems.
-
-	  Say N if unsure.
-
-config PROC_PID_CPUSET
-	bool "Include legacy /proc/<pid>/cpuset file"
-	depends on CPUSETS
-	default y
-
-config CGROUP_CPUACCT
-	bool "Simple CPU accounting cgroup subsystem"
-	help
-	  Provides a simple Resource Controller for monitoring the
-	  total CPU consumed by the tasks in a cgroup.
-
-config CGROUP_SCHEDTUNE
-	bool "CFS tasks boosting cgroup subsystem (EXPERIMENTAL)"
-	depends on SCHED_TUNE
-	help
-	  This option provides the "schedtune" controller which improves the
-	  flexibility of the task boosting mechanism by introducing the support
-	  to define "per task" boost values.
-
-	  This new controller:
-	  1. allows only a two layers hierarchy, where the root defines the
-	     system-wide boost value and its direct childrens define each one a
-	     different "class of tasks" to be boosted with a different value
-	  2. supports up to 16 different task classes, each one which could be
-	     configured with a different boost value
-
-	  Say N if unsure.
 
 config PAGE_COUNTER
        bool
@@ -1230,6 +1106,23 @@ menuconfig CGROUP_SCHED
 	  This feature lets CPU scheduler recognize task groups and control CPU
 	  bandwidth allocation to such task groups. It uses cgroups to group
 	  tasks.
+
+config CGROUP_SCHEDTUNE
+	bool "CFS tasks boosting cgroup subsystem (EXPERIMENTAL)"
+	depends on SCHED_TUNE
+	help
+	  This option provides the "schedtune" controller which improves the
+	  flexibility of the task boosting mechanism by introducing the support
+	  to define "per task" boost values.
+
+	  This new controller:
+	  1. allows only a two layers hierarchy, where the root defines the
+	     system-wide boost value and its direct childrens define each one a
+	     different "class of tasks" to be boosted with a different value
+	  2. supports up to 16 different task classes, each one which could be
+	     configured with a different boost value
+
+	  Say N if unsure.
 
 if CGROUP_SCHED
 config FAIR_GROUP_SCHED
@@ -1369,6 +1262,26 @@ config SOCK_CGROUP_DATA
 
 endif # CGROUPS
 
+config SCHED_CORE_CTL
+	bool "QTI Core Control"
+	depends on SMP
+	help
+	  This options enables the core control functionality in
+	  the scheduler. Core control automatically offline and
+	  online cores based on cpu load and utilization.
+
+	  If unsure, say N here.
+
+config SCHED_CORE_ROTATE
+	bool "Scheduler core rotation"
+	depends on SMP
+	help
+	  This options enables the core rotation functionality in
+	  the scheduler. Scheduler with core rotation aims to utilize
+	  CPUs evenly.
+
+	  If unsure, say N here.
+
 config CHECKPOINT_RESTORE
 	bool "Checkpoint/restore support" if EXPERT
 	select PROC_CHILDREN
@@ -1479,6 +1392,15 @@ config SCHED_TUNE
 
 	  If unsure, say N.
 
+config DYNAMIC_STUNE_BOOST
+	bool "Dynamic SchedTune boosting support"
+	depends on SCHED_TUNE
+	help
+	  This option extends the SchedTune framework and provides APIs to
+	  activate and reset SchedTune boosting from anywhere in the kernel.
+
+	  If unsure, say N.
+
 config DEFAULT_USE_ENERGY_AWARE
 	bool "Default to enabling the Energy Aware Scheduler feature"
 	default n
@@ -1563,7 +1485,7 @@ endif
 
 choice
 	prompt "Compiler optimization level"
-	default CC_OPTIMIZE_FOR_SIZE if MTK_ENABLE_GMO
+	default CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE
 
 config CC_OPTIMIZE_FOR_PERFORMANCE
 	bool "Optimize for performance"
@@ -1582,10 +1504,34 @@ config CC_OPTIMIZE_FOR_SIZE
 
 endchoice
 
-config SYSCTL
+config HAVE_LD_DEAD_CODE_DATA_ELIMINATION
 	bool
+	help
+	  This requires that the arch annotates or otherwise protects
+	  its external entry points from being discarded. Linker scripts
+	  must also merge .text.*, .data.*, and .bss.* correctly into
+	  output sections. Care must be taken not to pull in unrelated
+	  sections (e.g., '.text.init'). Typically '.' in section names
+	  is used to distinguish them from label names / C identifiers.
 
-config ANON_INODES
+config LD_DEAD_CODE_DATA_ELIMINATION
+	bool "Dead code and data elimination (EXPERIMENTAL)"
+	depends on HAVE_LD_DEAD_CODE_DATA_ELIMINATION
+	depends on EXPERT
+	select LD_GOLD
+	help
+	  Enable this if you want to do dead code and data elimination with
+	  the linker by compiling with -ffunction-sections -fdata-sections,
+	  and linking with --gc-sections.
+
+	  This can reduce on disk and in-memory size of the kernel
+	  code and static data, particularly for small configs and
+	  on small systems. This has the possibility of introducing
+	  silently broken kernel if the required annotations are not
+	  present. This option is not well tested yet, so use at your
+	  own risk.
+
+config SYSCTL
 	bool
 
 config HAVE_UID16
@@ -1717,7 +1663,7 @@ config KALLSYMS_ABSOLUTE_PERCPU
 	default X86_64 && SMP
 
 config KALLSYMS_BASE_RELATIVE
-	bool "Enable KALLSYMS_BASE_RELATIVE or not"
+	bool
 	depends on KALLSYMS
 	default !IA64 && !(TILE && 64BIT)
 	help
@@ -1805,14 +1751,12 @@ config HAVE_FUTEX_CMPXCHG
 config EPOLL
 	bool "Enable eventpoll support" if EXPERT
 	default y
-	select ANON_INODES
 	help
 	  Disabling this option will cause the kernel to be built without
 	  support for epoll family of system calls.
 
 config SIGNALFD
 	bool "Enable signalfd() system call" if EXPERT
-	select ANON_INODES
 	default y
 	help
 	  Enable the signalfd() system call that allows to receive signals
@@ -1822,7 +1766,6 @@ config SIGNALFD
 
 config TIMERFD
 	bool "Enable timerfd() system call" if EXPERT
-	select ANON_INODES
 	default y
 	help
 	  Enable the timerfd() system call that allows to receive timer
@@ -1832,7 +1775,6 @@ config TIMERFD
 
 config EVENTFD
 	bool "Enable eventfd() system call" if EXPERT
-	select ANON_INODES
 	default y
 	help
 	  Enable the eventfd() system call that allows to receive both
@@ -1843,7 +1785,6 @@ config EVENTFD
 # syscall, maps, verifier
 config BPF_SYSCALL
 	bool "Enable bpf() system call"
-	select ANON_INODES
 	select BPF
 	default n
 	help
@@ -1888,7 +1829,6 @@ config ADVISE_SYSCALLS
 
 config USERFAULTFD
 	bool "Enable userfaultfd() system call"
-	select ANON_INODES
 	depends on MMU
 	help
 	  Enable the userfaultfd() system call that allows to intercept and
@@ -1940,7 +1880,6 @@ config PERF_EVENTS
 	bool "Kernel performance events and counters"
 	default y if PROFILING
 	depends on HAVE_PERF_EVENTS
-	select ANON_INODES
 	select IRQ_WORK
 	select SRCU
 	help
@@ -1965,6 +1904,16 @@ config PERF_EVENTS
 	  capabilities on top of those.
 
 	  Say Y if unsure.
+
+config PERF_USER_SHARE
+	bool "Perf event sharing with user-space"
+	help
+	  Say yes here to enable the user-space sharing of events. The events
+	  can be shared among other user-space events or with kernel created
+	  events that has the same config and type event attributes.
+
+	  Say N if unsure.
+
 
 config DEBUG_PERF_USE_VMALLOC
 	default n
@@ -1991,10 +1940,9 @@ config VM_EVENT_COUNTERS
 	  if VM event counters are disabled.
 
 config SLUB_DEBUG
-	default y
+	default n
 	bool "Enable SLUB debugging support" if EXPERT
 	depends on SLUB && SYSFS
-	depends on !MTK_ENABLE_AGO
 	help
 	  SLUB has extensive debug support features. Disabling these can
 	  result in significant savings in code size. This also disables
@@ -2146,7 +2094,6 @@ config HAVE_GENERIC_DMA_COHERENT
 config SLABINFO
 	bool
 	depends on PROC_FS
-	depends on !MTK_ENABLE_GMO
 	depends on SLAB || SLUB_DEBUG
 	default y
 

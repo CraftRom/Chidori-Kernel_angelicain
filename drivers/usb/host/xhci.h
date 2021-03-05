@@ -441,8 +441,8 @@ struct xhci_op_regs {
 #define PORT_L1_TIMEOUT(p)(((p) & 0xff) << 2)
 #define PORT_BESLD(p)(((p) & 0xf) << 10)
 
-/* use 512 microseconds as USB2 LPM L1 default timeout. */
-#define XHCI_L1_TIMEOUT		512
+/* use 128 microseconds as USB2 LPM L1 default timeout. */
+#define XHCI_L1_TIMEOUT		128
 
 /* Set default HIRD/BESL value to 4 (350/400us) for USB2 L1 LPM resume latency.
  * Safe to use with mixed HIRD and BESL systems (host and device) and is used
@@ -1360,9 +1360,6 @@ struct xhci_segment {
 	void			*bounce_buf;
 	unsigned int		bounce_offs;
 	unsigned int		bounce_len;
-#if IS_ENABLED(CONFIG_MTK_UAC_POWER_SAVING)
-	int sram_flag;
-#endif
 };
 
 struct xhci_td {
@@ -1514,8 +1511,7 @@ struct xhci_bus_state {
  * It can take up to 20 ms to transition from RExit to U0 on the
  * Intel Lynx Point LP xHCI host.
  */
-#define	XHCI_MAX_REXIT_TIMEOUT	(20 * 1000)
-#define XHCI_MAX_REXIT_TIMEOUT_MS 20
+#define	XHCI_MAX_REXIT_TIMEOUT_MS	20
 
 static inline unsigned int hcd_index(struct usb_hcd *hcd)
 {
@@ -1544,6 +1540,11 @@ struct xhci_hcd {
 	struct xhci_doorbell_array __iomem *dba;
 	/* Our HCD's current interrupter register set */
 	struct	xhci_intr_reg __iomem *ir_set;
+
+	/* secondary interrupter */
+	struct	xhci_intr_reg __iomem **sec_ir_set;
+
+	int		core_id;
 
 	/* Cached register copies of read-only HC data */
 	__u32		hcs_params1;
@@ -1586,6 +1587,11 @@ struct xhci_hcd {
 	struct xhci_command	*current_cmd;
 	struct xhci_ring	*event_ring;
 	struct xhci_erst	erst;
+
+	/* secondary event ring and erst */
+	struct xhci_ring	**sec_event_ring;
+	struct xhci_erst	*sec_erst;
+
 	/* Scratchpad */
 	struct xhci_scratchpad  *scratchpad;
 	/* Store LPM test failed devices' information */
@@ -1672,7 +1678,6 @@ struct xhci_hcd {
 #define XHCI_LIMIT_ENDPOINT_INTERVAL_7	(1 << 26)
 /* Reserved. It was XHCI_U2_DISABLE_WAKE */
 #define XHCI_ASMEDIA_MODIFY_FLOWCONTROL	(1 << 28)
-#define XHCI_DEV_WITH_SYNC_EP	(1 << 31)
 
 	unsigned int		num_active_eps;
 	unsigned int		limit_active_eps;
@@ -1698,12 +1703,10 @@ struct xhci_hcd {
 	/* Compliance Mode Recovery Data */
 	struct timer_list	comp_mode_recovery_timer;
 	u32			port_status_u0;
+	bool			suspended;
 /* Compliance Mode Timer Triggered every 2 seconds */
 #define COMP_MODE_RCVRY_MSECS 2000
-#if IS_ENABLED(CONFIG_MTK_UAC_POWER_SAVING)
-	dma_addr_t		msram_phys_addr;
-	void		*msram_virt_addr;
-#endif
+
 	/* platform-specific data -- must come last */
 	unsigned long		priv[0] __aligned(sizeof(s64));
 };
@@ -1862,6 +1865,8 @@ struct xhci_command *xhci_alloc_command(struct xhci_hcd *xhci,
 void xhci_urb_free_priv(struct urb_priv *urb_priv);
 void xhci_free_command(struct xhci_hcd *xhci,
 		struct xhci_command *command);
+int xhci_sec_event_ring_setup(struct usb_hcd *hcd, unsigned int intr_num);
+int xhci_sec_event_ring_cleanup(struct usb_hcd *hcd, unsigned int intr_num);
 
 /* xHCI host controller glue */
 typedef void (*xhci_get_quirks_t)(struct device *, struct xhci_hcd *);
@@ -1984,6 +1989,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue, u16 wIndex,
 		char *buf, u16 wLength);
 int xhci_hub_status_data(struct usb_hcd *hcd, char *buf);
 int xhci_find_raw_port_number(struct usb_hcd *hcd, int port1);
+int xhci_get_core_id(struct usb_hcd *hcd);
 
 #ifdef CONFIG_PM
 int xhci_bus_suspend(struct usb_hcd *hcd);
@@ -2013,5 +2019,9 @@ static inline struct xhci_ring *xhci_urb_to_transfer_ring(struct xhci_hcd *xhci,
 					xhci_get_endpoint_index(&urb->ep->desc),
 					urb->stream_id);
 }
+
+/* EHSET */
+int xhci_submit_single_step_set_feature(struct usb_hcd *hcd, struct urb *urb,
+					int is_setup);
 
 #endif /* __LINUX_XHCI_HCD_H */

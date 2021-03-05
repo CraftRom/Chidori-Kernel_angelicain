@@ -2,7 +2,6 @@
  * linux/include/linux/cpufreq.h
  *
  * Copyright (C) 2001 Russell King
- * Copyright (C) 2021 XiaoMi, Inc.
  *           (C) 2002 - 2003 Dominik Brodowski <linux@brodo.de>
  *
  * This program is free software; you can redistribute it and/or modify
@@ -120,14 +119,6 @@ struct cpufreq_policy {
 	 */
 	bool			fast_switch_possible;
 	bool			fast_switch_enabled;
-
-	/*
-	 * Preferred average time interval between consecutive invocations of
-	 * the driver to set the frequency for this policy.  To be set by the
-	 * scaling driver (0, which is the default, means no preference).
-	 */
-	unsigned int		up_transition_delay_us;
-	unsigned int		down_transition_delay_us;
 
 	 /* Cached frequency lookup from cpufreq_driver_resolve_freq. */
 	unsigned int cached_target_freq;
@@ -312,6 +303,8 @@ struct cpufreq_driver {
 	/* optional */
 	int		(*bios_limit)(int cpu, unsigned int *limit);
 
+	int		(*online)(struct cpufreq_policy *policy);
+	int		(*offline)(struct cpufreq_policy *policy);
 	int		(*exit)(struct cpufreq_policy *policy);
 	void		(*stop_cpu)(struct cpufreq_policy *policy);
 	int		(*suspend)(struct cpufreq_policy *policy);
@@ -362,12 +355,10 @@ struct cpufreq_driver {
 #define CPUFREQ_NEED_INITIAL_FREQ_CHECK	(1 << 5)
 
 /*
- * Indicates that it is safe to call cpufreq_driver_target from
- * non-interruptable context in scheduler hot paths.  Drivers must
- * opt-in to this flag, as the safe default is that they might sleep
- * or be too slow for hot path use.
+ * Set by drivers to disallow use of governors with "dynamic_switching" flag
+ * set.
  */
-#define CPUFREQ_DRIVER_FAST		(1 << 6)
+#define CPUFREQ_NO_AUTO_DYNAMIC_SWITCHING (1 << 6)
 
 int cpufreq_register_driver(struct cpufreq_driver *driver_data);
 int cpufreq_unregister_driver(struct cpufreq_driver *driver_data);
@@ -413,6 +404,7 @@ static inline void cpufreq_resume(void) {}
 
 #define CPUFREQ_TRANSITION_NOTIFIER	(0)
 #define CPUFREQ_POLICY_NOTIFIER		(1)
+#define CPUFREQ_GOVINFO_NOTIFIER	(2)
 
 /* Transition notifiers */
 #define CPUFREQ_PRECHANGE		(0)
@@ -421,10 +413,14 @@ static inline void cpufreq_resume(void) {}
 /* Policy Notifiers  */
 #define CPUFREQ_ADJUST			(0)
 #define CPUFREQ_NOTIFY			(1)
-#define CPUFREQ_THERMAL        (2)
 #define CPUFREQ_START			(2)
 #define CPUFREQ_CREATE_POLICY		(3)
 #define CPUFREQ_REMOVE_POLICY		(4)
+#define CPUFREQ_STOP			(5)
+#define CPUFREQ_INCOMPATIBLE		(6)
+
+/* Govinfo Notifiers */
+#define CPUFREQ_LOAD_CHANGE		(0)
 
 #ifdef CONFIG_CPU_FREQ
 int cpufreq_register_notifier(struct notifier_block *nb, unsigned int list);
@@ -434,6 +430,16 @@ void cpufreq_freq_transition_begin(struct cpufreq_policy *policy,
 		struct cpufreq_freqs *freqs);
 void cpufreq_freq_transition_end(struct cpufreq_policy *policy,
 		struct cpufreq_freqs *freqs, int transition_failed);
+/*
+ * Governor specific info that can be passed to modules that subscribe
+ * to CPUFREQ_GOVINFO_NOTIFIER
+ */
+struct cpufreq_govinfo {
+	unsigned int cpu;
+	unsigned int load;
+	unsigned int sampling_rate_us;
+};
+extern struct atomic_notifier_head cpufreq_govinfo_notifier_list;
 
 #else /* CONFIG_CPU_FREQ */
 static inline int cpufreq_register_notifier(struct notifier_block *nb,
@@ -490,14 +496,8 @@ static inline unsigned long cpufreq_scale(unsigned long old, u_int div,
  * polling frequency is 1000 times the transition latency of the processor. The
  * ondemand governor will work on any processor with transition latency <= 10ms,
  * using appropriate sampling rate.
- *
- * For CPUs with transition latency > 10ms (mostly drivers with CPUFREQ_ETERNAL)
- * the ondemand governor will not work. All times here are in us (microseconds).
  */
-#define MIN_SAMPLING_RATE_RATIO		(2)
 #define LATENCY_MULTIPLIER		(1000)
-#define MIN_LATENCY_MULTIPLIER		(20)
-#define TRANSITION_LATENCY_LIMIT	(10 * 1000 * 1000)
 
 struct cpufreq_governor {
 	char	name[CPUFREQ_NAME_LEN];
@@ -510,9 +510,8 @@ struct cpufreq_governor {
 					 char *buf);
 	int	(*store_setspeed)	(struct cpufreq_policy *policy,
 					 unsigned int freq);
-	unsigned int max_transition_latency; /* HW must be able to switch to
-			next freq faster than this value in nano secs or we
-			will fallback to performance governor */
+	/* For governors which change frequency dynamically by themselves */
+	bool			dynamic_switching;
 	struct list_head	governor_list;
 	struct module		*owner;
 };
@@ -918,24 +917,16 @@ extern struct freq_attr cpufreq_freq_attr_scaling_boost_freqs;
 extern struct freq_attr *cpufreq_generic_attr[];
 int cpufreq_table_validate_and_show(struct cpufreq_policy *policy,
 				      struct cpufreq_frequency_table *table);
+int cpufreq_table_validate_and_sort(struct cpufreq_policy *policy);
 
 unsigned int cpufreq_generic_get(unsigned int cpu);
 int cpufreq_generic_init(struct cpufreq_policy *policy,
 		struct cpufreq_frequency_table *table,
 		unsigned int transition_latency);
 
+extern unsigned int cpuinfo_max_freq_cached;
 struct sched_domain;
 unsigned long cpufreq_scale_freq_capacity(struct sched_domain *sd, int cpu);
-
-/* sched+ gov: */
-extern void arch_scale_set_max_freq(int cpu, unsigned long freq);
-extern void arch_scale_set_min_freq(int cpu, unsigned long freq);
-extern void arch_scale_set_curr_freq(int cpu, unsigned long freq);
-#ifdef CONFIG_CPU_FREQ_GOV_SCHEDPLUS
-extern unsigned int get_sched_cur_freq(int cid);
-#else
-static inline int get_sched_cur_freq(int cid) { return 0; };
-#endif
 unsigned long cpufreq_scale_max_freq_capacity(struct sched_domain *sd, int cpu);
 unsigned long cpufreq_scale_min_freq_capacity(struct sched_domain *sd, int cpu);
 #endif /* _LINUX_CPUFREQ_H */

@@ -932,6 +932,9 @@ const char * const vmstat_text[] = {
 	"nr_slab_unreclaimable",
 	"nr_page_table_pages",
 	"nr_kernel_stack",
+#if IS_ENABLED(CONFIG_SHADOW_CALL_STACK)
+	"nr_shadow_call_stack_bytes",
+#endif
 	"nr_overhead",
 	"nr_bounce",
 #if IS_ENABLED(CONFIG_ZSMALLOC)
@@ -955,7 +958,6 @@ const char * const vmstat_text[] = {
 	"nr_unevictable",
 	"nr_isolated_anon",
 	"nr_isolated_file",
-	"nr_pages_scanned",
 	"workingset_refault",
 	"workingset_activate",
 	"workingset_restore",
@@ -975,6 +977,7 @@ const char * const vmstat_text[] = {
 	"nr_vmscan_immediate_reclaim",
 	"nr_dirtied",
 	"nr_written",
+	"nr_indirectly_reclaimable",
 
 	/* enum writeback_stat_item counters */
 	"nr_dirty_threshold",
@@ -984,6 +987,7 @@ const char * const vmstat_text[] = {
 	/* enum vm_event_item counters */
 	"pgpgin",
 	"pgpgout",
+	"pgpgoutclean",
 	"pswpin",
 	"pswpout",
 
@@ -997,7 +1001,6 @@ const char * const vmstat_text[] = {
 
 	"pgfault",
 	"pgmajfault",
-	"pgfmfault",
 	"pglazyfreed",
 
 	"pgrefill",
@@ -1087,13 +1090,10 @@ const char * const vmstat_text[] = {
 	"vmacache_find_calls",
 	"vmacache_find_hits",
 #endif
-
-#ifdef CONFIG_ZONE_MOVABLE_CMA
-	"zmc_lru_migrated",
-	"zmc_lru_migration_nomem",
-#endif /* CONFIG_ZONE_MOVABLE_CMA */
-
-#endif /* CONFIG_VM_EVENTS_COUNTERS */
+#ifdef CONFIG_SPECULATIVE_PAGE_FAULT
+	"speculative_pgfault"
+#endif
+#endif /* CONFIG_VM_EVENT_COUNTERS */
 };
 #endif /* CONFIG_PROC_FS || CONFIG_SYSFS || CONFIG_NUMA */
 
@@ -1127,6 +1127,7 @@ static void frag_stop(struct seq_file *m, void *arg)
 
 /* Walk all the zones in a node and print using a callback */
 static void walk_zones_in_node(struct seq_file *m, pg_data_t *pgdat,
+		bool nolock,
 		void (*print)(struct seq_file *m, pg_data_t *, struct zone *))
 {
 	struct zone *zone;
@@ -1137,9 +1138,11 @@ static void walk_zones_in_node(struct seq_file *m, pg_data_t *pgdat,
 		if (!populated_zone(zone))
 			continue;
 
-		spin_lock_irqsave(&zone->lock, flags);
+		if (!nolock)
+			spin_lock_irqsave(&zone->lock, flags);
 		print(m, pgdat, zone);
-		spin_unlock_irqrestore(&zone->lock, flags);
+		if (!nolock)
+			spin_unlock_irqrestore(&zone->lock, flags);
 	}
 }
 #endif
@@ -1162,7 +1165,7 @@ static void frag_show_print(struct seq_file *m, pg_data_t *pgdat,
 static int frag_show(struct seq_file *m, void *arg)
 {
 	pg_data_t *pgdat = (pg_data_t *)arg;
-	walk_zones_in_node(m, pgdat, frag_show_print);
+	walk_zones_in_node(m, pgdat, false, frag_show_print);
 	return 0;
 }
 
@@ -1203,7 +1206,7 @@ static int pagetypeinfo_showfree(struct seq_file *m, void *arg)
 		seq_printf(m, "%6d ", order);
 	seq_putc(m, '\n');
 
-	walk_zones_in_node(m, pgdat, pagetypeinfo_showfree_print);
+	walk_zones_in_node(m, pgdat, false, pagetypeinfo_showfree_print);
 
 	return 0;
 }
@@ -1255,7 +1258,8 @@ static int pagetypeinfo_showblockcount(struct seq_file *m, void *arg)
 	for (mtype = 0; mtype < MIGRATE_TYPES; mtype++)
 		seq_printf(m, "%12s ", migratetype_names[mtype]);
 	seq_putc(m, '\n');
-	walk_zones_in_node(m, pgdat, pagetypeinfo_showblockcount_print);
+	walk_zones_in_node(m, pgdat, false,
+		pagetypeinfo_showblockcount_print);
 
 	return 0;
 }
@@ -1281,7 +1285,8 @@ static void pagetypeinfo_showmixedcount(struct seq_file *m, pg_data_t *pgdat)
 		seq_printf(m, "%12s ", migratetype_names[mtype]);
 	seq_putc(m, '\n');
 
-	walk_zones_in_node(m, pgdat, pagetypeinfo_showmixedcount_print);
+	walk_zones_in_node(m, pgdat, true,
+		pagetypeinfo_showmixedcount_print);
 #endif /* CONFIG_PAGE_OWNER */
 }
 
@@ -1377,7 +1382,6 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 		   "\n        min      %lu"
 		   "\n        low      %lu"
 		   "\n        high     %lu"
-		   "\n   node_scanned  %lu"
 		   "\n        spanned  %lu"
 		   "\n        present  %lu"
 		   "\n        managed  %lu",
@@ -1385,7 +1389,6 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 		   min_wmark_pages(zone),
 		   low_wmark_pages(zone),
 		   high_wmark_pages(zone),
-		   node_page_state(zone->zone_pgdat, NR_PAGES_SCANNED),
 		   zone->spanned_pages,
 		   zone->present_pages,
 		   zone->managed_pages);
@@ -1442,7 +1445,7 @@ static void zoneinfo_show_print(struct seq_file *m, pg_data_t *pgdat,
 static int zoneinfo_show(struct seq_file *m, void *arg)
 {
 	pg_data_t *pgdat = (pg_data_t *)arg;
-	walk_zones_in_node(m, pgdat, zoneinfo_show_print);
+	walk_zones_in_node(m, pgdat, false, zoneinfo_show_print);
 	return 0;
 }
 
@@ -1559,7 +1562,7 @@ static const struct file_operations proc_vmstat_file_operations = {
 #ifdef CONFIG_SMP
 static struct workqueue_struct *vmstat_wq;
 static DEFINE_PER_CPU(struct delayed_work, vmstat_work);
-int sysctl_stat_interval __read_mostly = HZ;
+int sysctl_stat_interval __read_mostly = 20 * HZ;
 
 #ifdef CONFIG_PROC_FS
 static void refresh_vm_stats(struct work_struct *work)
@@ -1609,7 +1612,7 @@ int vmstat_refresh(struct ctl_table *table, int write,
 
 static void vmstat_update(struct work_struct *w)
 {
-	if (refresh_cpu_vm_stats(true)) {
+	if (refresh_cpu_vm_stats(true) && !cpu_isolated(smp_processor_id())) {
 		/*
 		 * Counters were updated so we expect more updates
 		 * to occur in the future. Keep on running the
@@ -1693,12 +1696,13 @@ static void vmstat_shepherd(struct work_struct *w)
 	for_each_online_cpu(cpu) {
 		struct delayed_work *dw = &per_cpu(vmstat_work, cpu);
 
-		if (!delayed_work_pending(dw) && need_update(cpu))
+		if (!delayed_work_pending(dw) && need_update(cpu) &&
+							!cpu_isolated(cpu))
 			queue_delayed_work_on(cpu, vmstat_wq, dw, 0);
 	}
 	put_online_cpus();
 
-	schedule_delayed_work(&shepherd,
+	queue_delayed_work(system_power_efficient_wq,&shepherd,
 		round_jiffies_relative(sysctl_stat_interval));
 }
 
@@ -1711,7 +1715,7 @@ static void __init start_shepherd_timer(void)
 			vmstat_update);
 
 	vmstat_wq = alloc_workqueue("vmstat", WQ_FREEZABLE|WQ_MEM_RECLAIM, 0);
-	schedule_delayed_work(&shepherd,
+	queue_delayed_work(system_power_efficient_wq,&shepherd,
 		round_jiffies_relative(sysctl_stat_interval));
 }
 
@@ -1857,7 +1861,7 @@ static int unusable_show(struct seq_file *m, void *arg)
 	if (!node_state(pgdat->node_id, N_MEMORY))
 		return 0;
 
-	walk_zones_in_node(m, pgdat, unusable_show_print);
+	walk_zones_in_node(m, pgdat, false, unusable_show_print);
 
 	return 0;
 }
@@ -1909,7 +1913,7 @@ static int extfrag_show(struct seq_file *m, void *arg)
 {
 	pg_data_t *pgdat = (pg_data_t *)arg;
 
-	walk_zones_in_node(m, pgdat, extfrag_show_print);
+	walk_zones_in_node(m, pgdat, false, extfrag_show_print);
 
 	return 0;
 }

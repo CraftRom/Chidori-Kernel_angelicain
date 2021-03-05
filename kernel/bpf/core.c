@@ -73,8 +73,7 @@ void *bpf_internal_load_pointer_neg_helper(const struct sk_buff *skb, int k, uns
 
 struct bpf_prog *bpf_prog_alloc(unsigned int size, gfp_t gfp_extra_flags)
 {
-	gfp_t gfp_flags = GFP_KERNEL | __GFP_HIGHMEM | __GFP_ZERO |
-			  gfp_extra_flags;
+	gfp_t gfp_flags = GFP_KERNEL | __GFP_ZERO | gfp_extra_flags;
 	struct bpf_prog_aux *aux;
 	struct bpf_prog *fp;
 
@@ -102,8 +101,7 @@ EXPORT_SYMBOL_GPL(bpf_prog_alloc);
 struct bpf_prog *bpf_prog_realloc(struct bpf_prog *fp_old, unsigned int size,
 				  gfp_t gfp_extra_flags)
 {
-	gfp_t gfp_flags = GFP_KERNEL | __GFP_HIGHMEM | __GFP_ZERO |
-			  gfp_extra_flags;
+	gfp_t gfp_flags = GFP_KERNEL | __GFP_ZERO | gfp_extra_flags;
 	struct bpf_prog *fp;
 
 	BUG_ON(fp_old == NULL);
@@ -255,6 +253,16 @@ static void bpf_jit_uncharge_modmem(u32 pages)
 	atomic_long_sub(pages, &bpf_jit_current);
 }
 
+void *__weak bpf_jit_alloc_exec(unsigned long size)
+{
+	return module_alloc(size);
+}
+
+void __weak bpf_jit_free_exec(void *addr)
+{
+	module_memfree(addr);
+}
+
 struct bpf_binary_header *
 bpf_jit_binary_alloc(unsigned int proglen, u8 **image_ptr,
 		     unsigned int alignment,
@@ -272,7 +280,7 @@ bpf_jit_binary_alloc(unsigned int proglen, u8 **image_ptr,
 
 	if (bpf_jit_charge_modmem(pages))
 		return NULL;
-	hdr = module_alloc(size);
+	hdr = bpf_jit_alloc_exec(size);
 	if (!hdr) {
 		bpf_jit_uncharge_modmem(pages);
 		return NULL;
@@ -296,7 +304,7 @@ void bpf_jit_binary_free(struct bpf_binary_header *hdr)
 {
 	u32 pages = hdr->pages;
 
-	module_memfree(hdr);
+	bpf_jit_free_exec(hdr);
 	bpf_jit_uncharge_modmem(pages);
 }
 
@@ -350,9 +358,13 @@ static int bpf_jit_blind_insn(const struct bpf_insn *from,
 	case BPF_JMP | BPF_JEQ  | BPF_K:
 	case BPF_JMP | BPF_JNE  | BPF_K:
 	case BPF_JMP | BPF_JGT  | BPF_K:
+	case BPF_JMP | BPF_JLT  | BPF_K:
 	case BPF_JMP | BPF_JGE  | BPF_K:
+	case BPF_JMP | BPF_JLE  | BPF_K:
 	case BPF_JMP | BPF_JSGT | BPF_K:
+	case BPF_JMP | BPF_JSLT | BPF_K:
 	case BPF_JMP | BPF_JSGE | BPF_K:
+	case BPF_JMP | BPF_JSLE | BPF_K:
 	case BPF_JMP | BPF_JSET | BPF_K:
 		/* Accommodate for extra offset in case of a backjump. */
 		off = from->off;
@@ -408,8 +420,7 @@ out:
 static struct bpf_prog *bpf_prog_clone_create(struct bpf_prog *fp_other,
 					      gfp_t gfp_extra_flags)
 {
-	gfp_t gfp_flags = GFP_KERNEL | __GFP_HIGHMEM | __GFP_ZERO |
-			  gfp_extra_flags;
+	gfp_t gfp_flags = GFP_KERNEL | __GFP_ZERO | gfp_extra_flags;
 	struct bpf_prog *fp;
 
 	fp = __vmalloc(fp_other->pages * PAGE_SIZE, gfp_flags, PAGE_KERNEL);
@@ -581,7 +592,7 @@ static unsigned int __bpf_prog_run(const struct sk_buff *ctx, const struct bpf_i
 		[BPF_ALU64 | BPF_NEG] = &&ALU64_NEG,
 		/* Call instruction */
 		[BPF_JMP | BPF_CALL] = &&JMP_CALL,
-		[BPF_JMP | BPF_CALL | BPF_X] = &&JMP_TAIL_CALL,
+		[BPF_JMP | BPF_TAIL_CALL] = &&JMP_TAIL_CALL,
 		/* Jumps */
 		[BPF_JMP | BPF_JA] = &&JMP_JA,
 		[BPF_JMP | BPF_JEQ | BPF_X] = &&JMP_JEQ_X,
@@ -590,12 +601,20 @@ static unsigned int __bpf_prog_run(const struct sk_buff *ctx, const struct bpf_i
 		[BPF_JMP | BPF_JNE | BPF_K] = &&JMP_JNE_K,
 		[BPF_JMP | BPF_JGT | BPF_X] = &&JMP_JGT_X,
 		[BPF_JMP | BPF_JGT | BPF_K] = &&JMP_JGT_K,
+		[BPF_JMP | BPF_JLT | BPF_X] = &&JMP_JLT_X,
+		[BPF_JMP | BPF_JLT | BPF_K] = &&JMP_JLT_K,
 		[BPF_JMP | BPF_JGE | BPF_X] = &&JMP_JGE_X,
 		[BPF_JMP | BPF_JGE | BPF_K] = &&JMP_JGE_K,
+		[BPF_JMP | BPF_JLE | BPF_X] = &&JMP_JLE_X,
+		[BPF_JMP | BPF_JLE | BPF_K] = &&JMP_JLE_K,
 		[BPF_JMP | BPF_JSGT | BPF_X] = &&JMP_JSGT_X,
 		[BPF_JMP | BPF_JSGT | BPF_K] = &&JMP_JSGT_K,
+		[BPF_JMP | BPF_JSLT | BPF_X] = &&JMP_JSLT_X,
+		[BPF_JMP | BPF_JSLT | BPF_K] = &&JMP_JSLT_K,
 		[BPF_JMP | BPF_JSGE | BPF_X] = &&JMP_JSGE_X,
 		[BPF_JMP | BPF_JSGE | BPF_K] = &&JMP_JSGE_K,
+		[BPF_JMP | BPF_JSLE | BPF_X] = &&JMP_JSLE_X,
+		[BPF_JMP | BPF_JSLE | BPF_K] = &&JMP_JSLE_K,
 		[BPF_JMP | BPF_JSET | BPF_X] = &&JMP_JSET_X,
 		[BPF_JMP | BPF_JSET | BPF_K] = &&JMP_JSET_K,
 		/* Program return */
@@ -833,6 +852,18 @@ out:
 			CONT_JMP;
 		}
 		CONT;
+	JMP_JLT_X:
+		if (DST < SRC) {
+			insn += insn->off;
+			CONT_JMP;
+		}
+		CONT;
+	JMP_JLT_K:
+		if (DST < IMM) {
+			insn += insn->off;
+			CONT_JMP;
+		}
+		CONT;
 	JMP_JGE_X:
 		if (DST >= SRC) {
 			insn += insn->off;
@@ -841,6 +872,18 @@ out:
 		CONT;
 	JMP_JGE_K:
 		if (DST >= IMM) {
+			insn += insn->off;
+			CONT_JMP;
+		}
+		CONT;
+	JMP_JLE_X:
+		if (DST <= SRC) {
+			insn += insn->off;
+			CONT_JMP;
+		}
+		CONT;
+	JMP_JLE_K:
+		if (DST <= IMM) {
 			insn += insn->off;
 			CONT_JMP;
 		}
@@ -857,6 +900,18 @@ out:
 			CONT_JMP;
 		}
 		CONT;
+	JMP_JSLT_X:
+		if (((s64) DST) < ((s64) SRC)) {
+			insn += insn->off;
+			CONT_JMP;
+		}
+		CONT;
+	JMP_JSLT_K:
+		if (((s64) DST) < ((s64) IMM)) {
+			insn += insn->off;
+			CONT_JMP;
+		}
+		CONT;
 	JMP_JSGE_X:
 		if (((s64) DST) >= ((s64) SRC)) {
 			insn += insn->off;
@@ -865,6 +920,18 @@ out:
 		CONT;
 	JMP_JSGE_K:
 		if (((s64) DST) >= ((s64) IMM)) {
+			insn += insn->off;
+			CONT_JMP;
+		}
+		CONT;
+	JMP_JSLE_X:
+		if (((s64) DST) <= ((s64) SRC)) {
+			insn += insn->off;
+			CONT_JMP;
+		}
+		CONT;
+	JMP_JSLE_K:
+		if (((s64) DST) <= ((s64) IMM)) {
 			insn += insn->off;
 			CONT_JMP;
 		}
@@ -1068,6 +1135,118 @@ struct bpf_prog *bpf_prog_select_runtime(struct bpf_prog *fp, int *err)
 	return fp;
 }
 EXPORT_SYMBOL_GPL(bpf_prog_select_runtime);
+
+static unsigned int __bpf_prog_ret1(const struct sk_buff *ctx,
+				    const struct bpf_insn *insn)
+{
+	return 1;
+}
+
+static struct bpf_prog_dummy {
+	struct bpf_prog prog;
+} dummy_bpf_prog = {
+	.prog = {
+		.bpf_func = __bpf_prog_ret1,
+	},
+};
+
+/* to avoid allocating empty bpf_prog_array for cgroups that
+ * don't have bpf program attached use one global 'empty_prog_array'
+ * It will not be modified the caller of bpf_prog_array_alloc()
+ * (since caller requested prog_cnt == 0)
+ * that pointer should be 'freed' by bpf_prog_array_free()
+ */
+static struct {
+	struct bpf_prog_array hdr;
+	struct bpf_prog *null_prog;
+} empty_prog_array = {
+	.null_prog = NULL,
+};
+
+struct bpf_prog_array __rcu *bpf_prog_array_alloc(u32 prog_cnt, gfp_t flags)
+{
+	if (prog_cnt)
+		return kzalloc(sizeof(struct bpf_prog_array) +
+			       sizeof(struct bpf_prog *) * (prog_cnt + 1),
+			       flags);
+
+	return &empty_prog_array.hdr;
+}
+
+void bpf_prog_array_free(struct bpf_prog_array __rcu *progs)
+{
+	if (!progs ||
+	    progs == (struct bpf_prog_array __rcu *)&empty_prog_array.hdr)
+		return;
+	kfree_rcu(progs, rcu);
+}
+
+void bpf_prog_array_delete_safe(struct bpf_prog_array __rcu *progs,
+				struct bpf_prog *old_prog)
+{
+	struct bpf_prog **prog = progs->progs;
+
+	for (; *prog; prog++)
+		if (*prog == old_prog) {
+			WRITE_ONCE(*prog, &dummy_bpf_prog.prog);
+			break;
+		}
+}
+
+int bpf_prog_array_copy(struct bpf_prog_array __rcu *old_array,
+			struct bpf_prog *exclude_prog,
+			struct bpf_prog *include_prog,
+			struct bpf_prog_array **new_array)
+{
+	int new_prog_cnt, carry_prog_cnt = 0;
+	struct bpf_prog **existing_prog;
+	struct bpf_prog_array *array;
+	int new_prog_idx = 0;
+
+	/* Figure out how many existing progs we need to carry over to
+	 * the new array.
+	 */
+	if (old_array) {
+		existing_prog = old_array->progs;
+		for (; *existing_prog; existing_prog++) {
+			if (*existing_prog != exclude_prog &&
+			    *existing_prog != &dummy_bpf_prog.prog)
+				carry_prog_cnt++;
+			if (*existing_prog == include_prog)
+				return -EEXIST;
+		}
+	}
+
+	/* How many progs (not NULL) will be in the new array? */
+	new_prog_cnt = carry_prog_cnt;
+	if (include_prog)
+		new_prog_cnt += 1;
+
+	/* Do we have any prog (not NULL) in the new array? */
+	if (!new_prog_cnt) {
+		*new_array = NULL;
+		return 0;
+	}
+
+	/* +1 as the end of prog_array is marked with NULL */
+	array = bpf_prog_array_alloc(new_prog_cnt + 1, GFP_KERNEL);
+	if (!array)
+		return -ENOMEM;
+
+	/* Fill in the new prog array */
+	if (carry_prog_cnt) {
+		existing_prog = old_array->progs;
+		for (; *existing_prog; existing_prog++)
+			if (*existing_prog != exclude_prog &&
+			    *existing_prog != &dummy_bpf_prog.prog)
+				array->progs[new_prog_idx++] = *existing_prog;
+	}
+	if (include_prog)
+		array->progs[new_prog_idx++] = include_prog;
+	array->progs[new_prog_idx] = NULL;
+	*new_array = array;
+	return 0;
+}
 
 static void bpf_prog_free_deferred(struct work_struct *work)
 {

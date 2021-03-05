@@ -719,6 +719,57 @@ out:
 EXPORT_SYMBOL_GPL(usb_gadget_disconnect);
 
 /**
+ * usb_gsi_ep_op - performs operation on GSI accelerated EP based on EP op code
+ *
+ * Operations such as EP configuration, TRB allocation, StartXfer etc.
+ * See gsi_ep_op for more details.
+ */
+int usb_gsi_ep_op(struct usb_ep *ep,
+		struct usb_gsi_request *req, enum gsi_ep_op op)
+{
+	if (ep->ops->gsi_ep_op)
+		return ep->ops->gsi_ep_op(ep, req, op);
+
+	return -EOPNOTSUPP;
+}
+EXPORT_SYMBOL(usb_gsi_ep_op);
+
+/**
+ * usb_gadget_func_wakeup - send a function remote wakeup up notification
+ * to the host connected to this gadget
+ * @gadget: controller used to wake up the host
+ * @interface_id: the interface which triggered the remote wakeup event
+ *
+ * Returns zero on success. Otherwise, negative error code is returned.
+ */
+int usb_gadget_func_wakeup(struct usb_gadget *gadget,
+	int interface_id)
+{
+	if (gadget->speed != USB_SPEED_SUPER)
+		return -EOPNOTSUPP;
+
+	if (!gadget->ops->func_wakeup)
+		return -EOPNOTSUPP;
+
+	return gadget->ops->func_wakeup(gadget, interface_id);
+}
+EXPORT_SYMBOL(usb_gadget_func_wakeup);
+
+/**
+ * usb_gadget_restart - software-controlled reset of USB peripheral connection
+ * @gadget:the peripheral being reset
+ *
+ * Informs controller driver for Vbus LOW followed by Vbus HIGH notification.
+ * This performs full hardware reset and re-initialization.
+  */
+int usb_gadget_restart(struct usb_gadget *gadget)
+{
+	if (!gadget->ops->restart)
+		return -EOPNOTSUPP;
+	return gadget->ops->restart(gadget);
+}
+EXPORT_SYMBOL(usb_gadget_restart);
+/**
  * usb_gadget_deactivate - deactivate function which is not ready to work
  * @gadget: the peripheral being deactivated
  *
@@ -1136,6 +1187,10 @@ int usb_add_gadget_udc_release(struct device *parent, struct usb_gadget *gadget,
 	INIT_WORK(&gadget->work, usb_gadget_state_work);
 	gadget->dev.parent = parent;
 
+	dma_set_coherent_mask(&gadget->dev, parent->coherent_dma_mask);
+	gadget->dev.dma_parms = parent->dma_parms;
+	gadget->dev.dma_mask = parent->dma_mask;
+
 	if (release)
 		gadget->dev.release = release;
 	else
@@ -1312,9 +1367,7 @@ static int udc_bind_to_driver(struct usb_udc *udc, struct usb_gadget_driver *dri
 		driver->unbind(udc->gadget);
 		goto err1;
 	}
-#ifndef CONFIG_USB_G_ANDROID
 	usb_udc_connect_control(udc);
-#endif
 
 	kobject_uevent(&udc->dev.kobj, KOBJ_CHANGE);
 	return 0;
@@ -1339,8 +1392,6 @@ int usb_gadget_probe_driver(struct usb_gadget_driver *driver)
 	mutex_lock(&udc_lock);
 	if (driver->udc_name) {
 		list_for_each_entry(udc, &udc_list, list) {
-			pr_info("%s %s %s\n", __func__, driver->udc_name,
-				dev_name(&udc->dev));
 			ret = strcmp(driver->udc_name, dev_name(&udc->dev));
 			if (!ret)
 				break;

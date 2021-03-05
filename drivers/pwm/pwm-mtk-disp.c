@@ -22,7 +22,6 @@
 #include <linux/platform_device.h>
 #include <linux/pwm.h>
 #include <linux/slab.h>
-#include <linux/pm_runtime.h>
 
 #define DISP_PWM_EN		0x00
 
@@ -144,8 +143,6 @@ static int mtk_disp_pwm_enable(struct pwm_chip *chip, struct pwm_device *pwm)
 	struct mtk_disp_pwm *mdp = to_mtk_disp_pwm(chip);
 	int err;
 
-	pm_runtime_get_sync(mdp->chip.dev);
-
 	err = clk_enable(mdp->clk_main);
 	if (err < 0)
 		return err;
@@ -171,8 +168,6 @@ static void mtk_disp_pwm_disable(struct pwm_chip *chip, struct pwm_device *pwm)
 
 	clk_disable(mdp->clk_mm);
 	clk_disable(mdp->clk_main);
-
-	pm_runtime_put(mdp->chip.dev);
 }
 
 static const struct pwm_ops mtk_disp_pwm_ops = {
@@ -241,7 +236,6 @@ static int mtk_disp_pwm_probe(struct platform_device *pdev)
 					 mdp->data->con0_sel);
 	}
 
-	pm_runtime_enable(&pdev->dev);
 	return 0;
 
 disable_clk_mm:
@@ -260,7 +254,6 @@ static int mtk_disp_pwm_remove(struct platform_device *pdev)
 	clk_unprepare(mdp->clk_mm);
 	clk_unprepare(mdp->clk_main);
 
-	pm_runtime_disable(&pdev->dev);
 	return ret;
 }
 

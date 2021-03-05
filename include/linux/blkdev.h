@@ -39,7 +39,7 @@ struct blk_flush_queue;
 struct pr_ops;
 
 #define BLKDEV_MIN_RQ	4
-#define BLKDEV_MAX_RQ	128	/* Default maximum */
+#define BLKDEV_MAX_RQ	64	/* Default maximum */
 
 /*
  * Maximum number of blkcg policies allowed to be registered concurrently.
@@ -103,6 +103,7 @@ struct request {
 	/* the following two fields are internal, NEVER access directly */
 	unsigned int __data_len;	/* total data len */
 	sector_t __sector;		/* sector cursor */
+	u64 __dun;			/* dun for UFS */
 
 	struct bio *bio;
 	struct bio *biotail;
@@ -514,6 +515,8 @@ struct request_queue {
 #define QUEUE_FLAG_FUA	       24	/* device supports FUA writes */
 #define QUEUE_FLAG_FLUSH_NQ    25	/* flush not queueuable */
 #define QUEUE_FLAG_DAX         26	/* device supports DAX */
+#define QUEUE_FLAG_FAST        27	/* fast block device (e.g. ram based) */
+#define QUEUE_FLAG_INLINECRYPT 28	/* inline encryption support */
 
 #define QUEUE_FLAG_DEFAULT	((1 << QUEUE_FLAG_IO_STAT) |		\
 				 (1 << QUEUE_FLAG_STACKABLE)	|	\
@@ -524,38 +527,6 @@ struct request_queue {
 				 (1 << QUEUE_FLAG_STACKABLE)	|	\
 				 (1 << QUEUE_FLAG_SAME_COMP)	|	\
 				 (1 << QUEUE_FLAG_POLL))
-
-/* MTK PATCH */
-/* Block r/w size profiling */
-#ifdef CONFIG_MTK_BLK_RW_PROFILING
-#define BLKRNUM    _IO(0x12, 10) /* get block device read number */
-#define BLKWNUM    _IO(0x12, 11) /* get block device write number */
-#define BLKRWNUM   _IO(0x12, 12) /* get block device read write number */
-#define BLKRWCLR   _IO(0x12, 13) /* clear block device read write number */
-
-#define CHECK_SIZE_LIMIT (512*1024)
-#define FS_RW_UNIT (0x1000)
-#define RW_ARRAY_SIZE (256)
-
-struct block_rw_profiling {
-	__u32 buf_byte;
-	/*
-	 * placeholder for the start address of the data buffer where kernel
-	 * will copy the data.
-	 */
-	__u8 *buf_ptr;
-};
-
-enum block_rw_enum {
-	blockread = 0,
-	blockwrite = 1,
-	blockrw = 2,
-};
-
-void mtk_trace_block_rq_get_rw_counter(u32 *temp_buf,
-	enum block_rw_enum operation);
-int mtk_trace_block_rq_get_rw_counter_clr(void);
-#endif
 
 static inline void queue_lockdep_assert_held(struct request_queue *q)
 {
@@ -636,6 +607,9 @@ static inline void queue_flag_clear(unsigned int flag, struct request_queue *q)
 #define blk_queue_secure_erase(q) \
 	(test_bit(QUEUE_FLAG_SECERASE, &(q)->queue_flags))
 #define blk_queue_dax(q)	test_bit(QUEUE_FLAG_DAX, &(q)->queue_flags)
+#define blk_queue_fast(q)	test_bit(QUEUE_FLAG_FAST, &(q)->queue_flags)
+#define blk_queue_inlinecrypt(q) \
+	test_bit(QUEUE_FLAG_INLINECRYPT, &(q)->queue_flags)
 
 #define blk_noretry_request(rq) \
 	((rq)->cmd_flags & (REQ_FAILFAST_DEV|REQ_FAILFAST_TRANSPORT| \
@@ -854,6 +828,7 @@ extern int scsi_cmd_ioctl(struct request_queue *, struct gendisk *, fmode_t,
 extern int sg_scsi_ioctl(struct request_queue *, struct gendisk *, fmode_t,
 			 struct scsi_ioctl_command __user *);
 
+extern void blk_recalc_rq_segments(struct request *rq);
 extern int blk_queue_enter(struct request_queue *q, bool nowait);
 extern void blk_queue_exit(struct request_queue *q);
 extern void blk_start_queue(struct request_queue *q);
@@ -909,6 +884,11 @@ static inline struct request_queue *bdev_get_queue(struct block_device *bdev)
 static inline sector_t blk_rq_pos(const struct request *rq)
 {
 	return rq->__sector;
+}
+
+static inline sector_t blk_rq_dun(const struct request *rq)
+{
+	return rq->__dun;
 }
 
 static inline unsigned int blk_rq_bytes(const struct request *rq)
@@ -1082,6 +1062,8 @@ extern void blk_queue_flush_queueable(struct request_queue *q, bool queueable);
 extern void blk_queue_write_cache(struct request_queue *q, bool enabled, bool fua);
 
 extern int blk_rq_map_sg(struct request_queue *, struct request *, struct scatterlist *);
+extern int blk_rq_map_sg_no_cluster(struct request_queue *q, struct request *rq,
+				struct scatterlist *sglist);
 extern void blk_dump_rq_flags(struct request *, char *);
 extern long nr_blockdev_pages(void);
 
@@ -1198,6 +1180,7 @@ static inline struct request *blk_map_queue_find_tag(struct blk_queue_tag *bqt,
 #define BLKDEV_DISCARD_ZERO	(1 << 1)	/* must reliably zero data */
 
 extern int blkdev_issue_flush(struct block_device *, gfp_t, sector_t *);
+extern void blkdev_issue_flush_nowait(struct block_device *, gfp_t);
 extern int blkdev_issue_discard(struct block_device *bdev, sector_t sector,
 		sector_t nr_sects, gfp_t gfp_mask, unsigned long flags);
 extern int __blkdev_issue_discard(struct block_device *bdev, sector_t sector,
@@ -1748,7 +1731,6 @@ struct block_device_operations {
 	int (*getgeo)(struct block_device *, struct hd_geometry *);
 	/* this callback is with swap_lock and sometimes page table lock held */
 	void (*swap_slot_free_notify) (struct block_device *, unsigned long);
-	int (*check_disk_range_wp)(struct gendisk *d, sector_t s, sector_t l);
 	struct module *owner;
 	const struct pr_ops *pr_ops;
 };
@@ -1860,6 +1842,10 @@ static inline int blkdev_issue_flush(struct block_device *bdev, gfp_t gfp_mask,
 				     sector_t *error_sector)
 {
 	return 0;
+}
+
+static inline void blkdev_issue_flush_nowait(struct block_device *bdev, gfp_t gfp_mask)
+{
 }
 
 #endif /* CONFIG_BLOCK */

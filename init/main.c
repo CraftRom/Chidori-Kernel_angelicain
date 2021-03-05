@@ -2,6 +2,7 @@
  *  linux/init/main.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ *  Copyright (C) 2020 XiaoMi, Inc.
  *
  *  GK 2/5/95  -  Changed to support mounting root fs via NFS
  *  Added initrd & change_root: Werner Almesberger & Hans Lermen, Feb '96
@@ -82,16 +83,13 @@
 #include <linux/io.h>
 #include <linux/kaiser.h>
 #include <linux/cache.h>
+#include <linux/scs.h>
 
 #include <asm/io.h>
 #include <asm/bugs.h>
 #include <asm/setup.h>
 #include <asm/sections.h>
 #include <asm/cacheflush.h>
-
-#ifdef CONFIG_MTK_RAM_CONSOLE
-#include <mt-plat/mtk_ram_console.h>
-#endif
 
 static int kernel_init(void *);
 
@@ -482,19 +480,19 @@ static void __init mm_init(void)
 	kaiser_init();
 }
 
+int fpsensor=1;
+
 asmlinkage __visible void __init start_kernel(void)
 {
 	char *command_line;
 	char *after_dashes;
+	char *p=NULL;
 
 	set_task_stack_end_magic(&init_task);
+	scs_set_init_magic(&init_task);
+
 	smp_setup_processor_id();
 	debug_objects_early_init();
-
-	/*
-	 * Set up the the initial canary ASAP:
-	 */
-	boot_init_stack_canary();
 
 	cgroup_init_early();
 
@@ -509,6 +507,10 @@ asmlinkage __visible void __init start_kernel(void)
 	page_address_init();
 	pr_notice("%s", linux_banner);
 	setup_arch(&command_line);
+	/*
+	 * Set up the the initial canary ASAP:
+	 */
+	boot_init_stack_canary();
 	mm_init_cpumask(&init_mm);
 	setup_command_line(command_line);
 	setup_nr_cpu_ids();
@@ -520,6 +522,13 @@ asmlinkage __visible void __init start_kernel(void)
 	page_alloc_init();
 
 	pr_notice("Kernel command line: %s\n", boot_command_line);
+		p = NULL;
+	p= strstr(boot_command_line, "androidboot.fpsensor=fpc");
+	if(p) {
+		fpsensor = 1;//fpc fingerprint
+	} else {
+		fpsensor = 2;//goodix fingerprint
+	}
 	/* parameters may set static keys */
 	jump_label_init();
 	parse_early_param();
@@ -777,34 +786,21 @@ static int __init_or_module do_one_initcall_debug(initcall_t fn)
 
 	return ret;
 }
-#ifdef CONFIG_MTPROF
-#include <bootprof.h>
-#else
-#define TIME_LOG_START()
-#define TIME_LOG_END()
-#define bootprof_initcall(fn, ts)
-#endif
 
 int __init_or_module do_one_initcall(initcall_t fn)
 {
 	int count = preempt_count();
 	int ret;
 	char msgbuf[64];
-#ifdef CONFIG_MTPROF
-	unsigned long long ts = 0;
-#endif
+
 	if (initcall_blacklisted(fn))
 		return -EPERM;
 
-#ifdef CONFIG_MTK_RAM_CONSOLE
-	aee_rr_rec_last_init_func((unsigned long)fn);
-#endif
-	TIME_LOG_START();
 	if (initcall_debug)
 		ret = do_one_initcall_debug(fn);
 	else
 		ret = fn();
-	TIME_LOG_END();
+
 	msgbuf[0] = 0;
 
 	if (preempt_count() != count) {
@@ -818,7 +814,6 @@ int __init_or_module do_one_initcall(initcall_t fn)
 	WARN(msgbuf[0], "initcall %pF returned with %s\n", fn, msgbuf);
 
 	add_latent_entropy();
-	bootprof_initcall(fn, ts);
 	return ret;
 }
 
@@ -879,9 +874,6 @@ static void __init do_initcalls(void)
 
 	for (level = 0; level < ARRAY_SIZE(initcall_levels) - 1; level++)
 		do_initcall_level(level);
-#ifdef CONFIG_MTK_RAM_CONSOLE
-	aee_rr_rec_last_init_func(~(unsigned long)(0));
-#endif
 }
 
 /*
@@ -982,9 +974,7 @@ static int __ref kernel_init(void *unused)
 	numa_default_policy();
 
 	rcu_end_inkernel_boot();
-#ifdef CONFIG_MTPROF
-	log_boot("Kernel_init_done");
-#endif
+
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
 		if (!ret)

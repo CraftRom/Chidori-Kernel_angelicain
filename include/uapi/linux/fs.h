@@ -278,7 +278,6 @@ struct fsxattr {
 #define FS_ENCRYPTION_MODE_ADIANTUM		9
 #define FS_ENCRYPTION_MODE_PRIVATE		127
 
-
 struct fscrypt_policy {
 	__u8 version;
 	__u8 contents_encryption_mode;

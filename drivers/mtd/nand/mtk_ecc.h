@@ -26,7 +26,6 @@ struct mtk_ecc_stats {
 	u32 corrected;
 	u32 bitflips;
 	u32 failed;
-	u32 failed_bitmap;
 };
 
 struct mtk_ecc_config {

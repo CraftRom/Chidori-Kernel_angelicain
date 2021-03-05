@@ -12,9 +12,8 @@
 #
 
 # platform driver
-snd-soc-mt2701-afe-objs := mt2701-afe-pcm.o mt2701-afe-clock-ctrl.o mt2701-reg.o
+snd-soc-mt2701-afe-objs := mt2701-afe-pcm.o mt2701-afe-clock-ctrl.o
 obj-$(CONFIG_SND_SOC_MT2701) += snd-soc-mt2701-afe.o
 
 # machine driver
 obj-$(CONFIG_SND_SOC_MT2701_CS42448) += mt2701-cs42448.o
-obj-$(CONFIG_SND_SOC_MT2712_D1V1) += dummy-codec.o mt2712-d1v1.o

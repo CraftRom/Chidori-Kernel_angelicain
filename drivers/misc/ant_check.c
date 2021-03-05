@@ -7,6 +7,7 @@
 #include <linux/input.h>
 #include <linux/interrupt.h>
 #include <linux/gpio.h>
+#include <linux/wakelock.h>
 #include <linux/delay.h>
 #include <linux/of_gpio.h>
 #include <linux/of_device.h>
@@ -18,7 +19,7 @@
 
 
 #define CONFIG_ANT_SYS
-//#define CONFIG_ANT_IRQ
+
 
 struct ant_check_info
 {
@@ -31,60 +32,56 @@ struct ant_check_info
 #ifdef CONFIG_ANT_SYS
 	struct class *ant_sys_class;
 #endif
+	struct pinctrl *ant_pinctrl;
+	struct pinctrl_state *ant_pinctrl_state;
 };
 
 struct ant_check_info *global_ant_info;
 
-#ifdef CONFIG_ANT_IRQ
 static irqreturn_t ant_interrupt(int irq, void *data)
 {
 	struct ant_check_info *ant_info = data;
 	int ant_gpio;
 
 	ant_gpio = gpio_get_value_cansleep(ant_info->irq_gpio);
-	pr_err("Macle irq interrupt gpio = %d\n", ant_gpio);
+	pr_err("ant_interrupt gpio value = %d\n", ant_gpio);
 	if(ant_gpio == ant_info->ant_check_state){
+		pr_err("ant_interrupt do nothing\n");
 		return IRQ_HANDLED;
 	}else{
 		ant_info->ant_check_state = ant_gpio;
-		pr_err("Macle report key s ");
 	}
 	if (ant_gpio) {
-			input_report_key(ant_info->ipdev, KEY_ANT_UNCONNECT, 1);
-			input_report_key(ant_info->ipdev, KEY_ANT_UNCONNECT, 0);
-			input_sync(ant_info->ipdev);
-	}else{
 			input_report_key(ant_info->ipdev, KEY_ANT_CONNECT, 1);
 			input_report_key(ant_info->ipdev, KEY_ANT_CONNECT, 0);
+			input_sync(ant_info->ipdev);
+	}else{
+			input_report_key(ant_info->ipdev, KEY_ANT_UNCONNECT, 1);
+			input_report_key(ant_info->ipdev, KEY_ANT_UNCONNECT, 0);
 			input_sync(ant_info->ipdev);
 	}
 	 //enable_irq(irq);
 //	 mutex_unlock(&ant_info->io_lock);
      return IRQ_HANDLED;
 }
-#endif
 
 static int ant_parse_dt(struct device *dev, struct ant_check_info *pdata)
 {
 	struct device_node *np = dev->of_node;
 
-	pdata->irq_gpio = of_get_named_gpio_flags(np, "ant_check_gpio",
+	pdata->irq_gpio = of_get_named_gpio_flags(np, "ant_check,irq_gpio",
 				0, &pdata->irq_gpio_flags);
 	if (pdata->irq_gpio < 0)
 		return pdata->irq_gpio;
 
-	pr_info("Macle irq_gpio=%d\n", pdata->irq_gpio);
 	return 0;
 }
-
 
 #ifdef CONFIG_ANT_SYS
 static ssize_t ant_state_show(struct class *class,
 		struct class_attribute *attr, char *buf)
-{	
+{
 	int state;
-
-	global_ant_info->ant_check_state = gpio_get_value(global_ant_info->irq_gpio);
 	if (global_ant_info->ant_check_state) {
 		state = 3;
 	}else{
@@ -93,36 +90,9 @@ static ssize_t ant_state_show(struct class *class,
 	pr_err("Macle ant_state_show state = %d, custome_state=%d\n", global_ant_info->ant_check_state, state);
 	return sprintf(buf, "%d\n", state);
 }
-#if defined(CONFIG_KERNEL_DRIVER_D2S_CN)
-static ssize_t ant_state_store(struct class *class,
-				struct class_attribute *attr, 
-					const char *buf,size_t size)
-{	
-	int rc =0;
-	int state = 0;
-	rc = kstrtoint(buf, 10, &state);
-	if (rc) {
-		pr_err("Macle kstrtoint failed.rc = %d\n", rc);
-		return rc;
-	}
-	if (state == 0) {
-		//disable_irq(global_ant_info->irq);
-		pr_err("Macle store ant_state %d\n", state);
-	}else{
-		//enable_irq(global_ant_info->irq);
-		pr_err("Macle store ant_state %d\n", state);
-	}
-	return size;
-}
-#endif
 
-#if defined(CONFIG_KERNEL_DRIVER_D2S_CN)
-static struct class_attribute ant_state =
-	__ATTR(ant_state, S_IRUGO, ant_state_show, ant_state_store);
-#else
 static struct class_attribute ant_state =
 	__ATTR(ant_state, S_IRUGO, ant_state_show, NULL);
-#endif
 
 static int ant_register_class_dev(struct ant_check_info *ant_info){
 	int err;
@@ -130,6 +100,7 @@ static int ant_register_class_dev(struct ant_check_info *ant_info){
 		ant_info->ant_sys_class = class_create(THIS_MODULE, "ant_class");
 		if (IS_ERR(ant_info->ant_sys_class)){
 			ant_info->ant_sys_class = NULL;
+			printk(KERN_ERR "could not allocate ant_class\n");
 			return -1;
 		}
 	}
@@ -143,12 +114,37 @@ static int ant_register_class_dev(struct ant_check_info *ant_info){
 }
 #endif
 
+static void ant_pinctrl_init(struct device *dev, struct ant_check_info *ant_info)
+{
+	int rc = 0;
+
+	ant_info->ant_pinctrl = devm_pinctrl_get(dev);
+	if (IS_ERR_OR_NULL(ant_info->ant_pinctrl)){
+		printk("[ant check] get ant_pinctrl error\n");
+		return;
+	}
+
+	ant_info->ant_pinctrl_state
+		= pinctrl_lookup_state(ant_info->ant_pinctrl, "ant_check_irq_state");
+	if (IS_ERR_OR_NULL(ant_info->ant_pinctrl_state)){
+		devm_pinctrl_put(ant_info->ant_pinctrl);
+		printk("[ant check] get ant_pinctrl_state error\n");
+		return;
+	}
+
+        rc = pinctrl_select_state(ant_info->ant_pinctrl, ant_info->ant_pinctrl_state);
+	if(rc < 0){
+		printk("[ant check] pinctrl_select_state error\n");
+	}
+
+	return;
+}
+
 static int ant_probe(struct platform_device *pdev)
 {
 	int rc = 0;
 	int err;
 	struct ant_check_info *ant_info;
-	pr_err("Macle ant_probe\n");
 		
 	if (pdev->dev.of_node) {
 		ant_info = kzalloc(sizeof(struct ant_check_info), GFP_KERNEL);		  
@@ -168,7 +164,6 @@ static int ant_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, ant_info);
 
-#ifdef CONFIG_ANT_IRQ
 /*input system config*/
 	ant_info->ipdev = input_allocate_device();
 	if (!ant_info->ipdev) {
@@ -178,16 +173,15 @@ static int ant_probe(struct platform_device *pdev)
 	ant_info->ipdev->name = "ant_check-input";
 	input_set_capability(ant_info->ipdev, EV_KEY, KEY_ANT_CONNECT);
 	input_set_capability(ant_info->ipdev, EV_KEY, KEY_ANT_UNCONNECT);
-	//set_bit(INPUT_PROP_NO_DUMMY_RELEASE, ant_info->ipdev->propbit);
+//	set_bit(EV_KEY, ant_info->ipdev->evbit);
 	rc = input_register_device(ant_info->ipdev);
 	if (rc) {
 		pr_err("ant_probe: input_register_device fail rc=%d\n", rc);
 		goto input_error;
 	}
 
-//	ant_power_on(&pdev->dev);
-	
-	
+	ant_pinctrl_init(&pdev->dev, ant_info);
+
 /*interrupt config*/
 	if (gpio_is_valid(ant_info->irq_gpio)) {
 		rc = gpio_request(ant_info->irq_gpio, "ant_check");
@@ -202,56 +196,44 @@ static int ant_probe(struct platform_device *pdev)
 		        goto err_irq;
 		}
 		ant_info->ant_check_state = gpio_get_value(ant_info->irq_gpio);
-		pr_err("ant_probe: gpios = %d, gpion=%d\n", ant_info->ant_check_state, ant_info->ant_check_state);
+		pr_err("ant_probe: irq_gpio = %d, state=%d\n", ant_info->irq_gpio, ant_info->ant_check_state);
 
 		ant_info->irq = gpio_to_irq(ant_info->irq_gpio);
 		pr_err("Macle irq = %d\n", ant_info->irq);
-#if defined(CONFIG_KERNEL_DRIVER_D2S_CN)
-		rc = request_irq(ant_info->irq,
-#else		
+
 		rc = devm_request_threaded_irq(&pdev->dev, ant_info->irq, NULL,
-#endif
 			ant_interrupt,
 			IRQF_TRIGGER_RISING|IRQF_TRIGGER_FALLING|IRQF_ONESHOT, "ant-switch-irq", ant_info);
 		if (rc < 0) {
 			pr_err("ant_probe: request_irq fail rc=%d\n", rc);
 			goto err_irq;
 		}
-#if defined(CONFIG_KERNEL_DRIVER_D2S_CN)
-		disable_irq(ant_info->irq);
-#else
 		device_init_wakeup(&pdev->dev, true);
-		irq_set_irq_wake(ant_info->irq,1);
-#endif		
+		enable_irq_wake(ant_info->irq);
+
 	}else{
 		pr_err("Macle irq gpio not provided\n");
 	        goto free_input_device;
 	}
-#endif
 
-       pr_err("ant_probe end\n");
 #ifdef CONFIG_ANT_SYS
 	ant_register_class_dev(ant_info);
 #endif
 	   global_ant_info = ant_info;
-       return 0;
 
-#ifdef CONFIG_ANT_IRQ
+printk("ant_probe ok\n");
+
+       return 0;
 err_irq:
-#if defined(CONFIG_KERNEL_DRIVER_D2S_CN)
-	disable_irq(ant_info->irq);
-#else
 	disable_irq_wake(ant_info->irq);
 	device_init_wakeup(&pdev->dev, 0);
-#endif
 	gpio_free(ant_info->irq_gpio);
 
 free_input_device:
 	input_unregister_device(ant_info->ipdev);
+
 input_error:
 	platform_set_drvdata(pdev, NULL);
-#endif
-
 free_struct:
 	kfree(ant_info);
 
@@ -265,28 +247,18 @@ static int ant_remove(struct platform_device *pdev)
 	class_destroy(ant->ant_sys_class);
 #endif
 	pr_err("ant_remove\n");
-
-#ifdef CONFIG_ANT_IRQ
-#if defined(CONFIG_KERNEL_DRIVER_D2S_CN)
-	disable_irq(ant->irq);
-#else
 	disable_irq_wake(ant->irq);
 	device_init_wakeup(&pdev->dev, 0);
-#endif
 	free_irq(ant->irq, ant->ipdev);
-#endif
-
 	gpio_free(ant->irq_gpio);
-#ifdef CONFIG_ANT_IRQ
 	input_unregister_device(ant->ipdev);
-#endif
 	return 0;
 }
 
 
 
 static struct of_device_id sn_match_table[] = {
-	{ .compatible = "longcheer,ant_check", },
+	{ .compatible = "ant_check", },
 	{ },
 }; 
 
@@ -302,7 +274,6 @@ static struct platform_driver ant_driver = {
 
 static int __init ant_init(void)
 {
-	pr_err("ant_init\n");
 	return platform_driver_register(&ant_driver);
 }
 

@@ -59,9 +59,6 @@
 
 static struct page_ext_operations *page_ext_ops[] = {
 	&debug_guardpage_ops,
-#ifdef CONFIG_PAGE_POISONING
-	&page_poisoning_ops,
-#endif
 #ifdef CONFIG_PAGE_OWNER
 	&page_owner_ops,
 #endif
@@ -324,11 +321,10 @@ static int __meminit online_page_ext(unsigned long start_pfn,
 		VM_BUG_ON(!node_state(nid, N_ONLINE));
 	}
 
-	for (pfn = start; !fail && pfn < end; pfn++) {
+	for (pfn = start; !fail && pfn < end; pfn += PAGES_PER_SECTION) {
 		if (!pfn_present(pfn))
 			continue;
 		fail = init_section_page_ext(pfn, nid);
-		pfn = ALIGN(pfn, PAGES_PER_SECTION);
 	}
 	if (!fail)
 		return 0;
@@ -404,7 +400,7 @@ void __init page_ext_init(void)
 		 * scan [start_pfn, the biggest section's pfn < end_pfn) here.
 		 */
 		for (pfn = start_pfn; pfn < end_pfn;
-			pfn++) {
+			pfn = ALIGN(pfn + 1, PAGES_PER_SECTION)) {
 
 			if (!pfn_valid(pfn))
 				continue;
@@ -420,8 +416,6 @@ void __init page_ext_init(void)
 				continue;
 			if (init_section_page_ext(pfn, nid))
 				goto oom;
-
-			pfn = ALIGN(pfn, PAGES_PER_SECTION);
 		}
 	}
 	hotplug_memory_notifier(page_ext_callback, 0);

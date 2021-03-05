@@ -565,6 +565,18 @@ inline int bio_phys_segments(struct request_queue *q, struct bio *bio)
 }
 EXPORT_SYMBOL(bio_phys_segments);
 
+static inline void bio_clone_crypt_key(struct bio *dst, const struct bio *src)
+{
+#ifdef CONFIG_PFK
+	dst->bi_iter.bi_dun = src->bi_iter.bi_dun;
+#ifdef CONFIG_DM_DEFAULT_KEY
+	dst->bi_crypt_key = src->bi_crypt_key;
+	dst->bi_crypt_skip = src->bi_crypt_skip;
+#endif
+	dst->bi_dio_inode = src->bi_dio_inode;
+#endif
+}
+
 /**
  * 	__bio_clone_fast - clone a bio that shares the original bio's biovec
  * 	@bio: destination bio
@@ -589,17 +601,10 @@ void __bio_clone_fast(struct bio *bio, struct bio *bio_src)
 	bio->bi_opf = bio_src->bi_opf;
 	bio->bi_iter = bio_src->bi_iter;
 	bio->bi_io_vec = bio_src->bi_io_vec;
-	bio->bi_crypt_ctx = bio_src->bi_crypt_ctx;
-
-#if defined(CONFIG_MTK_HW_FDE)
-	/*
-	 * MTK PATCH:
-	 * Also clone all hw fde related members.
-	 */
-	bio->bi_hw_fde = bio_src->bi_hw_fde;
-	bio->bi_key_idx = bio_src->bi_key_idx;
+#ifdef CONFIG_PFK
+	bio->bi_dio_inode = bio_src->bi_dio_inode;
 #endif
-
+	bio_clone_crypt_key(bio, bio_src);
 	bio_clone_blkcg_association(bio, bio_src);
 }
 EXPORT_SYMBOL(__bio_clone_fast);
@@ -706,6 +711,7 @@ struct bio *bio_clone_bioset(struct bio *bio_src, gfp_t gfp_mask,
 		}
 	}
 
+	bio_clone_crypt_key(bio, bio_src);
 	bio_clone_blkcg_association(bio, bio_src);
 
 	return bio;
@@ -859,6 +865,9 @@ int bio_add_page(struct bio *bio, struct page *page,
 	bio->bi_vcnt++;
 done:
 	bio->bi_iter.bi_size += len;
+
+	if (!bio_flagged(bio, BIO_WORKINGSET) && unlikely(PageWorkingset(page)))
+		bio_set_flag(bio, BIO_WORKINGSET);
 	return len;
 }
 EXPORT_SYMBOL(bio_add_page);
@@ -898,6 +907,25 @@ int submit_bio_wait(struct bio *bio)
 }
 EXPORT_SYMBOL(submit_bio_wait);
 
+static void submit_bio_nowait_endio(struct bio *bio)
+{
+	bio_put(bio);
+}
+
+/**
+ * submit_bio_nowait - submit a bio for fire-and-forge for fire-and-forget
+ * @bio: The &struct bio which describes the I/O
+ *
+ * Simple wrapper around submit_bio() that takes care of bio_put() on completion
+ */
+void submit_bio_nowait(struct bio *bio)
+{
+	bio->bi_end_io = submit_bio_nowait_endio;
+	bio->bi_opf |= REQ_SYNC;
+	submit_bio(bio);
+}
+EXPORT_SYMBOL(submit_bio_nowait);
+
 /**
  * bio_advance - increment/complete a bio by some number of bytes
  * @bio:	bio to advance
@@ -915,9 +943,6 @@ void bio_advance(struct bio *bio, unsigned bytes)
 		bio_integrity_advance(bio, bytes);
 
 	bio_advance_iter(bio, &bio->bi_iter, bytes);
-
-	/* also advance bc_iv for HIE */
-	bio->bi_crypt_ctx.bc_iv += (bytes >> PAGE_SHIFT);
 }
 EXPORT_SYMBOL(bio_advance);
 
@@ -2056,22 +2081,6 @@ void bio_clone_blkcg_association(struct bio *dst, struct bio *src)
 }
 
 #endif /* CONFIG_BLK_CGROUP */
-
-unsigned long bio_bc_iv_get(struct bio *bio)
-{
-	if (bio_bcf_test(bio, BC_IV_CTX))
-		return bio->bi_crypt_ctx.bc_iv;
-
-	if (bio_bcf_test(bio, BC_IV_PAGE_IDX)) {
-		struct page *p;
-
-		p = bio_page(bio);
-		if (p && page_mapping(p))
-			return page_index(p);
-	}
-	return BC_INVALD_IV;
-}
-EXPORT_SYMBOL_GPL(bio_bc_iv_get);
 
 static void __init biovec_init_slabs(void)
 {

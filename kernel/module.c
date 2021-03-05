@@ -2156,6 +2156,11 @@ static void free_module(struct module *mod)
 
 	/* Finally, free the core (containing the module structure) */
 	disable_ro_nx(&mod->core_layout);
+#ifdef CONFIG_DEBUG_MODULE_LOAD_INFO
+	pr_info("Unloaded %s: module core layout address range: 0x%lx-0x%lx\n",
+		mod->name, (long)mod->core_layout.base,
+		(long)(mod->core_layout.base + mod->core_layout.size - 1));
+#endif
 	module_memfree(mod->core_layout.base);
 
 #ifdef CONFIG_MPU
@@ -2879,7 +2884,7 @@ static int copy_module_from_user(const void __user *umod, unsigned long len,
 
 	/* Suck in entire file: we'll want most of it. */
 	info->hdr = __vmalloc(info->len,
-			GFP_KERNEL | __GFP_HIGHMEM | __GFP_NOWARN, PAGE_KERNEL);
+			GFP_KERNEL | __GFP_NOWARN, PAGE_KERNEL);
 	if (!info->hdr)
 		return -ENOMEM;
 
@@ -3488,6 +3493,14 @@ static noinline int do_init_module(struct module *mod)
 	mod_tree_remove_init(mod);
 	disable_ro_nx(&mod->init_layout);
 	module_arch_freeing_init(mod);
+#ifdef CONFIG_DEBUG_MODULE_LOAD_INFO
+	pr_info("Loaded %s: module init layout addresses range: 0x%lx-0x%lx\n",
+		mod->name, (long)mod->init_layout.base,
+		(long)(mod->init_layout.base + mod->init_layout.size - 1));
+	pr_info("%s: core layout addresses range: 0x%lx-0x%lx\n", mod->name,
+		(long)mod->core_layout.base,
+		(long)(mod->core_layout.base + mod->core_layout.size - 1));
+#endif
 	mod->init_layout.base = NULL;
 	mod->init_layout.size = 0;
 	mod->init_layout.ro_size = 0;
@@ -3637,10 +3650,6 @@ static int load_module(struct load_info *info, const char __user *uargs,
 	struct module *mod;
 	long err;
 	char *after_dashes;
-
-	//FIXME
-	flags |= MODULE_INIT_IGNORE_MODVERSIONS;
-	flags |= MODULE_INIT_IGNORE_VERMAGIC;
 
 	err = module_sig_check(info, flags);
 	if (err)
@@ -4344,67 +4353,12 @@ void print_modules(void)
 	list_for_each_entry_rcu(mod, &modules, list) {
 		if (mod->state == MODULE_STATE_UNFORMED)
 			continue;
-#if 0
 		pr_cont(" %s%s", mod->name, module_flags(mod, buf));
-#else
-		pr_cont(" %s %px %px %d %d %s",
-			mod->name,
-			mod->core_layout.base,
-			mod->init_layout.base,
-			mod->core_layout.size,
-			mod->init_layout.size,
-			module_flags(mod, buf));
-#endif
 	}
 	preempt_enable();
 	if (last_unloaded_module[0])
 		pr_cont(" [last unloaded: %s]", last_unloaded_module);
 	pr_cont("\n");
-}
-
-int __weak do_translation_fault_preconditioner(unsigned long addr)
-{
-	return -1;
-}
-
-/* MUST ensure called when preempt disabled already */
-int save_modules(char *mbuf, int mbufsize)
-{
-	struct module *mod;
-	char buf[8];
-	/*int off = 0;*/
-	int sz = 0;
-
-	if (mbuf == NULL || mbufsize <= 0) {
-		pr_cont("mrdump: module info buffer wrong(sz:%d)\n", mbufsize);
-		return 0;
-	}
-
-	memset(mbuf, '\0', mbufsize);
-	sz += snprintf(mbuf + sz, mbufsize - sz, "Modules linked in:");
-	list_for_each_entry_rcu(mod, &modules, list) {
-		do_translation_fault_preconditioner((unsigned long)mod);
-		if (mod->state == MODULE_STATE_UNFORMED)
-			continue;
-		if (sz >= mbufsize) {
-			pr_cont("mrdump: module info buffer full(sz:%d)\n",
-				mbufsize);
-			break;
-		}
-		sz += snprintf(mbuf + sz, mbufsize - sz, " %s %px %px %d %d %s",
-				mod->name,
-				mod->core_layout.base,
-				mod->init_layout.base,
-				mod->core_layout.size,
-				mod->init_layout.size,
-				module_flags(mod, buf));
-	}
-	if (last_unloaded_module[0] && sz < mbufsize)
-		sz += snprintf(mbuf + sz, mbufsize - sz, " [last unloaded: %s]",
-				last_unloaded_module);
-	if (sz < mbufsize)
-		sz += snprintf(mbuf + sz, mbufsize - sz, "\n");
-	return sz;
 }
 
 #ifdef CONFIG_MODVERSIONS

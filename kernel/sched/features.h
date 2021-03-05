@@ -26,6 +26,12 @@ SCHED_FEAT(NEXT_BUDDY, false)
 SCHED_FEAT(LAST_BUDDY, true)
 
 /*
+ * skip buddy i.e task called yield() is always skipped and the
+ * next entity is selected to run irrespective of the vruntime
+ */
+SCHED_FEAT(STRICT_SKIP_BUDDY, true)
+
+/*
  * Consider buddies to be cache hot, decreases the likelyness of a
  * cache buddy being migrated away, increases cache locality.
  */
@@ -49,7 +55,7 @@ SCHED_FEAT(NONTASK_CAPACITY, true)
  * Queue remote wakeups on the target CPU and process them
  * using the scheduler IPI. Reduces rq->lock contention/bounces.
  */
-SCHED_FEAT(TTWU_QUEUE, true)
+SCHED_FEAT(TTWU_QUEUE, false)
 
 /*
  * When doing wakeups, attempt to limit superfluous scans of the LLC domain.
@@ -70,7 +76,7 @@ SCHED_FEAT(RT_PUSH_IPI, true)
 #endif
 
 SCHED_FEAT(FORCE_SD_OVERLAP, false)
-SCHED_FEAT(RT_RUNTIME_SHARE, false)
+SCHED_FEAT(RT_RUNTIME_SHARE, true)
 SCHED_FEAT(LB_MIN, false)
 SCHED_FEAT(ATTACH_AGE_LOAD, true)
 
@@ -85,17 +91,6 @@ SCHED_FEAT(ENERGY_AWARE, false)
 #endif
 
 /*
- * HMP scheduling. Use dynamic threshold depends on system load and
- * CPU capacity to make schedule decisions.
- */
-#ifdef CONFIG_SCHED_HMP
-SCHED_FEAT(SCHED_HMP, true)
-#else
-SCHED_FEAT(SCHED_HMP, false)
-#endif
-
-SCHED_FEAT(SCHED_MTK_EAS, true)
-/*
  * Minimum capacity capping. Keep track of minimum capacity factor when
  * minimum frequency available to a policy is modified.
  * If enabled, this can be used to inform the scheduler about capacity
@@ -108,11 +103,10 @@ SCHED_FEAT(MIN_CAPACITY_CAPPING, false)
  * ON: If the target CPU saves any energy, use that.
  * OFF: Use whichever of target or backup saves most.
  */
-SCHED_FEAT(FBT_STRICT_ORDER, true)
-
+SCHED_FEAT(FBT_STRICT_ORDER, false)
 /*
- * Assign newly forked task util. New value designed from task's
- * priority and cfs rq's current average of util/weight
- * in post_init_entity_util_avg.
+ * Enforce schedtune.prefer_idle to take need_idle path.
+ * ON: schedtune.prefer_idle is replaced with need_idle
+ * OFF: schedtune.prefer_idle is honored as is.
  */
-SCHED_FEAT(POST_INIT_UTIL, false)
+SCHED_FEAT(EAS_USE_NEED_IDLE, true)

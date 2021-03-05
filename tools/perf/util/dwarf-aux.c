@@ -360,12 +360,11 @@ bool die_is_func_instance(Dwarf_Die *dw_die)
 {
 	Dwarf_Addr tmp;
 	Dwarf_Attribute attr_mem;
-	
 	int tag = dwarf_tag(dw_die);
+
 	if (tag != DW_TAG_subprogram &&
 	    tag != DW_TAG_inlined_subroutine)
 		return false;
-
 
 	return dwarf_entrypc(dw_die, &tmp) == 0 ||
 		dwarf_attr(dw_die, DW_AT_ranges, &attr_mem) != NULL;

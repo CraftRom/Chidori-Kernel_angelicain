@@ -41,14 +41,6 @@
 #include "objsec.h"
 #include "conditional.h"
 
-/* Policy capability filenames */
-static char *policycap_names[] = {
-	"network_peer_controls",
-	"open_perms",
-	"redhat1",
-	"always_check_network"
-};
-
 unsigned int selinux_checkreqprot = CONFIG_SECURITY_SELINUX_CHECKREQPROT_VALUE;
 
 static int __init checkreqprot_setup(char *str)
@@ -1479,7 +1471,7 @@ static const struct file_operations sel_avc_cache_stats_ops = {
 static int sel_make_avc_files(struct dentry *dir)
 {
 	int i;
-	static const struct tree_descr files[] = {
+	static struct tree_descr files[] = {
 		{ "cache_threshold",
 		  &sel_avc_cache_threshold_ops, S_IRUGO|S_IWUSR },
 		{ "hash_stats", &sel_avc_hash_stats_ops, S_IRUGO },
@@ -1733,9 +1725,9 @@ static int sel_make_policycap(void)
 	sel_remove_entries(policycap_dir);
 
 	for (iter = 0; iter <= POLICYDB_CAPABILITY_MAX; iter++) {
-		if (iter < ARRAY_SIZE(policycap_names))
+		if (iter < ARRAY_SIZE(selinux_policycap_names))
 			dentry = d_alloc_name(policycap_dir,
-					      policycap_names[iter]);
+					      selinux_policycap_names[iter]);
 		else
 			dentry = d_alloc_name(policycap_dir, "unknown");
 
@@ -1788,7 +1780,7 @@ static int sel_fill_super(struct super_block *sb, void *data, int silent)
 	struct inode *inode;
 	struct inode_security_struct *isec;
 
-	static const struct tree_descr selinux_files[] = {
+	static struct tree_descr selinux_files[] = {
 		[SEL_LOAD] = {"load", &sel_load_ops, S_IRUSR|S_IWUSR},
 		[SEL_ENFORCE] = {"enforce", &sel_enforce_ops, S_IRUGO|S_IWUSR},
 		[SEL_CONTEXT] = {"context", &transaction_ops, S_IRUGO|S_IWUGO},

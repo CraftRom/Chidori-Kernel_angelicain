@@ -2,7 +2,6 @@
  * The input core
  *
  * Copyright (c) 1999-2002 Vojtech Pavlik
- * Copyright (C) 2021 XiaoMi, Inc.
  */
 
 /*
@@ -860,7 +859,6 @@ static int input_default_setkeycode(struct input_dev *dev,
 				break;
 			}
 		}
-	__set_bit(ke->keycode, dev->keybit);
 	}
 
 	__set_bit(ke->keycode, dev->keybit);

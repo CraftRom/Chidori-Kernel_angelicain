@@ -76,12 +76,12 @@
 #include <asm/unaligned.h>
 #include <linux/errqueue.h>
 
-int sysctl_tcp_timestamps __read_mostly = 1;
+int sysctl_tcp_timestamps __read_mostly = 0;
 int sysctl_tcp_window_scaling __read_mostly = 1;
-int sysctl_tcp_sack __read_mostly = 1;
-int sysctl_tcp_fack __read_mostly = 1;
+int sysctl_tcp_sack __read_mostly;
+int sysctl_tcp_fack __read_mostly;
 int sysctl_tcp_max_reordering __read_mostly = 300;
-int sysctl_tcp_dsack __read_mostly = 1;
+int sysctl_tcp_dsack __read_mostly;
 int sysctl_tcp_app_win __read_mostly = 31;
 int sysctl_tcp_adv_win_scale __read_mostly = 1;
 EXPORT_SYMBOL(sysctl_tcp_adv_win_scale);
@@ -100,7 +100,6 @@ int sysctl_tcp_thin_dupack __read_mostly;
 int sysctl_tcp_moderate_rcvbuf __read_mostly = 1;
 int sysctl_tcp_early_retrans __read_mostly = 3;
 int sysctl_tcp_invalid_ratelimit __read_mostly = HZ/2;
-int sysctl_tcp_default_init_rwnd __read_mostly = TCP_INIT_CWND * 2;
 
 #define FLAG_DATA		0x01 /* Incoming frame contained data.		*/
 #define FLAG_WIN_UPDATE		0x02 /* Incoming ACK was a window update.	*/
@@ -117,6 +116,7 @@ int sysctl_tcp_default_init_rwnd __read_mostly = TCP_INIT_CWND * 2;
 #define FLAG_SACK_RENEGING	0x2000 /* snd_una advanced to a sacked seq */
 #define FLAG_UPDATE_TS_RECENT	0x4000 /* tcp_replace_ts_recent() */
 #define FLAG_NO_CHALLENGE_ACK	0x8000 /* do not call tcp_send_challenge_ack()	*/
+#define FLAG_ACK_MAYBE_DELAYED	0x10000 /* Likely a delayed ACK */
 
 #define FLAG_ACKED		(FLAG_DATA_ACKED|FLAG_SYN_ACKED)
 #define FLAG_NOT_DUP		(FLAG_DATA|FLAG_WIN_UPDATE|FLAG_ACKED)
@@ -425,7 +425,7 @@ static void tcp_fixup_rcvbuf(struct sock *sk)
 	int rcvmem;
 
 	rcvmem = 2 * SKB_TRUESIZE(mss + MAX_TCP_HEADER) *
-		 tcp_default_init_rwnd(mss);
+		 tcp_default_init_rwnd(sock_net(sk), mss);
 
 	/* Dynamic Right Sizing (DRS) has 2 to 3 RTT latency
 	 * Allow enough cushion so that sender is not limited by our window
@@ -2577,8 +2577,8 @@ static void tcp_cwnd_reduction(struct sock *sk, int newly_acked_sacked,
 		u64 dividend = (u64)tp->snd_ssthresh * tp->prr_delivered +
 			       tp->prior_cwnd - 1;
 		sndcnt = div_u64(dividend, tp->prior_cwnd) - tp->prr_out;
-	} else if ((flag & FLAG_RETRANS_DATA_ACKED) &&
-		   !(flag & FLAG_LOST_RETRANS)) {
+	} else if ((flag & (FLAG_RETRANS_DATA_ACKED | FLAG_LOST_RETRANS)) ==
+		   FLAG_RETRANS_DATA_ACKED) {
 		sndcnt = min_t(int, delta,
 			       max_t(int, tp->prr_delivered - tp->prr_out,
 				     newly_acked_sacked) + 1);
@@ -2973,11 +2973,18 @@ static void tcp_fastretrans_alert(struct sock *sk, const int acked,
 	*rexmit = REXMIT_LOST;
 }
 
-static void tcp_update_rtt_min(struct sock *sk, u32 rtt_us)
+static void tcp_update_rtt_min(struct sock *sk, u32 rtt_us, const int flag)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 	u32 wlen = sysctl_tcp_min_rtt_wlen * HZ;
 
+	if ((flag & FLAG_ACK_MAYBE_DELAYED) && rtt_us > tcp_min_rtt(tp)) {
+		/* If the remote keeps returning delayed ACKs, eventually
+		 * the min filter would pick it up and overestimate the
+		 * prop. delay when it expires. Skip suspected delayed ACKs.
+		 */
+		return;
+	}
 	minmax_running_min(&tp->rtt_min, wlen, tcp_time_stamp,
 			   rtt_us ? : jiffies_to_usecs(1));
 }
@@ -3013,7 +3020,7 @@ static inline bool tcp_ack_update_rtt(struct sock *sk, const int flag,
 	 * always taken together with ACK, SACK, or TS-opts. Any negative
 	 * values will be skipped with the seq_rtt_us < 0 check above.
 	 */
-	tcp_update_rtt_min(sk, ca_rtt_us);
+	tcp_update_rtt_min(sk, ca_rtt_us, flag);
 	tcp_rtt_estimator(sk, seq_rtt_us);
 	tcp_set_rto(sk);
 
@@ -3248,6 +3255,17 @@ static int tcp_clean_rtx_queue(struct sock *sk, int prior_fackets,
 	if (likely(first_ackt.v64) && !(flag & FLAG_RETRANS_DATA_ACKED)) {
 		seq_rtt_us = skb_mstamp_us_delta(now, &first_ackt);
 		ca_rtt_us = skb_mstamp_us_delta(now, &last_ackt);
+
+		if (pkts_acked == 1 && last_in_flight < tp->mss_cache &&
+		    last_in_flight && !prior_sacked && fully_acked &&
+		    sack->rate->prior_delivered + 1 == tp->delivered &&
+		    !(flag & (FLAG_CA_ALERT | FLAG_SYN_ACKED))) {
+			/* Conservatively mark a delayed ACK. It's typically
+			 * from a lone runt packet over the round trip to
+			 * a receiver w/o out-of-order or CE events.
+			 */
+			flag |= FLAG_ACK_MAYBE_DELAYED;
+		}
 	}
 	if (sack->first_sackt.v64) {
 		sack_rtt_us = skb_mstamp_us_delta(now, &sack->first_sackt);
@@ -3694,7 +3712,8 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 	if (flag & FLAG_UPDATE_TS_RECENT)
 		tcp_replace_ts_recent(tp, TCP_SKB_CB(skb)->seq);
 
-	if (!(flag & FLAG_SLOWPATH) && after(ack, prior_snd_una)) {
+	if ((flag & (FLAG_SLOWPATH | FLAG_SND_UNA_ADVANCED)) ==
+	    FLAG_SND_UNA_ADVANCED) {
 		/* Window is constant, pure forward advance.
 		 * No more checks are required.
 		 * Note, we use the fact that SND.UNA>=SND.WL2.
@@ -3761,6 +3780,7 @@ static int tcp_ack(struct sock *sk, const struct sk_buff *skb, int flag)
 		tcp_schedule_loss_probe(sk);
 	delivered = tp->delivered - delivered;	/* freshly ACKed or SACKed */
 	lost = tp->lost - lost;			/* freshly marked lost */
+	rs.is_ack_delayed = !!(flag & FLAG_ACK_MAYBE_DELAYED);
 	tcp_rate_gen(sk, delivered, lost, is_sack_reneg, &now, &rs);
 	tcp_cong_control(sk, ack, delivered, flag, &rs);
 	tcp_xmit_recovery(sk, rexmit);
@@ -5186,7 +5206,8 @@ static void __tcp_ack_snd_check(struct sock *sk, int ofo_possible)
 	struct tcp_sock *tp = tcp_sk(sk);
 
 	    /* More than one full frame received... */
-	if (((tp->rcv_nxt - tp->rcv_wup) > inet_csk(sk)->icsk_ack.rcv_mss &&
+	if (((tp->rcv_nxt - tp->rcv_wup) > (inet_csk(sk)->icsk_ack.rcv_mss) *
+					sysctl_tcp_delack_seg &&
 	     /* ... and right edge of window advances far enough.
 	      * (tcp_recvmsg() will send ACK otherwise). Or...
 	      */

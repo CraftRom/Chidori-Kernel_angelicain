@@ -121,9 +121,7 @@
 #define ARM_V7S_TEX_MASK		0x7
 #define ARM_V7S_ATTR_TEX(val)		(((val) & ARM_V7S_TEX_MASK) << ARM_V7S_TEX_SHIFT)
 
-/* MTK extend the two bits below for over 4GB mode */
-#define ARM_V7S_ATTR_MTK_PA_BIT32	BIT(9)
-#define ARM_V7S_ATTR_MTK_PA_BIT33	BIT(4)
+#define ARM_V7S_ATTR_MTK_4GB		BIT(9) /* MTK extend it for 4GB mode */
 
 /* *well, except for TEX on level 2 large pages, of course :( */
 #define ARM_V7S_CONT_PAGE_TEX_SHIFT	6
@@ -377,12 +375,8 @@ static int arm_v7s_init_pte(struct arm_v7s_io_pgtable *data,
 	if (lvl == 1 && (cfg->quirks & IO_PGTABLE_QUIRK_ARM_NS))
 		pte |= ARM_V7S_ATTR_NS_SECTION;
 
-	if (cfg->quirks & IO_PGTABLE_QUIRK_ARM_MTK_4GB) {
-		if (paddr & BIT_ULL(32))
-			pte |= ARM_V7S_ATTR_MTK_PA_BIT32;
-		if (paddr & BIT_ULL(33))
-			pte |= ARM_V7S_ATTR_MTK_PA_BIT33;
-	}
+	if (cfg->quirks & IO_PGTABLE_QUIRK_ARM_MTK_4GB)
+		pte |= ARM_V7S_ATTR_MTK_4GB;
 
 	if (num_entries > 1)
 		pte = arm_v7s_pte_to_cont(pte, lvl);
@@ -621,9 +615,7 @@ static phys_addr_t arm_v7s_iova_to_phys(struct io_pgtable_ops *ops,
 					unsigned long iova)
 {
 	struct arm_v7s_io_pgtable *data = io_pgtable_ops_to_data(ops);
-	struct io_pgtable_cfg *cfg = &data->iop.cfg;
 	arm_v7s_iopte *ptep = data->pgd, pte;
-	phys_addr_t paddr;
 	int lvl = 0;
 	u32 mask;
 
@@ -638,16 +630,7 @@ static phys_addr_t arm_v7s_iova_to_phys(struct io_pgtable_ops *ops,
 	mask = ARM_V7S_LVL_MASK(lvl);
 	if (arm_v7s_pte_is_cont(pte, lvl))
 		mask *= ARM_V7S_CONT_PAGES;
-	paddr = (pte & mask) | (iova & ~mask);
-
-	if (IS_ENABLED(CONFIG_PHYS_ADDR_T_64BIT) &&
-	    (cfg->quirks & IO_PGTABLE_QUIRK_ARM_MTK_4GB)) {
-		if (pte & ARM_V7S_ATTR_MTK_PA_BIT32)
-			paddr |= BIT_ULL(32);
-		if (pte & ARM_V7S_ATTR_MTK_PA_BIT33)
-			paddr |= BIT_ULL(33);
-	}
-	return paddr;
+	return (pte & mask) | (iova & ~mask);
 }
 
 static struct io_pgtable *arm_v7s_alloc_pgtable(struct io_pgtable_cfg *cfg,
@@ -656,11 +639,8 @@ static struct io_pgtable *arm_v7s_alloc_pgtable(struct io_pgtable_cfg *cfg,
 	struct arm_v7s_io_pgtable *data;
 
 #ifdef PHYS_OFFSET
-	/* for memory module modify PHYS_OFFSET to > 4gbit in kaslr project,
-	 * we mask this assert first.
-	 *if (upper_32_bits(PHYS_OFFSET))
-	 *	return NULL;
-	 */
+	if (upper_32_bits(PHYS_OFFSET))
+		return NULL;
 #endif
 	if (cfg->ias > ARM_V7S_ADDR_BITS || cfg->oas > ARM_V7S_ADDR_BITS)
 		return NULL;

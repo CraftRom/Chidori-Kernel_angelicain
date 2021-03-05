@@ -525,6 +525,14 @@ int security_inode_create(struct inode *dir, struct dentry *dentry, umode_t mode
 }
 EXPORT_SYMBOL_GPL(security_inode_create);
 
+int security_inode_post_create(struct inode *dir, struct dentry *dentry,
+			       umode_t mode)
+{
+	if (unlikely(IS_PRIVATE(dir)))
+		return 0;
+	return call_int_hook(inode_post_create, 0, dir, dentry, mode);
+}
+
 int security_inode_link(struct dentry *old_dentry, struct inode *dir,
 			 struct dentry *new_dentry)
 {
@@ -1629,7 +1637,34 @@ void security_bpf_prog_free(struct bpf_prog_aux *aux)
 }
 #endif /* CONFIG_BPF_SYSCALL */
 
-struct security_hook_heads security_hook_heads = {
+#ifdef CONFIG_PERF_EVENTS
+int security_perf_event_open(struct perf_event_attr *attr, int type)
+{
+	return call_int_hook(perf_event_open, 0, attr, type);
+}
+
+int security_perf_event_alloc(struct perf_event *event)
+{
+	return call_int_hook(perf_event_alloc, 0, event);
+}
+
+void security_perf_event_free(struct perf_event *event)
+{
+	call_void_hook(perf_event_free, event);
+}
+
+int security_perf_event_read(struct perf_event *event)
+{
+	return call_int_hook(perf_event_read, 0, event);
+}
+
+int security_perf_event_write(struct perf_event *event)
+{
+	return call_int_hook(perf_event_write, 0, event);
+}
+#endif /* CONFIG_PERF_EVENTS */
+
+struct security_hook_heads security_hook_heads __lsm_ro_after_init = {
 	.binder_set_context_mgr =
 		LIST_HEAD_INIT(security_hook_heads.binder_set_context_mgr),
 	.binder_transaction =
@@ -1707,6 +1742,8 @@ struct security_hook_heads security_hook_heads = {
 	.inode_init_security =
 		LIST_HEAD_INIT(security_hook_heads.inode_init_security),
 	.inode_create =	LIST_HEAD_INIT(security_hook_heads.inode_create),
+	.inode_post_create =
+		LIST_HEAD_INIT(security_hook_heads.inode_post_create),
 	.inode_link =	LIST_HEAD_INIT(security_hook_heads.inode_link),
 	.inode_unlink =	LIST_HEAD_INIT(security_hook_heads.inode_unlink),
 	.inode_symlink =
@@ -1996,4 +2033,16 @@ struct security_hook_heads security_hook_heads = {
 	.bpf_prog_free_security =
 		LIST_HEAD_INIT(security_hook_heads.bpf_prog_free_security),
 #endif /* CONFIG_BPF_SYSCALL */
+#ifdef CONFIG_PERF_EVENTS
+	.perf_event_open =
+		LIST_HEAD_INIT(security_hook_heads.perf_event_open),
+	.perf_event_alloc =
+		LIST_HEAD_INIT(security_hook_heads.perf_event_alloc),
+	.perf_event_free =
+		LIST_HEAD_INIT(security_hook_heads.perf_event_free),
+	.perf_event_read =
+		LIST_HEAD_INIT(security_hook_heads.perf_event_read),
+	.perf_event_write =
+		LIST_HEAD_INIT(security_hook_heads.perf_event_write),
+#endif /* CONFIG_PERF_EVENTS */
 };

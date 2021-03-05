@@ -35,7 +35,6 @@
 #include <linux/spi/spidev.h>
 
 #include <linux/uaccess.h>
-#include <linux/platform_data/spi-mt65xx.h>
 
 
 /*
@@ -91,7 +90,8 @@ struct spidev_data {
 static LIST_HEAD(device_list);
 static DEFINE_MUTEX(device_list_lock);
 
-static unsigned bufsiz = 4096;
+static unsigned bufsiz = 4096*8;
+
 module_param(bufsiz, uint, S_IRUGO);
 MODULE_PARM_DESC(bufsiz, "data bytes in biggest supported SPI message");
 
@@ -125,7 +125,10 @@ spidev_sync_write(struct spidev_data *spidev, size_t len)
 	struct spi_transfer	t = {
 			.tx_buf		= spidev->tx_buffer,
 			.len		= len,
-			.speed_hz	= spidev->speed_hz,
+//			.speed_hz	= spidev->speed_hz,
+			.delay_usecs = 0,
+			.cs_change   = 0,
+			.speed_hz   = 960000,
 		};
 	struct spi_message	m;
 
@@ -165,6 +168,18 @@ spidev_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 	spidev = filp->private_data;
 
 	mutex_lock(&spidev->buf_lock);
+
+//begin liuhongtao added for buffer kmalloc size
+	if (!spidev->rx_buffer) {
+		spidev->rx_buffer = kmalloc(bufsiz, GFP_KERNEL);
+		if (!spidev->rx_buffer) {
+			dev_dbg(&spidev->spi->dev, "open/ENOMEM\n");
+			status = -ENOMEM;
+			goto read_unlock;
+		}
+	}
+//end liuhongtao added for buffer kmalloc size
+
 	status = spidev_sync_read(spidev, count);
 	if (status > 0) {
 		unsigned long	missing;
@@ -175,6 +190,14 @@ spidev_read(struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
 		else
 			status = status - missing;
 	}
+
+//begin liuhongtao added for buffer kmalloc size
+	kfree(spidev->rx_buffer);
+	spidev->rx_buffer = NULL;
+
+read_unlock:
+//end liuhongtao added for buffer kmalloc size
+
 	mutex_unlock(&spidev->buf_lock);
 
 	return status;
@@ -190,17 +213,39 @@ spidev_write(struct file *filp, const char __user *buf,
 	unsigned long		missing;
 
 	/* chipselect only toggles at start or end of operation */
+/*  liuhongtao removed for buffer kmalloc size
 	if (count > bufsiz)
 		return -EMSGSIZE;
+*/
 
 	spidev = filp->private_data;
 
 	mutex_lock(&spidev->buf_lock);
+
+//begin liuhongtao added for buffer kmalloc size
+	if (!spidev->tx_buffer) {
+		spidev->tx_buffer = kmalloc(count, GFP_KERNEL);
+		if (!spidev->tx_buffer) {
+			dev_dbg(&spidev->spi->dev, "open/ENOMEM\n");
+			status = -ENOMEM;
+			goto write_unlock;
+		}
+	}
+//end liuhongtao added for buffer kmalloc size
+
 	missing = copy_from_user(spidev->tx_buffer, buf, count);
 	if (missing == 0)
 		status = spidev_sync_write(spidev, count);
 	else
 		status = -EFAULT;
+
+//begin liuhongtao added for buffer kmalloc size
+	kfree(spidev->tx_buffer);
+	spidev->tx_buffer = NULL;
+
+write_unlock:
+//end liuhongtao added for buffer kmalloc size
+
 	mutex_unlock(&spidev->buf_lock);
 
 	return status;
@@ -226,6 +271,25 @@ static int spidev_message(struct spidev_data *spidev,
 	 * We walk the array of user-provided transfers, using each one
 	 * to initialize a kernel version of the same transfer.
 	 */
+//begin liuhongtao added for buffer kmalloc size
+	if (!spidev->rx_buffer) {
+		spidev->rx_buffer = kmalloc(bufsiz, GFP_KERNEL);
+		if (!spidev->rx_buffer) {
+			dev_dbg(&spidev->spi->dev, "open/ENOMEM\n");
+			status = -ENOMEM;
+			goto rxbuffer_err;
+		}
+	}
+	if (!spidev->tx_buffer) {
+		spidev->tx_buffer = kmalloc(bufsiz, GFP_KERNEL);
+		if (!spidev->tx_buffer) {
+			dev_dbg(&spidev->spi->dev, "open/ENOMEM\n");
+			status = -ENOMEM;
+			goto txbuffer_err;
+		}
+	}
+//end liuhongtao added for buffer kmalloc size
+
 	tx_buf = spidev->tx_buffer;
 	rx_buf = spidev->rx_buffer;
 	total = 0;
@@ -318,6 +382,14 @@ static int spidev_message(struct spidev_data *spidev,
 	status = total;
 
 done:
+//begin liuhongtao added for buffer kmalloc size
+	kfree(spidev->tx_buffer);
+	spidev->tx_buffer = NULL;
+txbuffer_err:
+	kfree(spidev->rx_buffer);
+	spidev->rx_buffer = NULL;
+rxbuffer_err:
+//end liuhongtao added for buffer kmalloc size
 	kfree(k_xfers);
 	return status;
 }
@@ -601,6 +673,8 @@ static int spidev_open(struct inode *inode, struct file *filp)
 		goto err_find_dev;
 	}
 
+//begin liuhongtao removed for buffer kmalloc size
+/*
 	if (!spidev->tx_buffer) {
 		spidev->tx_buffer = kmalloc(bufsiz, GFP_KERNEL);
 		if (!spidev->tx_buffer) {
@@ -618,6 +692,8 @@ static int spidev_open(struct inode *inode, struct file *filp)
 			goto err_alloc_rx_buf;
 		}
 	}
+*/
+//end liuhongtao removed for buffer kmalloc size
 
 	spidev->users++;
 	filp->private_data = spidev;
@@ -626,9 +702,14 @@ static int spidev_open(struct inode *inode, struct file *filp)
 	mutex_unlock(&device_list_lock);
 	return 0;
 
+//begin liuhongtao removed for buffer kmalloc size
+/*
 err_alloc_rx_buf:
 	kfree(spidev->tx_buffer);
 	spidev->tx_buffer = NULL;
+*/
+//end liuhongtao removed for buffer kmalloc size
+
 err_find_dev:
 	mutex_unlock(&device_list_lock);
 	return status;
@@ -652,11 +733,15 @@ static int spidev_release(struct inode *inode, struct file *filp)
 	spidev->users--;
 	if (!spidev->users) {
 
+//begin liuhongtao removed for buffer kmalloc size
+/*
 		kfree(spidev->tx_buffer);
 		spidev->tx_buffer = NULL;
 
 		kfree(spidev->rx_buffer);
 		spidev->rx_buffer = NULL;
+*/
+//end liuhongtao removed for buffer kmalloc size
 
 		if (dofree)
 			kfree(spidev);
@@ -700,6 +785,8 @@ static struct class *spidev_class;
 static const struct of_device_id spidev_dt_ids[] = {
 	{ .compatible = "rohm,dh2228fv" },
 	{ .compatible = "lineartechnology,ltc2488" },
+	{ .compatible = "qcom,spi-msm-slave" },
+	{ .compatible = "ererl,ir2661cl510" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, spidev_dt_ids);
@@ -743,132 +830,6 @@ static inline void spidev_probe_acpi(struct spi_device *spi) {}
 #endif
 
 /*-------------------------------------------------------------------------*/
-#define SPIS_DEBUG(fmt, args...) pr_info(fmt, ##args)
-
-void spi_transfer_malloc(struct spi_transfer *trans)
-{
-	int i;
-
-	trans->tx_buf = kzalloc(trans->len, GFP_KERNEL);
-	trans->rx_buf = kzalloc(trans->len, GFP_KERNEL);
-
-	for (i = 0; i < trans->len; i++)
-		*((char *)trans->tx_buf + i) = i + 0x1;
-}
-
-void spi_transfer_free(struct spi_transfer *trans)
-{
-	kfree(trans->tx_buf);
-	kfree(trans->rx_buf);
-}
-
-static void debug_packet(char *name, u8 *ptr, int len)
-{
-	int i;
-
-	SPIS_DEBUG("%s: ", name);
-	for (i = 0; i < len; i++)
-		SPIS_DEBUG(" %02x", ptr[i]);
-	 SPIS_DEBUG("\n");
-}
-
-int spi_loopback_check(struct spi_device *spi, struct spi_transfer *trans)
-{
-	int i, j, value, err = 0;
-	struct mtk_chip_config *chip_config = spi->controller_data;
-
-	for (i = 0; i < trans->len; i++) {
-		value = 0;
-		if (chip_config->tx_mlsb ^ chip_config->rx_mlsb) {
-			for (j = 7; j >= 0; j--)
-				value |= ((*((u8 *)trans->tx_buf + i)
-					  & (1 << j)) >> j) << (7-j);
-		} else {
-			value = *((u8 *) trans->tx_buf + i);
-		}
-
-		if (value != *((char *) trans->rx_buf + i))
-			err++;
-	}
-
-	if (err) {
-		SPIS_DEBUG("spi_len:%d, err %d\n", trans->len, err);
-		debug_packet("spi_tx_buf", (void *)trans->tx_buf, trans->len);
-		debug_packet("spi_rx_buf", trans->rx_buf, trans->len);
-		SPIS_DEBUG("spi test fail.");
-	} else {
-		SPIS_DEBUG("spi_len:%d, err %d\n", trans->len, err);
-		SPIS_DEBUG("spi test pass.");
-	}
-
-	if (err)
-		return -1;
-	else
-		return 0;
-}
-
-int spi_loopback_transfer(struct spi_device *spi, int len)
-{
-	struct spi_transfer trans;
-	struct spi_message msg;
-	int ret = 0;
-
-	memset(&trans, 0, sizeof(struct spi_transfer));
-	spi_message_init(&msg);
-
-	trans.len = len;
-	trans.cs_change = 0;
-	spi_transfer_malloc(&trans);
-	spi_message_add_tail(&trans, &msg);
-	ret = spi_sync(spi, &msg);
-	if (ret < 0)
-		SPIS_DEBUG("Message transfer err,line(%d):%d\n", __LINE__, ret);
-	spi_loopback_check(spi, &trans);
-	spi_transfer_free(&trans);
-
-	return ret;
-}
-
-static ssize_t spi_store(struct device *dev,
-			 struct device_attribute *attr,
-			 const char *buf, size_t count)
-{
-	int len;
-	struct spi_device *spi;
-
-	spi = container_of(dev, struct spi_device, dev);
-
-	if (!strncmp(buf, "-w", 2)) {
-		struct mtk_chip_config *chip_config =
-			kzalloc(sizeof(struct mtk_chip_config), GFP_KERNEL);
-
-		buf += 3;
-		chip_config->rx_mlsb = 0;
-		chip_config->tx_mlsb = 0;
-		spi->controller_data = (void *)chip_config;
-
-		if (!strncmp(buf, "len=", 4) &&
-		    (sscanf(buf + 4, "%d", &len) == 1)) {
-			spi_loopback_transfer(spi, len);
-		}
-	}
-
-	return count;
-}
-
-static DEVICE_ATTR(spi, 0200, NULL, spi_store);
-
-static struct device_attribute *spi_attribute[] = {
-	&dev_attr_spi,
-};
-static void spi_create_attribute(struct device *dev)
-{
-	int size, idx;
-
-	size = ARRAY_SIZE(spi_attribute);
-	for (idx = 0; idx < size; idx++)
-		device_create_file(dev, spi_attribute[idx]);
-}
 
 static int spidev_probe(struct spi_device *spi)
 {
@@ -928,8 +889,6 @@ static int spidev_probe(struct spi_device *spi)
 		spi_set_drvdata(spi, spidev);
 	else
 		kfree(spidev);
-
-	spi_create_attribute(&spi->dev);
 
 	return status;
 }

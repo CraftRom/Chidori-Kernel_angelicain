@@ -16,8 +16,7 @@
 
 struct simtray_data {
 	struct device *dev;
-	int status_gpio_0;
-	//int status_gpio_1;
+	int status_gpio;
 };
 
 static ssize_t simtray_status_show(struct device *dev,
@@ -25,10 +24,7 @@ static ssize_t simtray_status_show(struct device *dev,
 {
 	struct simtray_data *data = dev_get_drvdata(dev);
 
-	int val_0 = gpio_get_value(data->status_gpio_0);
-	//int val_1 = gpio_get_value(data->status_gpio_1);
-
-	return scnprintf(buf, PAGE_SIZE, "%d\n", val_0); // && val_1
+	return scnprintf(buf, PAGE_SIZE, "%d\n", gpio_get_value(data->status_gpio));
 }
 static DEVICE_ATTR(status, 0444, simtray_status_show, NULL);
 
@@ -39,20 +35,19 @@ static int simtray_probe(struct platform_device *pdev)
 	struct device_node *np = dev->of_node;
 	struct simtray_data *data;
 
-	pr_info("simtray debug %s enter\n", __func__);
+	pr_info("%s enter\n", __func__);
+
 	data = devm_kzalloc(dev, sizeof(struct simtray_data), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
 
-	data->status_gpio_0 = of_get_named_gpio(np, "status-gpio", 0);
-	//data->status_gpio_1 = of_get_named_gpio(np, "status-gpio", 1);
-
-	if (data->status_gpio_0 < 0) //|| data->status_gpio_1 < 0
+	data->status_gpio = of_get_named_gpio(np, "status-gpio", 0);
+	if (data->status_gpio < 0)
 		return -EINVAL;
 
 	ret = sysfs_create_file(&dev->kobj, &dev_attr_status.attr);
 	if (ret < 0) {
-		dev_err(dev, "simtray Failed to create sysfs node.\n");
+		dev_err(dev, "Failed to create sysfs node.\n");
 		return -EINVAL;
 	}
 

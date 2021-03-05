@@ -31,6 +31,7 @@ int sysctl_tcp_abort_on_overflow __read_mostly;
 
 struct inet_timewait_death_row tcp_death_row = {
 	.sysctl_max_tw_buckets = NR_FILE * 2,
+	.sysctl_tw_recycle = 1,
 	.hashinfo	= &tcp_hashinfo,
 };
 EXPORT_SYMBOL_GPL(tcp_death_row);
@@ -390,7 +391,7 @@ void tcp_openreq_init_rwin(struct request_sock *req,
 		req->rsk_window_clamp = full_space;
 
 	/* tcp_full_space because it is guaranteed to be the first packet */
-	tcp_select_initial_window(full_space,
+	tcp_select_initial_window(sock_net(sk_listener), full_space,
 		mss - (ireq->tstamp_ok ? TCPOLEN_TSTAMP_ALIGNED : 0),
 		&req->rsk_rcv_wnd,
 		&req->rsk_window_clamp,

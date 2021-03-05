@@ -22,13 +22,19 @@
 #include <linux/module.h>
 #include <linux/irq_work.h>
 #include <linux/posix-timers.h>
+#include <linux/timer.h>
 #include <linux/context_tracking.h>
+#include <linux/rq_stats.h>
 
 #include <asm/irq_regs.h>
 
 #include "tick-internal.h"
 
 #include <trace/events/timer.h>
+
+struct rq_data rq_info;
+struct workqueue_struct *rq_wq;
+spinlock_t rq_lock;
 
 /*
  * Per-CPU nohz control structure
@@ -45,6 +51,21 @@ struct tick_sched *tick_get_tick_sched(int cpu)
  * The time, when the last jiffy update happened. Protected by jiffies_lock.
  */
 static ktime_t last_jiffies_update;
+
+u64 jiffy_to_ktime_ns(u64 *now, u64 *jiffy_ktime_ns)
+{
+	u64 cur_jiffies;
+	unsigned long seq;
+
+	do {
+		seq = read_seqbegin(&jiffies_lock);
+		*now = ktime_get_ns();
+		*jiffy_ktime_ns = ktime_to_ns(last_jiffies_update);
+		cur_jiffies = get_jiffies_64();
+	} while (read_seqretry(&jiffies_lock, seq));
+
+	return cur_jiffies;
+}
 
 /*
  * Must be called with interrupts disabled !
@@ -146,13 +167,6 @@ static void tick_sched_handle(struct tick_sched *ts, struct pt_regs *regs)
 		touch_softlockup_watchdog_sched();
 		if (is_idle_task(current))
 			ts->idle_jiffies++;
-
-		/*
-		 * In case the current tick fired too early past its expected
-		 * expiration, make sure we don't bypass the next clock
-		 * reprogramming to the same deadline.
-		 */
-		ts->next_tick.tv64 = 0;
 	}
 #endif
 	update_process_times(user_mode(regs));
@@ -557,45 +571,9 @@ update_ts_time_stats(int cpu, struct tick_sched *ts, ktime_t now, u64 *last_upda
 
 }
 
-#ifdef CONFIG_MEDIATEK_SOLUTION
-static void
-update_ts_time_stats_wo_cpuoffline(int cpu,
-	struct tick_sched *ts, ktime_t now, u64 *last_update_time)
-{
-	ktime_t delta;
-
-	if (ts->idle_active && (!ts->cpu_plug_off_flag)) {
-		delta = ktime_sub(now, ts->idle_entrytime_wo_cpuoffline);
-		if (nr_iowait_cpu(cpu) > 0)
-			ts->iowait_sleeptime_wo_cpuoffline =
-				ktime_add(ts->iowait_sleeptime_wo_cpuoffline,
-					delta);
-		else
-			ts->idle_sleeptime_wo_cpuoffline =
-				ktime_add(ts->idle_sleeptime_wo_cpuoffline,
-					delta);
-		ts->idle_entrytime_wo_cpuoffline = now;
-	}
-
-	if (last_update_time)
-		*last_update_time = ktime_to_us(now);
-
-}
-
-void tick_set_cpu_plugoff_flag(int flag)
-{
-	struct tick_sched *ts = this_cpu_ptr(&tick_cpu_sched);
-
-	ts->cpu_plug_off_flag = flag;
-}
-#endif
-
 static void tick_nohz_stop_idle(struct tick_sched *ts, ktime_t now)
 {
 	update_ts_time_stats(smp_processor_id(), ts, now, NULL);
-#ifdef CONFIG_MEDIATEK_SOLUTION
-	update_ts_time_stats_wo_cpuoffline(smp_processor_id(), ts, now, NULL);
-#endif
 	ts->idle_active = 0;
 
 	sched_clock_idle_wakeup_event(0);
@@ -606,9 +584,6 @@ static ktime_t tick_nohz_start_idle(struct tick_sched *ts)
 	ktime_t now = ktime_get();
 
 	ts->idle_entrytime = now;
-#ifdef CONFIG_MEDIATEK_SOLUTION
-	ts->idle_entrytime_wo_cpuoffline = now;
-#endif
 	ts->idle_active = 1;
 	sched_clock_idle_sleep_event();
 	return now;
@@ -655,39 +630,6 @@ u64 get_cpu_idle_time_us(int cpu, u64 *last_update_time)
 }
 EXPORT_SYMBOL_GPL(get_cpu_idle_time_us);
 
-#ifdef CONFIG_MEDIATEK_SOLUTION
-u64 get_cpu_idle_time_us_wo_cpuoffline(int cpu, u64 *last_update_time)
-{
-	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
-	ktime_t now, idle;
-
-	if (!tick_nohz_active)
-		return -1;
-
-	now = ktime_get();
-	if (last_update_time) {
-		update_ts_time_stats_wo_cpuoffline(cpu, ts, now,
-			last_update_time);
-		idle = ts->idle_sleeptime_wo_cpuoffline;
-	} else {
-		if (ts->idle_active && !nr_iowait_cpu(cpu) &&
-			cpu_online(cpu) && (!ts->cpu_plug_off_flag)) {
-			ktime_t delta = ktime_sub(now,
-				ts->idle_entrytime_wo_cpuoffline);
-
-			idle = ktime_add(ts->idle_sleeptime_wo_cpuoffline,
-				delta);
-		} else {
-			idle = ts->idle_sleeptime_wo_cpuoffline;
-		}
-	}
-
-	return ktime_to_us(idle);
-
-}
-EXPORT_SYMBOL_GPL(get_cpu_idle_time_us_wo_cpuoffline);
-#endif
-
 /**
  * get_cpu_iowait_time_us - get the total iowait time of a CPU
  * @cpu: CPU number to query
@@ -728,38 +670,6 @@ u64 get_cpu_iowait_time_us(int cpu, u64 *last_update_time)
 }
 EXPORT_SYMBOL_GPL(get_cpu_iowait_time_us);
 
-#ifdef CONFIG_MEDIATEK_SOLUTION
-u64 get_cpu_iowait_time_us_wo_cpuoffline(int cpu, u64 *last_update_time)
-{
-	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
-	ktime_t now, iowait;
-
-	if (!tick_nohz_enabled)
-		return -1;
-
-	now = ktime_get();
-	if (last_update_time) {
-		update_ts_time_stats_wo_cpuoffline(cpu, ts, now,
-			last_update_time);
-		iowait = ts->iowait_sleeptime_wo_cpuoffline;
-	} else {
-		if (ts->idle_active && nr_iowait_cpu(cpu) > 0 &&
-			cpu_online(cpu) && (!ts->cpu_plug_off_flag)) {
-			ktime_t delta = ktime_sub(now,
-				ts->idle_entrytime_wo_cpuoffline);
-
-			iowait = ktime_add(ts->iowait_sleeptime_wo_cpuoffline,
-				delta);
-		} else {
-			iowait = ts->iowait_sleeptime_wo_cpuoffline;
-		}
-	}
-
-	return ktime_to_us(iowait);
-}
-EXPORT_SYMBOL_GPL(get_cpu_iowait_time_us_wo_cpuoffline);
-#endif
-
 static void tick_nohz_restart(struct tick_sched *ts, ktime_t now)
 {
 	hrtimer_cancel(&ts->sched_timer);
@@ -772,12 +682,6 @@ static void tick_nohz_restart(struct tick_sched *ts, ktime_t now)
 		hrtimer_start_expires(&ts->sched_timer, HRTIMER_MODE_ABS_PINNED);
 	else
 		tick_program_event(hrtimer_get_expires(&ts->sched_timer), 1);
-
-	/*
-	 * Reset to make sure next tick stop doesn't get fooled by past
-	 * cached clock deadline.
-	 */
-	ts->next_tick.tv64 = 0;
 }
 
 static inline bool local_timer_softirq_pending(void)
@@ -904,16 +808,8 @@ static ktime_t tick_nohz_stop_sched_tick(struct tick_sched *ts,
 	tick.tv64 = expires;
 
 	/* Skip reprogram of event if its not changed */
-	if (ts->tick_stopped && (expires == ts->next_tick.tv64)) {
-		/* Sanity check: make sure clockevent is actually programmed */
-		if (likely(dev->next_event.tv64 <= ts->next_tick.tv64))
-			goto out;
-		WARN_ON_ONCE(1);
-		pr_info_once("basemono: %llu ts->next_tick: %llu dev->next_event: %llu timer->active: %d timer->expires: %llu\n",
-			     basemono, ts->next_tick.tv64, dev->next_event.tv64,
-			     hrtimer_active(&ts->sched_timer),
-			     hrtimer_get_expires(&ts->sched_timer).tv64);
-	}
+	if (ts->tick_stopped && (expires == dev->next_event.tv64))
+		goto out;
 
 	/*
 	 * nohz_stop_sched_tick can be called several times before
@@ -932,8 +828,6 @@ static ktime_t tick_nohz_stop_sched_tick(struct tick_sched *ts,
 		trace_tick_stop(1, TICK_DEP_MASK_NONE);
 	}
 
-	ts->next_tick.tv64 = tick.tv64;
-
 	/*
 	 * If the expiration time == KTIME_MAX, then we simply stop
 	 * the tick timer.
@@ -949,10 +843,7 @@ static ktime_t tick_nohz_stop_sched_tick(struct tick_sched *ts,
 	else
 		tick_program_event(tick, 1);
 out:
-	/*
-	 * Update the estimated sleep length until the next timer
-	 * (not only the tick).
-	 */
+	/* Update the estimated sleep length */
 	ts->sleep_length = ktime_sub(dev->next_event, now);
 	return tick;
 }
@@ -1010,11 +901,6 @@ static bool can_stop_idle_tick(int cpu, struct tick_sched *ts)
 	if (unlikely(!cpu_online(cpu))) {
 		if (cpu == tick_do_timer_cpu)
 			tick_do_timer_cpu = TICK_DO_TIMER_NONE;
-		/*
-		 * Make sure the CPU doesn't get fooled by obsolete tick
-		 * deadline if it comes back online later.
-		 */
-		ts->next_tick.tv64 = 0;
 		return false;
 	}
 
@@ -1063,6 +949,11 @@ static void __tick_nohz_idle_enter(struct tick_sched *ts)
 
 	now = tick_nohz_start_idle(ts);
 
+#ifdef CONFIG_SMP
+	if (check_pending_deferrable_timers(cpu))
+		raise_softirq_irqoff(TIMER_SOFTIRQ);
+#endif
+
 	if (can_stop_idle_tick(cpu, ts)) {
 		int was_stopped = ts->tick_stopped;
 
@@ -1110,10 +1001,6 @@ void tick_nohz_idle_enter(void)
 	ts = this_cpu_ptr(&tick_cpu_sched);
 	ts->inidle = 1;
 	__tick_nohz_idle_enter(ts);
-
-#ifdef CONFIG_MEDIATEK_SOLUTION
-	tick_set_cpu_plugoff_flag(0);
-#endif
 
 	local_irq_enable();
 }
@@ -1308,6 +1195,42 @@ void tick_irq_enter(void)
  * High resolution timer specific code
  */
 #ifdef CONFIG_HIGH_RES_TIMERS
+static void update_rq_stats(void)
+{
+	unsigned long jiffy_gap = 0;
+	unsigned long long rq_avg = 0;
+	unsigned long flags = 0;
+
+	jiffy_gap = jiffies - rq_info.rq_poll_last_jiffy;
+	if (jiffy_gap >= rq_info.rq_poll_jiffies) {
+		spin_lock_irqsave(&rq_lock, flags);
+		if (!rq_info.rq_avg)
+			rq_info.rq_poll_total_jiffies = 0;
+		rq_avg = nr_running() * 10;
+		if (rq_info.rq_poll_total_jiffies) {
+			rq_avg = (rq_avg * jiffy_gap) +
+				(rq_info.rq_avg *
+				 rq_info.rq_poll_total_jiffies);
+			do_div(rq_avg,
+				rq_info.rq_poll_total_jiffies + jiffy_gap);
+		}
+		rq_info.rq_avg = rq_avg;
+		rq_info.rq_poll_total_jiffies += jiffy_gap;
+		rq_info.rq_poll_last_jiffy = jiffies;
+		spin_unlock_irqrestore(&rq_lock, flags);
+	}
+}
+static void wakeup_user(void)
+{
+	unsigned long jiffy_gap;
+
+	jiffy_gap = jiffies - rq_info.def_timer_last_jiffy;
+	if (jiffy_gap >= rq_info.def_timer_jiffies) {
+		rq_info.def_timer_last_jiffy = jiffies;
+		queue_work(rq_wq, &rq_info.def_timer_work);
+	}
+}
+
 /*
  * We rearm the timer until we get disabled by the idle code.
  * Called with interrupts disabled.
@@ -1325,8 +1248,20 @@ static enum hrtimer_restart tick_sched_timer(struct hrtimer *timer)
 	 * Do not call, when we are not in irq context and have
 	 * no valid regs pointer
 	 */
-	if (regs)
+	if (regs) {
 		tick_sched_handle(ts, regs);
+		if (rq_info.init == 1 &&
+				tick_do_timer_cpu == smp_processor_id()) {
+			/*
+			 * update run queue statistics
+			 */
+			update_rq_stats();
+			/*
+			 * wakeup user if needed
+			 */
+			wakeup_user();
+		}
+	}
 
 	/* No need to reprogram if we are in idle or full dynticks mode */
 	if (unlikely(ts->tick_stopped))
@@ -1388,14 +1323,7 @@ void tick_cancel_sched_timer(int cpu)
 		hrtimer_cancel(&ts->sched_timer);
 # endif
 
-#ifdef CONFIG_MEDIATEK_SOLUTION
-	/* Do not memset to 0 to avoid idle time be cleared
-	 * to 0 after CPU plug-off
-	 */
-	ts->nohz_mode = NOHZ_MODE_INACTIVE;
-#else
 	memset(ts, 0, sizeof(*ts));
-#endif
 }
 #endif
 
@@ -1446,4 +1374,9 @@ int tick_check_oneshot_change(int allow_nohz)
 
 	tick_nohz_switch_to_nohz();
 	return 0;
+}
+
+ktime_t *get_next_event_cpu(unsigned int cpu)
+{
+	return &(per_cpu(tick_cpu_device, cpu).evtdev->next_event);
 }

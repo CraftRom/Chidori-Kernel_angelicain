@@ -3,13 +3,7 @@
 #
 
 ccflags-$(CONFIG_SPI_DEBUG) := -DDEBUG
-ifeq ($(CONFIG_TRUSTONIC_TEE_SUPPORT),y)
-	include $(srctree)/drivers/misc/mediatek/gud/Makefile.include
-	subdir-ccflags-y += -I$(srctree)/drivers/spi/trustzone/spi/Tlspi/inc
-	subdir-ccflags-y += -I$(srctree)/drivers/spi/trustzone/spi/drspi/public
-endif
-subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/base/power/$(MTK_PLATFORM)
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/
+
 # small core, mostly translating board-specific
 # config declarations into driver model code
 obj-$(CONFIG_SPI_MASTER)		+= spi.o
@@ -60,9 +54,7 @@ obj-$(CONFIG_SPI_MESON_SPIFC)		+= spi-meson-spifc.o
 obj-$(CONFIG_SPI_MPC512x_PSC)		+= spi-mpc512x-psc.o
 obj-$(CONFIG_SPI_MPC52xx_PSC)		+= spi-mpc52xx-psc.o
 obj-$(CONFIG_SPI_MPC52xx)		+= spi-mpc52xx.o
-obj-$(CONFIG_SPIS_MT27XX)		+= spis-mt27xx.o spis-mt27xx-test.o
 obj-$(CONFIG_SPI_MT65XX)                += spi-mt65xx.o
-obj-$(CONFIG_SPI_MT65XX)                += spi-mt65xx-dev.o
 obj-$(CONFIG_SPI_MXS)			+= spi-mxs.o
 obj-$(CONFIG_SPI_NUC900)		+= spi-nuc900.o
 obj-$(CONFIG_SPI_OC_TINY)		+= spi-oc-tiny.o
@@ -81,6 +73,7 @@ spi-pxa2xx-platform-objs		:= spi-pxa2xx.o spi-pxa2xx-dma.o
 obj-$(CONFIG_SPI_PXA2XX)		+= spi-pxa2xx-platform.o
 obj-$(CONFIG_SPI_PXA2XX_PCI)		+= spi-pxa2xx-pci.o
 obj-$(CONFIG_SPI_QUP)			+= spi-qup.o
+obj-$(CONFIG_SPI_QCOM_GENI)		+= spi-geni-qcom.o
 obj-$(CONFIG_SPI_ROCKCHIP)		+= spi-rockchip.o
 obj-$(CONFIG_SPI_RB4XX)			+= spi-rb4xx.o
 obj-$(CONFIG_SPI_RSPI)			+= spi-rspi.o
@@ -110,5 +103,5 @@ obj-$(CONFIG_SPI_XILINX)		+= spi-xilinx.o
 obj-$(CONFIG_SPI_XLP)			+= spi-xlp.o
 obj-$(CONFIG_SPI_XTENSA_XTFPGA)		+= spi-xtensa-xtfpga.o
 obj-$(CONFIG_SPI_ZYNQMP_GQSPI)		+= spi-zynqmp-gqspi.o
-# mediatek
-obj-$(CONFIG_MTK_SPI)	+= mediatek/
+obj-$(CONFIG_SPI_QSD)			+= spi_qsd.o
+obj-$(CONFIG_SPI_QUP)			+= spi_qsd.o
