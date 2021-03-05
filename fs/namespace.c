@@ -751,7 +751,7 @@ mountpoint:
 	}
 
 	if (!new)
-		new = kmalloc(sizeof(struct mountpoint), GFP_NOFS);
+		new = kmalloc(sizeof(struct mountpoint), GFP_KERNEL);
 	if (!new)
 		return ERR_PTR(-ENOMEM);
 
@@ -2826,9 +2826,10 @@ long do_mount(const char *dev_name, const char __user *dir_name,
 	if (retval)
 		goto dput_out;
 
-	/* Default to relatime unless overriden */
-	if (!(flags & MS_NOATIME))
-		mnt_flags |= MNT_RELATIME;
+
+	/* Default to noatime unless overriden */
+	if (!(flags & MS_RELATIME))
+		mnt_flags |= MNT_NOATIME;
 
 	/* Separate the per-mountpoint flags */
 	if (flags & MS_NOSUID)
@@ -2837,9 +2838,9 @@ long do_mount(const char *dev_name, const char __user *dir_name,
 		mnt_flags |= MNT_NODEV;
 	if (flags & MS_NOEXEC)
 		mnt_flags |= MNT_NOEXEC;
-	if (flags & MS_NOATIME)
+	//if (flags & MS_NOATIME)
 		mnt_flags |= MNT_NOATIME;
-	if (flags & MS_NODIRATIME)
+	//if (flags & MS_NODIRATIME)
 		mnt_flags |= MNT_NODIRATIME;
 	if (flags & MS_STRICTATIME)
 		mnt_flags &= ~(MNT_RELATIME | MNT_NOATIME);
@@ -3208,8 +3209,8 @@ SYSCALL_DEFINE2(pivot_root, const char __user *, new_root,
 	/* make certain new is below the root */
 	if (!is_path_reachable(new_mnt, new.dentry, &root))
 		goto out4;
-	root_mp->m_count++; /* pin it so it won't go away */
 	lock_mount_hash();
+	root_mp->m_count++; /* pin it so it won't go away */
 	detach_mnt(new_mnt, &parent_path);
 	detach_mnt(root_mnt, &root_parent);
 	if (root_mnt->mnt.mnt_flags & MNT_LOCKED) {

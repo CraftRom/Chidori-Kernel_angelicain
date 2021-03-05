@@ -11,13 +11,12 @@
 #include <keys/user-type.h>
 #include <linux/hashtable.h>
 #include <linux/scatterlist.h>
-#include <linux/ratelimit.h>
 #include <crypto/aes.h>
 #include <crypto/algapi.h>
 #include <crypto/sha.h>
 #include <crypto/skcipher.h>
-#include <linux/hie.h>
 #include "fscrypt_private.h"
+#include "fscrypt_ice.h"
 
 static struct crypto_shash *essiv_hash_tfm;
 
@@ -104,12 +103,7 @@ find_and_lock_process_key(const char *prefix,
 		goto invalid;
 
 	payload = (const struct fscrypt_key *)ukp->data;
-#ifdef CONFIG_HIE_DEBUG
-	if (hie_debug(HIE_DBG_FS))
-		pr_info("HIE: %s: prefix:%s ci:%p, payload:%p, size:%d, mode:%d, min_keysize:%d\n",
-			__func__, prefix, payload,
-			payload->size, payload->mode, min_keysize);
-#endif
+
 	if (ukp->datalen != sizeof(struct fscrypt_key) ||
 	    payload->size < 1 || payload->size > FS_MAX_KEY_SIZE) {
 		fscrypt_warn(NULL,
@@ -166,10 +160,15 @@ static struct fscrypt_mode available_modes[] = {
 		.keysize = 32,
 		.ivsize = 32,
 	},
+	[FS_ENCRYPTION_MODE_PRIVATE] = {
+		.friendly_name = "ICE",
+		.cipher_str = "bugon",
+		.keysize = 64,
+	},
 };
 
 static struct fscrypt_mode *
-select_encryption_mode(const struct fscrypt_info *ci, const struct inode *inode)
+select_encryption_mode(struct fscrypt_info *ci, const struct inode *inode)
 {
 	if (!fscrypt_valid_enc_modes(ci->ci_data_mode, ci->ci_filename_mode)) {
 		fscrypt_warn(inode->i_sb,
@@ -180,14 +179,14 @@ select_encryption_mode(const struct fscrypt_info *ci, const struct inode *inode)
 	}
 
 	if (S_ISREG(inode->i_mode)) {
-		/* HIE: default use aes-256-xts */
-		if (ci->ci_data_mode == FS_ENCRYPTION_MODE_PRIVATE)
-			return &available_modes[FS_ENCRYPTION_MODE_AES_256_XTS];
+		ci->ci_type = CI_DATA_TYPE;
 		return &available_modes[ci->ci_data_mode];
 	}
 
-	if (S_ISDIR(inode->i_mode) || S_ISLNK(inode->i_mode))
+	if (S_ISDIR(inode->i_mode) || S_ISLNK(inode->i_mode)) {
+		ci->ci_type = CI_FNAME_TYPE;
 		return &available_modes[ci->ci_filename_mode];
+	}
 
 	WARN_ONCE(1, "fscrypt: filesystem tried to load encryption info for inode %lu, which is not encryptable (file type %d)\n",
 		  inode->i_ino, (inode->i_mode & S_IFMT));
@@ -195,8 +194,7 @@ select_encryption_mode(const struct fscrypt_info *ci, const struct inode *inode)
 }
 
 /* Find the master key, then derive the inode's actual encryption key */
-static int find_and_derive_key(struct fscrypt_info *crypt_info,
-				   const struct inode *inode,
+static int find_and_derive_key(const struct inode *inode,
 			       const struct fscrypt_context *ctx,
 			       u8 *derived_key, const struct fscrypt_mode *mode)
 {
@@ -214,8 +212,6 @@ static int find_and_derive_key(struct fscrypt_info *crypt_info,
 	}
 	if (IS_ERR(key))
 		return PTR_ERR(key);
-		
-	crypt_info->ci_keyring_key = key_get(key);
 
 	if (ctx->flags & FS_POLICY_FLAG_DIRECT_KEY) {
 		if (mode->ivsize < offsetofend(union fscrypt_iv, nonce)) {
@@ -455,13 +451,17 @@ void __exit fscrypt_essiv_cleanup(void)
 	crypto_free_shash(essiv_hash_tfm);
 }
 
-u8 fscrypt_data_crypt_mode(u8 mode)
+static int fscrypt_data_encryption_mode(struct inode *inode)
 {
-	if (mode == FS_ENCRYPTION_MODE_INVALID)
-		return FS_ENCRYPTION_MODE_INVALID;
-
-	return hie_is_ready() ? FS_ENCRYPTION_MODE_PRIVATE : mode;
+	return fscrypt_is_ice_capable(inode->i_sb) ?
+	FS_ENCRYPTION_MODE_PRIVATE : FS_ENCRYPTION_MODE_AES_256_XTS;
 }
+
+int fscrypt_get_mode_key_size(int mode)
+{
+	return available_modes[mode].keysize;
+}
+EXPORT_SYMBOL(fscrypt_get_mode_key_size);
 /*
  * Given the encryption mode and key (normally the derived key, but for
  * FS_POLICY_FLAG_DIRECT_KEY mode it's the master key), set up the inode's
@@ -510,14 +510,13 @@ static void put_crypt_info(struct fscrypt_info *ci)
 	if (!ci)
 		return;
 
-	key_put(ci->ci_keyring_key);
-
 	if (ci->ci_master_key) {
 		put_master_key(ci->ci_master_key);
 	} else {
 		crypto_free_skcipher(ci->ci_ctfm);
 		crypto_free_cipher(ci->ci_essiv_tfm);
 	}
+	memset(ci, 0, sizeof(*ci)); /* sanitizes ->ci_raw_key */
 	kmem_cache_free(fscrypt_info_cachep, ci);
 }
 
@@ -529,7 +528,7 @@ int fscrypt_get_encryption_info(struct inode *inode)
 	u8 *raw_key = NULL;
 	int res;
 
-	if (inode->i_crypt_info)
+	if (fscrypt_has_encryption_key(inode))
 		return 0;
 
 	res = fscrypt_initialize(inode->i_sb->s_cop->flags);
@@ -544,7 +543,8 @@ int fscrypt_get_encryption_info(struct inode *inode)
 		/* Fake up a context for an unencrypted directory */
 		memset(&ctx, 0, sizeof(ctx));
 		ctx.format = FS_ENCRYPTION_CONTEXT_FORMAT_V1;
-		ctx.contents_encryption_mode = FS_ENCRYPTION_MODE_AES_256_XTS;
+		ctx.contents_encryption_mode =
+			fscrypt_data_encryption_mode(inode);
 		ctx.filenames_encryption_mode = FS_ENCRYPTION_MODE_AES_256_CTS;
 		memset(ctx.master_key_descriptor, 0x42, FS_KEY_DESCRIPTOR_SIZE);
 	} else if (res != sizeof(ctx)) {
@@ -562,20 +562,12 @@ int fscrypt_get_encryption_info(struct inode *inode)
 		return -ENOMEM;
 
 	crypt_info->ci_flags = ctx.flags;
-	crypt_info->ci_data_mode =
-		fscrypt_data_crypt_mode(ctx.contents_encryption_mode);
+	crypt_info->ci_data_mode = ctx.contents_encryption_mode;
 	crypt_info->ci_filename_mode = ctx.filenames_encryption_mode;
 	memcpy(crypt_info->ci_master_key_descriptor, ctx.master_key_descriptor,
 	       FS_KEY_DESCRIPTOR_SIZE);
 	memcpy(crypt_info->ci_nonce, ctx.nonce, FS_KEY_DERIVATION_NONCE_SIZE);
-	crypt_info->ci_keyring_key = NULL;
-#ifdef CONFIG_HIE_DEBUG
-	if (hie_debug(HIE_DBG_FS))
-		pr_info("HIE: %s: inode: %p, %ld, res: %d, dmode: %d, fmode: %d\n",
-			__func__, inode, inode->i_ino,
-			res, crypt_info->ci_data_mode,
-			crypt_info->ci_filename_mode);
-#endif
+
 	mode = select_encryption_mode(crypt_info, inode);
 	if (IS_ERR(mode)) {
 		res = PTR_ERR(mode);
@@ -583,12 +575,6 @@ int fscrypt_get_encryption_info(struct inode *inode)
 	}
 	WARN_ON(mode->ivsize > FSCRYPT_MAX_IV_SIZE);
 	crypt_info->ci_mode = mode;
-
-#ifdef CONFIG_HIE_DEBUG
-	if (hie_debug(HIE_DBG_FS))
-		pr_info("HIE: %s: fscrypt_mode<%s> key_size<%d>\n",
-		__func__, mode->friendly_name, mode->keysize);
-#endif
 
 	/*
 	 * This cannot be a stack buffer because it may be passed to the
@@ -599,20 +585,28 @@ int fscrypt_get_encryption_info(struct inode *inode)
 	if (!raw_key)
 		goto out;
 
-	res = find_and_derive_key(crypt_info, inode, &ctx, raw_key, mode);
+	res = find_and_derive_key(inode, &ctx, raw_key, mode);
 	if (res)
 		goto out;
-	
-	if (S_ISREG(inode->i_mode) &&
-		crypt_info->ci_data_mode == FS_ENCRYPTION_MODE_PRIVATE)
-		goto hw_encrypt_out;
+
+	if (is_private_data_mode(crypt_info)) {
+		if (!fscrypt_is_ice_capable(inode->i_sb)) {
+			pr_warn("%s: ICE support not available\n",
+				__func__);
+			res = -EINVAL;
+			goto out;
+		}
+		/* Let's encrypt/decrypt by ICE */
+		memcpy(crypt_info->ci_raw_key, raw_key, mode->keysize);
+		goto do_ice;
+	}
 
 	res = setup_crypto_transform(crypt_info, mode, raw_key, inode);
 	if (res)
 		goto out;
 
-hw_encrypt_out:
-	if (cmpxchg(&inode->i_crypt_info, NULL, crypt_info) == NULL)
+do_ice:
+	if (cmpxchg_release(&inode->i_crypt_info, NULL, crypt_info) == NULL)
 		crypt_info = NULL;
 out:
 	if (res == -ENOKEY)
@@ -623,9 +617,30 @@ out:
 }
 EXPORT_SYMBOL(fscrypt_get_encryption_info);
 
+/**
+ * fscrypt_put_encryption_info - free most of an inode's fscrypt data
+ *
+ * Free the inode's fscrypt_info.  Filesystems must call this when the inode is
+ * being evicted.  An RCU grace period need not have elapsed yet.
+ */
 void fscrypt_put_encryption_info(struct inode *inode)
 {
 	put_crypt_info(inode->i_crypt_info);
 	inode->i_crypt_info = NULL;
 }
 EXPORT_SYMBOL(fscrypt_put_encryption_info);
+
+/**
+ * fscrypt_free_inode - free an inode's fscrypt data requiring RCU delay
+ *
+ * Free the inode's cached decrypted symlink target, if any.  Filesystems must
+ * call this after an RCU grace period, just before they free the inode.
+ */
+void fscrypt_free_inode(struct inode *inode)
+{
+	if (IS_ENCRYPTED(inode) && S_ISLNK(inode->i_mode)) {
+		kfree(inode->i_link);
+		inode->i_link = NULL;
+	}
+}
+EXPORT_SYMBOL(fscrypt_free_inode);

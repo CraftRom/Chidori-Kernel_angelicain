@@ -1521,10 +1521,10 @@ static void __init init_uclamp(void)
 		struct uclamp_map *uc_map = &uclamp_maps[clamp_id][0];
 		int group_id = 0;
 
-		for ( ; group_id <= CONFIG_UCLAMP_GROUPS_COUNT; ++group_id) {
-			uc_map[group_id].value = UCLAMP_NONE;
-			raw_spin_lock_init(&uc_map[group_id].se_lock);
-		}
+	dest_cpu = cpumask_any_and(cpu_valid_mask, new_mask);
+	if (dest_cpu >= nr_cpu_ids) {
+		ret = -EINVAL;
+		goto out;
 	}
 
 	init_uclamp_sched_group();
@@ -1543,12 +1543,21 @@ int set_task_uclamp(pid_t pid, u32 min) { return 0; }
 static inline void init_uclamp(void) { }
 #endif /* CONFIG_UCLAMP_TASK */
 
-static inline void enqueue_task(struct rq *rq, struct task_struct *p, int flags)
-{
-	update_rq_clock(rq);
-	if (!(flags & ENQUEUE_RESTORE)) {
-		sched_info_queued(rq, p);
-		psi_enqueue(p, flags & ENQUEUE_WAKEUP);
+	if (task_running(rq, p) || p->state == TASK_WAKING) {
+		struct migration_arg arg = { p, dest_cpu };
+		/* Need help from migration thread: drop lock and wait. */
+		task_rq_unlock(rq, p, &rf);
+		stop_one_cpu(cpu_of(rq), migration_cpu_stop, &arg);
+		tlb_migrate_finish(p->mm);
+		return 0;
+	} else if (task_on_rq_queued(p)) {
+		/*
+		 * OK, since we're going to drop the lock immediately
+		 * afterwards anyway.
+		 */
+		lockdep_unpin_lock(&rq->lock, rf.cookie);
+		rq = move_queued_task(rq, p, dest_cpu);
+		lockdep_repin_lock(&rq->lock, rf.cookie);
 	}
 
 	uclamp_cpu_get(rq, p);
@@ -4875,7 +4884,8 @@ void rt_mutex_setprio(struct task_struct *p, int prio)
 	if (dl_prio(prio)) {
 		struct task_struct *pi_task = rt_mutex_get_top_task(p);
 		if (!dl_prio(p->normal_prio) ||
-		    (pi_task && dl_entity_preempt(&pi_task->dl, &p->dl))) {
+		    (pi_task && dl_prio(pi_task->prio) &&
+		     dl_entity_preempt(&pi_task->dl, &p->dl))) {
 			p->dl.dl_boosted = 1;
 			queue_flag |= ENQUEUE_REPLENISH;
 		} else
@@ -10077,8 +10087,9 @@ int sched_rr_handler(struct ctl_table *table, int write,
 	/* make sure that internally we keep jiffies */
 	/* also, writing zero resets timeslice to default */
 	if (!ret && write) {
-		sched_rr_timeslice = sched_rr_timeslice <= 0 ?
-			RR_TIMESLICE : msecs_to_jiffies(sched_rr_timeslice);
+		sched_rr_timeslice =
+			sysctl_sched_rr_timeslice <= 0 ? RR_TIMESLICE :
+			msecs_to_jiffies(sysctl_sched_rr_timeslice);
 	}
 	mutex_unlock(&mutex);
 	return ret;

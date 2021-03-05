@@ -1,5 +1,4 @@
 /*
- * SPDX-License-Identifier: GPL-2.0
  * This module exports the functions:
  *
  *     'int set_selection(struct tiocl_selection __user *, struct tty_struct *)'
@@ -81,6 +80,11 @@ void clear_selection(void)
 	}
 }
 
+bool vc_is_sel(struct vc_data *vc)
+{
+	return vc == sel_cons;
+}
+
 /*
  * User settable table: what characters are to be considered alphabetic?
  * 256 bits. Locked by the console lock.
@@ -159,8 +163,7 @@ static int store_utf8(u16 c, char *p)
  *	The entire selection process is managed under the console_lock. It's
  *	 a lot under the lock but its hardly a performance path
  */
-static int __set_selection(const struct tiocl_selection __user *sel,
-	struct tty_struct *tty)
+static int __set_selection(const struct tiocl_selection __user *sel, struct tty_struct *tty)
 {
 	struct vc_data *vc = vc_cons[fg_console].d;
 	int sel_mode, new_sel_start, new_sel_end, spc;
@@ -332,8 +335,7 @@ static int __set_selection(const struct tiocl_selection __user *sel,
 	return ret;
 }
 
-int set_selection(const struct tiocl_selection __user *v,
-	struct tty_struct *tty)
+int set_selection(const struct tiocl_selection __user *v, struct tty_struct *tty)
 {
 	int ret;
 
@@ -380,7 +382,9 @@ int paste_selection(struct tty_struct *tty)
 			break;
 		}
 		if (tty_throttled(tty)) {
+			mutex_unlock(&sel_lock);
 			schedule();
+			mutex_lock(&sel_lock);
 			continue;
 		}
 		__set_current_state(TASK_RUNNING);

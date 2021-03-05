@@ -36,15 +36,10 @@
 #include <linux/pstore_ram.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
+#include <linux/memblock.h>
 
 #define RAMOOPS_KERNMSG_HDR "===="
 #define MIN_MEM_SIZE 4096UL
-#ifdef __aarch64__
-#ifdef memcpy
-#undef memcpy
-#endif
-#define memcpy memcpy_toio
-#endif
 
 static ulong record_size = MIN_MEM_SIZE;
 module_param(record_size, ulong, 0400);
@@ -63,8 +58,8 @@ static ulong ramoops_pmsg_size = MIN_MEM_SIZE;
 module_param_named(pmsg_size, ramoops_pmsg_size, ulong, 0400);
 MODULE_PARM_DESC(pmsg_size, "size of user space message log");
 
-static ulong mem_address;
-module_param(mem_address, ulong, 0400);
+static unsigned long long mem_address;
+module_param(mem_address, ullong, 0400);
 MODULE_PARM_DESC(mem_address,
 		"start of reserved RAM used to store oops/panic logs");
 
@@ -72,15 +67,6 @@ static ulong mem_size;
 module_param(mem_size, ulong, 0400);
 MODULE_PARM_DESC(mem_size,
 		"size of reserved RAM used to store oops/panic logs");
-
-void pstore_set_addr_size(unsigned int addr, unsigned int size,
-		unsigned int console_size, unsigned int pmsg_size)
-{
-	mem_address = addr;
-	mem_size = size;
-	ramoops_console_size = console_size;
-	ramoops_pmsg_size = pmsg_size;
-}
 
 static unsigned int mem_type;
 module_param(mem_type, uint, 0600);
@@ -104,7 +90,6 @@ struct ramoops_context {
 	struct persistent_ram_zone *cprz;
 	struct persistent_ram_zone *fprz;
 	struct persistent_ram_zone *mprz;
-	struct persistent_ram_zone *bprz; /* simple lockless buffer console */
 	phys_addr_t phys_addr;
 	unsigned long size;
 	unsigned int memtype;
@@ -121,7 +106,6 @@ struct ramoops_context {
 	unsigned int console_read_cnt;
 	unsigned int ftrace_read_cnt;
 	unsigned int pmsg_read_cnt;
-	unsigned int bconsole_read_cnt;
 	struct pstore_info pstore;
 };
 
@@ -136,7 +120,6 @@ static int ramoops_pstore_open(struct pstore_info *psi)
 	cxt->console_read_cnt = 0;
 	cxt->ftrace_read_cnt = 0;
 	cxt->pmsg_read_cnt = 0;
-	cxt->bconsole_read_cnt = 0;
 	return 0;
 }
 
@@ -237,11 +220,6 @@ static ssize_t ramoops_pstore_read(u64 *id, enum pstore_type_id *type,
 	if (!prz_ok(prz))
 		prz = ramoops_get_next_prz(&cxt->cprz, &cxt->console_read_cnt,
 					   1, id, type, PSTORE_TYPE_CONSOLE, 0);
-	if (!prz_ok(prz)) {
-		prz = ramoops_get_next_prz(&cxt->bprz, &cxt->bconsole_read_cnt,
-					   1, id, type, PSTORE_TYPE_CONSOLE, 0);
-		*id = 2;
-	}
 	if (!prz_ok(prz))
 		prz = ramoops_get_next_prz(&cxt->fprz, &cxt->ftrace_read_cnt,
 					   1, id, type, PSTORE_TYPE_FTRACE, 0);
@@ -301,15 +279,9 @@ static int notrace ramoops_pstore_write_buf(enum pstore_type_id type,
 	size_t hlen;
 
 	if (type == PSTORE_TYPE_CONSOLE) {
-		if (reason == 0) {
-			if (!cxt->cprz)
-				return -ENOMEM;
-			persistent_ram_write(cxt->cprz, buf, size);
-		} else {
-			if (!cxt->bprz)
-				return -ENOMEM;
-			persistent_ram_write(cxt->bprz, buf, size);
-		}
+		if (!cxt->cprz)
+			return -ENOMEM;
+		persistent_ram_write(cxt->cprz, buf, size);
 		return 0;
 	} else if (type == PSTORE_TYPE_FTRACE) {
 		if (!cxt->fprz)
@@ -630,6 +602,10 @@ static int ramoops_probe(struct platform_device *pdev)
 		goto fail_out;
 	}
 
+// xuke @ 20180611	Import pstore patch from XiaoMi.	Begin
+	if (pdata->mem_size && !is_power_of_2(pdata->mem_size))
+		pdata->mem_size = rounddown_pow_of_two(pdata->mem_size);
+// End
 	if (pdata->record_size && !is_power_of_2(pdata->record_size))
 		pdata->record_size = rounddown_pow_of_two(pdata->record_size);
 	if (pdata->console_size && !is_power_of_2(pdata->console_size))
@@ -649,12 +625,9 @@ static int ramoops_probe(struct platform_device *pdev)
 	cxt->dump_oops = pdata->dump_oops;
 	cxt->ecc_info = pdata->ecc_info;
 
-	pr_notice("pstore:address is 0x%lx, size is 0x%lx, console_size is 0x%zx, pmsg_size is 0x%zx\n",
-			(unsigned long)cxt->phys_addr, cxt->size,
-			cxt->console_size, cxt->pmsg_size);
 	paddr = cxt->phys_addr;
 
-	dump_mem_sz = cxt->size - cxt->console_size * 2 - cxt->ftrace_size
+	dump_mem_sz = cxt->size - cxt->console_size - cxt->ftrace_size
 			- cxt->pmsg_size;
 	err = ramoops_init_przs(dev, cxt, &paddr, dump_mem_sz);
 	if (err)
@@ -664,11 +637,6 @@ static int ramoops_probe(struct platform_device *pdev)
 			       cxt->console_size, 0);
 	if (err)
 		goto fail_init_cprz;
-
-	err = ramoops_init_prz(dev, cxt, &cxt->bprz, &paddr,
-			       cxt->console_size, 0);
-	if (err)
-		goto fail_init_bprz;
 
 	err = ramoops_init_prz(dev, cxt, &cxt->fprz, &paddr, cxt->ftrace_size,
 			       LINUX_VERSION_CODE);
@@ -737,8 +705,6 @@ fail_clear:
 fail_init_mprz:
 	persistent_ram_free(cxt->fprz);
 fail_init_fprz:
-	persistent_ram_free(cxt->bprz);
-fail_init_bprz:
 	persistent_ram_free(cxt->cprz);
 fail_init_cprz:
 	ramoops_free_przs(cxt);
@@ -811,6 +777,76 @@ static void ramoops_register_dummy(void)
 			PTR_ERR(dummy));
 	}
 }
+
+// xuke @ 20180611	Import pstore patch from XiaoMi.	Begin
+static struct ramoops_platform_data ramoops_data;
+
+static struct platform_device ramoops_dev  = {
+	.name = "ramoops",
+	.dev = {
+		.platform_data = &ramoops_data,
+	},
+};
+
+static int __init ramoops_memreserve(char *p)
+{
+	unsigned long size = 0;
+
+	if (!p)
+		return 1;
+
+	size = memparse(p, &p) & PAGE_MASK;
+
+	ramoops_data.mem_size = size;
+	ramoops_data.console_size = size / 2;
+	ramoops_data.pmsg_size = size / 2;
+//	ramoops_data.record_size = size / 2;
+//	ramoops_data.ftrace_size = size / 2;
+
+	pr_info("xuke: %s, mem_size=0x%lx, console_size=0x%lx, pmsg_size=0x%lx, record_size=%lx, ftrace_size=%lx, mem_address=0x%llx\n", __func__,
+		ramoops_data.mem_size, ramoops_data.console_size, ramoops_data.pmsg_size,
+		ramoops_data.record_size, ramoops_data.ftrace_size, (unsigned long long)ramoops_data.mem_address);
+
+// xuke @ 20180614	To get the last KMSG log in fastboot.	Begin
+	if (ramoops_data.mem_address)
+		memblock_reserve(ramoops_data.mem_address, ramoops_data.mem_size);
+// End
+	return 0;
+}
+early_param("ramoops_memreserve", ramoops_memreserve);
+
+// xuke @ 20180614	To get the last KMSG log in fastboot.	Begin
+static int __init ramoops_memreserve_addr(char *p)
+{
+	phys_addr_t addr = 0;
+
+	if (!p)
+		return 1;
+
+	addr = memparse(p, &p) & PAGE_MASK;
+
+	ramoops_data.mem_address = addr;
+	ramoops_data.dump_oops = 1;
+
+	pr_info("xuke: %s, mem_address=0x%llx\n", __func__, (unsigned long long)ramoops_data.mem_address);
+
+	if (ramoops_data.mem_size)
+		memblock_reserve(ramoops_data.mem_address, ramoops_data.mem_size);
+
+	return 0;
+}
+early_param("ramoops_memreserve_addr", ramoops_memreserve_addr);
+// End
+
+static int __init msm_register_ramoops_device(void)
+{
+    pr_info("msm_register_ramoops_device \n");
+	if (platform_device_register(&ramoops_dev))
+		pr_info("Unable to register ramoops platform device\n");
+    return 0;
+}
+core_initcall(msm_register_ramoops_device);
+// End
 
 static int __init ramoops_init(void)
 {

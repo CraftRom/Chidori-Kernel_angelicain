@@ -14,6 +14,7 @@
 #include <linux/mount.h>
 #include <linux/file.h>
 #include <linux/quotaops.h>
+#include <linux/random.h>
 #include <linux/uuid.h>
 #include <asm/uaccess.h>
 #include "ext4_jbd2.h"
@@ -96,7 +97,6 @@ static long swap_inode_boot_loader(struct super_block *sb,
 	int err;
 	struct inode *inode_bl;
 	struct ext4_inode_info *ei_bl;
-	struct ext4_sb_info *sbi = EXT4_SB(sb);
 
 	if (inode->i_nlink != 1 || !S_ISREG(inode->i_mode))
 		return -EINVAL;
@@ -104,7 +104,7 @@ static long swap_inode_boot_loader(struct super_block *sb,
 	if (!inode_owner_or_capable(inode) || !capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
-	inode_bl = ext4_iget(sb, EXT4_BOOT_LOADER_INO);
+	inode_bl = ext4_iget(sb, EXT4_BOOT_LOADER_INO, EXT4_IGET_SPECIAL);
 	if (IS_ERR(inode_bl))
 		return PTR_ERR(inode_bl);
 	ei_bl = EXT4_I(inode_bl);
@@ -155,10 +155,8 @@ static long swap_inode_boot_loader(struct super_block *sb,
 
 	inode->i_ctime = inode_bl->i_ctime = ext4_current_time(inode);
 
-	spin_lock(&sbi->s_next_gen_lock);
-	inode->i_generation = sbi->s_next_generation++;
-	inode_bl->i_generation = sbi->s_next_generation++;
-	spin_unlock(&sbi->s_next_gen_lock);
+	inode->i_generation = prandom_u32();
+	inode_bl->i_generation = prandom_u32();
 
 	ext4_discard_preallocations(inode);
 
@@ -191,7 +189,7 @@ journal_err_out:
 	return err;
 }
 
-#ifdef CONFIG_EXT4_FS_ENCRYPTION
+#ifdef CONFIG_FS_ENCRYPTION
 static int uuid_is_zero(__u8 u[16])
 {
 	int	i;
@@ -783,12 +781,12 @@ resizefs_out:
 		return ext4_ext_precache(inode);
 
 	case EXT4_IOC_SET_ENCRYPTION_POLICY:
-		if (!ext4_has_feature_encrypt(sb))
-			return -EOPNOTSUPP;
+//		if (!ext4_has_feature_encrypt(sb))
+//			return -EOPNOTSUPP;
 		return fscrypt_ioctl_set_policy(filp, (const void __user *)arg);
 
 	case EXT4_IOC_GET_ENCRYPTION_PWSALT: {
-#ifdef CONFIG_EXT4_FS_ENCRYPTION
+#ifdef CONFIG_FS_ENCRYPTION
 		int err, err2;
 		struct ext4_sb_info *sbi = EXT4_SB(sb);
 		handle_t *handle;
@@ -807,7 +805,10 @@ resizefs_out:
 			err = ext4_journal_get_write_access(handle, sbi->s_sbh);
 			if (err)
 				goto pwsalt_err_journal;
+			lock_buffer(sbi->s_sbh);
 			generate_random_uuid(sbi->s_es->s_encrypt_pw_salt);
+			ext4_superblock_csum_set(sb);
+			unlock_buffer(sbi->s_sbh);
 			err = ext4_handle_dirty_metadata(handle, NULL,
 							 sbi->s_sbh);
 		pwsalt_err_journal:

@@ -210,15 +210,9 @@ ext4_xattr_check_block(struct inode *inode, struct buffer_head *bh)
 	int error;
 
 	if (BHDR(bh)->h_magic != cpu_to_le32(EXT4_XATTR_MAGIC) ||
-	BHDR(bh)->h_blocks != cpu_to_le32(1)) {
-		pr_debug("%s, %d, %u, %u\n",
-			__func__, __LINE__,
-			BHDR(bh)->h_magic,
-			BHDR(bh)->h_blocks);
+	    BHDR(bh)->h_blocks != cpu_to_le32(1))
 		return -EFSCORRUPTED;
-	}
-
-        if (buffer_verified(bh))
+	if (buffer_verified(bh))
 		return 0;
 
 	if (!ext4_xattr_block_csum_verify(inode, bh))
@@ -584,7 +578,7 @@ ext4_xattr_release_block(handle_t *handle, struct inode *inode,
 		 * This must happen under buffer lock for
 		 * ext4_xattr_block_set() to reliably detect freed block
 		 */
-		mb_cache_entry_delete_block(ext4_mb_cache, hash, bh->b_blocknr);
+		mb_cache_entry_delete(ext4_mb_cache, hash, bh->b_blocknr);
 		get_bh(bh);
 		unlock_buffer(bh);
 		ext4_free_blocks(handle, inode, bh, 0, 1,
@@ -843,8 +837,8 @@ ext4_xattr_block_set(handle_t *handle, struct inode *inode,
 			 * ext4_xattr_block_set() to reliably detect modified
 			 * block
 			 */
-			mb_cache_entry_delete_block(ext4_mb_cache, hash,
-						    bs->bh->b_blocknr);
+			mb_cache_entry_delete(ext4_mb_cache, hash,
+					      bs->bh->b_blocknr);
 			ea_bdebug(bs->bh, "modifying in-place");
 			error = ext4_xattr_set_entry(i, s, inode);
 			if (!error) {
@@ -1708,10 +1702,10 @@ ext4_xattr_cache_find(struct inode *inode, struct ext4_xattr_header *header,
 	while (ce) {
 		struct buffer_head *bh;
 
-		bh = sb_bread(inode->i_sb, ce->e_block);
+		bh = sb_bread(inode->i_sb, ce->e_value);
 		if (!bh) {
 			EXT4_ERROR_INODE(inode, "block %lu read error",
-					 (unsigned long) ce->e_block);
+					 (unsigned long)ce->e_value);
 		} else if (ext4_xattr_cmp(header, BHDR(bh)) == 0) {
 			*pce = ce;
 			return bh;

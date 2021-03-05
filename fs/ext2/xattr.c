@@ -55,6 +55,7 @@
 
 #include <linux/buffer_head.h>
 #include <linux/init.h>
+#include <linux/printk.h>
 #include <linux/slab.h>
 #include <linux/mbcache.h>
 #include <linux/quotaops.h>
@@ -83,8 +84,8 @@
 		printk("\n"); \
 	} while (0)
 #else
-# define ea_idebug(f...)
-# define ea_bdebug(f...)
+# define ea_idebug(inode, f...)	no_printk(f)
+# define ea_bdebug(bh, f...)	no_printk(f)
 #endif
 
 static int ext2_xattr_set2(struct inode *, struct buffer_head *,
@@ -493,8 +494,8 @@ bad_block:		ext2_error(sb, "ext2_xattr_set",
 			 * This must happen under buffer lock for
 			 * ext2_xattr_set2() to reliably detect modified block
 			 */
-			mb_cache_entry_delete_block(EXT2_SB(sb)->s_mb_cache,
-						    hash, bh->b_blocknr);
+			mb_cache_entry_delete(EXT2_SB(sb)->s_mb_cache, hash,
+					      bh->b_blocknr);
 
 			/* keep the buffer locked while modifying it. */
 		} else {
@@ -721,8 +722,8 @@ ext2_xattr_set2(struct inode *inode, struct buffer_head *old_bh,
 			 * This must happen under buffer lock for
 			 * ext2_xattr_set2() to reliably detect freed block
 			 */
-			mb_cache_entry_delete_block(ext2_mb_cache,
-						    hash, old_bh->b_blocknr);
+			mb_cache_entry_delete(ext2_mb_cache, hash,
+					      old_bh->b_blocknr);
 			/* Free the old block. */
 			ea_bdebug(old_bh, "freeing");
 			ext2_free_blocks(inode, old_bh->b_blocknr, 1);
@@ -795,8 +796,8 @@ ext2_xattr_delete_inode(struct inode *inode)
 		 * This must happen under buffer lock for ext2_xattr_set2() to
 		 * reliably detect freed block
 		 */
-		mb_cache_entry_delete_block(EXT2_SB(inode->i_sb)->s_mb_cache,
-					    hash, bh->b_blocknr);
+		mb_cache_entry_delete(EXT2_SB(inode->i_sb)->s_mb_cache, hash,
+				      bh->b_blocknr);
 		ext2_free_blocks(inode, EXT2_I(inode)->i_file_acl, 1);
 		get_bh(bh);
 		bforget(bh);
@@ -835,8 +836,7 @@ ext2_xattr_cache_insert(struct mb_cache *cache, struct buffer_head *bh)
 	error = mb_cache_entry_create(cache, GFP_NOFS, hash, bh->b_blocknr, 1);
 	if (error) {
 		if (error == -EBUSY) {
-			ea_bdebug(bh, "already in cache (%d cache entries)",
-				atomic_read(&ext2_xattr_cache->c_entry_count));
+			ea_bdebug(bh, "already in cache");
 			error = 0;
 		}
 	} else
@@ -907,11 +907,11 @@ again:
 	while (ce) {
 		struct buffer_head *bh;
 
-		bh = sb_bread(inode->i_sb, ce->e_block);
+		bh = sb_bread(inode->i_sb, ce->e_value);
 		if (!bh) {
 			ext2_error(inode->i_sb, "ext2_xattr_cache_find",
 				"inode %ld: block %ld read error",
-				inode->i_ino, (unsigned long) ce->e_block);
+				inode->i_ino, (unsigned long) ce->e_value);
 		} else {
 			lock_buffer(bh);
 			/*
@@ -931,7 +931,7 @@ again:
 			} else if (le32_to_cpu(HDR(bh)->h_refcount) >
 				   EXT2_XATTR_REFCOUNT_MAX) {
 				ea_idebug(inode, "block %ld refcount %d>%d",
-					  (unsigned long) ce->e_block,
+					  (unsigned long) ce->e_value,
 					  le32_to_cpu(HDR(bh)->h_refcount),
 					  EXT2_XATTR_REFCOUNT_MAX);
 			} else if (!ext2_xattr_cmp(header, HDR(bh))) {

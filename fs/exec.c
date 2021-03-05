@@ -67,8 +67,6 @@
 
 #include <trace/events/sched.h>
 
-#include <mt-plat/mtk_pidmap.h>
-
 int suid_dumpable = 0;
 
 static LIST_HEAD(formats);
@@ -308,7 +306,7 @@ static int __bprm_mm_init(struct linux_binprm *bprm)
 	vma->vm_start = vma->vm_end - PAGE_SIZE;
 	vma->vm_flags = VM_SOFTDIRTY | VM_STACK_FLAGS | VM_STACK_INCOMPLETE_SETUP;
 	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
-	INIT_LIST_HEAD(&vma->anon_vma_chain);
+	INIT_VMA(vma);
 
 	err = insert_vm_struct(mm, vma);
 	if (err)
@@ -1023,7 +1021,7 @@ static int exec_mmap(struct mm_struct *mm)
 	/* Notify parent that we're no longer interested in the old VM */
 	tsk = current;
 	old_mm = current->mm;
-	mm_release(tsk, old_mm);
+	exec_mm_release(tsk, old_mm);
 
 	if (old_mm) {
 		sync_mm_rss(old_mm);
@@ -1251,7 +1249,6 @@ void __set_task_comm(struct task_struct *tsk, const char *buf, bool exec)
 	strlcpy(tsk->comm, buf, sizeof(tsk->comm));
 	task_unlock(tsk);
 	perf_event_comm(tsk, exec);
-	mtk_pidmap_update(tsk);
 }
 
 int flush_old_exec(struct linux_binprm * bprm)
@@ -1272,6 +1269,8 @@ int flush_old_exec(struct linux_binprm * bprm)
 	 * to be lockless.
 	 */
 	set_mm_exe_file(bprm->mm, bprm->file);
+
+	would_dump(bprm, bprm->file);
 
 	/*
 	 * Release all of the old mmap stuff
@@ -1356,7 +1355,7 @@ void setup_new_exec(struct linux_binprm * bprm)
 
 	/* An exec changes our domain. We are no longer part of the thread
 	   group */
-	current->self_exec_id++;
+	WRITE_ONCE(current->self_exec_id, current->self_exec_id + 1);
 	flush_signal_handlers(current, 0);
 }
 EXPORT_SYMBOL(setup_new_exec);
@@ -1782,8 +1781,6 @@ static int do_execveat_common(int fd, struct filename *filename,
 	retval = copy_strings(bprm->argc, argv, bprm);
 	if (retval < 0)
 		goto out;
-
-	would_dump(bprm, bprm->file);
 
 	retval = exec_binprm(bprm);
 	if (retval < 0)

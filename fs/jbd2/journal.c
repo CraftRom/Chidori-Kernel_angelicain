@@ -4,6 +4,7 @@
  * Written by Stephen C. Tweedie <sct@redhat.com>, 1998
  *
  * Copyright 1998 Red Hat corp --- All Rights Reserved
+ * Copyright (C) 2020 XiaoMi, Inc.
  *
  * This file is part of the Linux kernel and is made available under
  * the terms of the GNU General Public License, version 2, or at your
@@ -49,7 +50,6 @@
 
 #include <asm/uaccess.h>
 #include <asm/page.h>
-#include <mt-plat/mtk_io_boost.h>
 
 #ifdef CONFIG_JBD2_DEBUG
 ushort jbd2_journal_enable_debug __read_mostly;
@@ -187,6 +187,7 @@ static void commit_timeout(unsigned long __data)
  *    the disk.  Flushing these old buffers to reclaim space in the log is
  *    known as checkpointing, and this thread is responsible for that job.
  */
+
 static int kjournald2(void *arg)
 {
 	journal_t *journal = arg;
@@ -205,15 +206,12 @@ static int kjournald2(void *arg)
 	journal->j_task = current;
 	wake_up(&journal->j_wait_done_commit);
 
-	mtk_iobst_register_tid(current->pid);
-
 	/*
 	 * And now, wait forever for commit wakeup events.
 	 */
 	write_lock(&journal->j_state_lock);
 
 loop:
-
 	if (journal->j_flags & JBD2_UNMOUNT)
 		goto end_loop;
 
@@ -224,7 +222,6 @@ loop:
 		jbd_debug(1, "OK, requests differ\n");
 		write_unlock(&journal->j_state_lock);
 		del_timer_sync(&journal->j_commit_timer);
-
 		jbd2_journal_commit_transaction(journal);
 		write_lock(&journal->j_state_lock);
 		goto loop;
@@ -339,7 +336,7 @@ static void journal_kill_thread(journal_t *journal)
  * IO is in progress. do_get_write_access() handles this.
  *
  * The function returns a pointer to the buffer_head to be used for IO.
- *
+ * 
  *
  * Return value:
  *  <0: Error
@@ -528,7 +525,7 @@ int __jbd2_log_start_commit(journal_t *journal, tid_t target)
 		WARN_ONCE(1, "JBD2: bad log_start_commit: %u %u %u %u\n",
 			  journal->j_commit_request,
 			  journal->j_commit_sequence,
-			  target, journal->j_running_transaction ?
+			  target, journal->j_running_transaction ? 
 			  journal->j_running_transaction->t_tid : 0);
 	return 0;
 }
@@ -731,6 +728,23 @@ int jbd2_log_wait_commit(journal_t *journal, tid_t tid)
 	if (unlikely(is_journal_aborted(journal)))
 		err = -EIO;
 	return err;
+}
+
+int jbd2_transaction_need_wait(journal_t *journal, tid_t tid)
+{
+	int need_to_wait = 1;
+	read_lock(&journal->j_state_lock);
+	if (journal->j_running_transaction &&
+	journal->j_running_transaction->t_tid == tid) {
+		if (journal->j_commit_request != tid) {
+			/* transaction not yet started, so request it */
+			need_to_wait = 1;
+		}
+	} else if (!(journal->j_committing_transaction &&
+		journal->j_committing_transaction->t_tid == tid))
+			need_to_wait = 0;
+	read_unlock(&journal->j_state_lock);
+	return need_to_wait;
 }
 
 /*
@@ -2556,6 +2570,10 @@ void jbd2_journal_init_jbd_inode(struct jbd2_inode *jinode, struct inode *inode)
 	jinode->i_next_transaction = NULL;
 	jinode->i_vfs_inode = inode;
 	jinode->i_flags = 0;
+	jinode->i_dirty_start = 0;
+	jinode->i_dirty_end = 0;
+	jinode->i_next_dirty_start = 0;
+	jinode->i_next_dirty_end = 0;
 	INIT_LIST_HEAD(&jinode->i_list);
 }
 

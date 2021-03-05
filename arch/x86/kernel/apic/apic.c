@@ -42,6 +42,7 @@
 #include <asm/x86_init.h>
 #include <asm/pgalloc.h>
 #include <linux/atomic.h>
+#include <asm/barrier.h>
 #include <asm/mpspec.h>
 #include <asm/i8259.h>
 #include <asm/proto.h>
@@ -476,6 +477,9 @@ static int lapic_next_deadline(unsigned long delta,
 {
 	u64 tsc;
 
+	/* This MSR is special and need a special fence: */
+	weak_wrmsr_fence();
+
 	tsc = rdtsc();
 	wrmsrl(MSR_IA32_TSC_DEADLINE, tsc + (((u64) delta) * TSC_DIVISOR));
 	return 0;
@@ -793,6 +797,7 @@ static int __init calibrate_APIC_clock(void)
 			}
 			cpu_relax();
 		}
+<<<<<<< HEAD
 
 		/* Invoke the calibration routine */
 		local_irq_disable();
@@ -800,6 +805,15 @@ static int __init calibrate_APIC_clock(void)
 		local_irq_enable();
 	}
 
+=======
+
+		/* Invoke the calibration routine */
+		local_irq_disable();
+		lapic_cal_handler(NULL);
+		local_irq_enable();
+	}
+
+>>>>>>> 2e782b1d9958ac86cccb317a83e5574f154c3b1b
 	local_irq_disable();
 
 	/* Build delta t1-t2 as apic timer counts down */
